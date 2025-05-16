@@ -1,5 +1,5 @@
 ! Title: 💄Cosmetics
-! Version: 1.0
+! Version: 1.1
 ! Description: Filters for cleaning websites.
 ! Maintainer: Murtaza Salih
 ! Expires: 7 days
@@ -72,21 +72,21 @@ hdtodayz.to##div.text-center.mw-buttons:nth-of-type(7) > .btn-primary.btn-radius
 hdtodayz.to###xfooter
 hdtodayz.to###xfooter-about
 
-! Mar 8, 2025 wecima.watch
-wecima.film##.ProductionsListButton
-wecima.film##.menu-item-273057
-wecima.film##.menu-item-273056
-wecima.film##.LeftSideFlex
-wecima.film##.LeftUI
-wecima.film##.Slider--Grid
-wecima.film##.PostItemStats
-wecima.film##footer
-wecima.film##.visible.GotoTop
-wecima.film##.Breadcrumb--UX
-wecima.film##singlecontainerleft
-wecima.film##.WecimaonSocialnetwork
-wecima.film##.Download--Wecima--Single
-wecima.film##singlerelated
+! May 16, 2025 wecima.watch
+wecima.tube##.ProductionsListButton
+wecima.tube##.menu-item-273057
+wecima.tube##.menu-item-273056
+wecima.tube##.LeftSideFlex
+wecima.tube##.LeftUI
+wecima.tube##.Slider--Grid
+wecima.tube##.PostItemStats
+wecima.tube##footer
+wecima.tube##.visible.GotoTop
+wecima.tube##.Breadcrumb--UX
+wecima.tube##singlecontainerleft
+wecima.tube##.WecimaonSocialnetwork
+wecima.tube##.Download--Wecima--Single
+wecima.tube##singlerelated
 
 ! Mar 8, 2025 asiatv.one
 asiatv.one##.menu-item-16867
