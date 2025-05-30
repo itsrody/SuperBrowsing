@@ -1,11 +1,11 @@
 ! Title: 💄Cosmetics
-! Version: 1.1
+! Version: 1.2
 ! Description: Filters for cleaning websites.
 ! Maintainer: Murtaza Salih
 ! Expires: 7 days
 ! Homepage: https://github.com/itsrody/Lists
 
-! Mar 8, 2025 faselhds.care
+! May 30, 2025 faselhds.care
 faselhds.care##.bCat
 faselhds.care##.bimdb
 faselhds.care##.bviews
@@ -73,20 +73,20 @@ hdtodayz.to###xfooter
 hdtodayz.to###xfooter-about
 
 ! May 16, 2025 wecima.watch
-wecima.tube##.ProductionsListButton
+wecima.video##.ProductionsListButton
 wecima.tube##.menu-item-273057
-wecima.tube##.menu-item-273056
-wecima.tube##.LeftSideFlex
-wecima.tube##.LeftUI
-wecima.tube##.Slider--Grid
-wecima.tube##.PostItemStats
-wecima.tube##footer
-wecima.tube##.visible.GotoTop
-wecima.tube##.Breadcrumb--UX
-wecima.tube##singlecontainerleft
-wecima.tube##.WecimaonSocialnetwork
-wecima.tube##.Download--Wecima--Single
-wecima.tube##singlerelated
+wecima.video##.menu-item-273056
+wecima.video##.LeftSideFlex
+wecima.video##.LeftUI
+wecima.video##.Slider--Grid
+wecima.video##.PostItemStats
+wecima.video##footer
+wecima.video##.visible.GotoTop
+wecima.video##.Breadcrumb--UX
+wecima.video##singlecontainerleft
+wecima.video##.WecimaonSocialnetwork
+wecima.video##.Download--Wecima--Single
+wecima.video##singlerelated
 
 ! Mar 8, 2025 asiatv.one
 asiatv.one##.menu-item-16867
