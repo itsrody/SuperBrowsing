@@ -1,0 +1,66 @@
+! Title: 🪄 Magic List
+! Version: 1.0
+! Description: Filters for cleaning websites.
+! Maintainer: Murtaza Salih
+! Expires: 7 days
+! Homepage: https://github.com/itsrody/Lists
+
+! faselhds.care
+www.faselhds.care##.breakNews, .promoLink, .social, .accBtn
+www.faselhds.care##.quality, .bimdb, .bviews, .seasonMeta, .pViews, .posTop, .slideMeta, .slideCats
+www.faselhds.care##.epHomeContent > div > span:nth-of-type(2), #footer, #pr, #scroll-to-top
+www.faselhds.care##.singleBtns, .Teamwork, .ralatedMovies, .downloadLinks, .shortLink, .singleStar, .social-block, .postShare
+
+! wecima.video
+wecima.video##.ProductionsListButton, #menu-item-273058, #menu-item-273057, #menu-item-273056, .LeftUI, .LeftSideFlex--user
+wecima.video##.Slider--Grid, .InnerButton, .GotoTop, footer
+wecima.video##singlecontainerleft, .Breadcrumb--UX, .WecimaonSocialnetwork, .Download--Wecima--Single, singlerelated
+
+! 5tv.asia
+5tv.asia###menu-item-129997, #menu-item-106263, #menu-item-28656, .dv.rw
+5tv.asia###widget_list_movies_series-6, #widget_list_movies_series-4, #widget_list_movies_series-10, #widget_list_movies_series-11, #widget_list_movies_series-9, #widget_list_movies_series-8, #widget_list_movies_series-12, .tac.ft
+5tv.asia##.description > p:nth-of-type(1), #fav-tv, .owl-drag, .alg-cr.jst-sb.dfxa, .widget.comments-area
+
+! spotnews.buzz [Following 5tv.asia]
+what.spotnews.buzz##.header-footer-group.has-text-align-center.entry-header, .entry-content, .section-inner.pagination-single, .thin.post-inner, #site-footer, server--title, .comment-respond
+
+! cimaa4u.com
+www.cimaa4u.com###menu-item-799877, #menu-item-882002, .Tabs, .End.SliderShape, .PinSlider
+www.cimaa4u.com##.BoxTitleInfo, footer, .FooterLinks
+www.cimaa4u.com##.ImportantButtons, .RelatedsOnSingle
+www.cimaa4u.com##.DownloadServers, .WatchBar
+
+! hurawatchtv.tv
+hurawatchtv.tv##[href="/home"], [href="/android-movies-apk"], .btn-login
+hurawatchtv.tv##.block_area_home.block_area:nth-of-type(4), .section-id-01, #footer
+hurawatchtv.tv##.breadcrumb, .w_b-control, .server-notice, .movie_information
+
+! fmovies.vg
+fmovies.vg##.btn-login, [href="/android-movies-apk"], .section-id-01, .block_area_home.block_area:nth-of-type(4), #footer
+fmovies.vg##.breadcrumb, .mb-3.detail-tags, .block-rating, .btn-favorite, .block_area_category,.dp-i-stats, .server-notice, .watching_player-control
+
+! asiatv.one
+asiatv.one##.auth-buttons, .menu-item-16868, .menu-item-16867, section.secContainer:nth-of-type(5), section.secContainer:nth-of-type(2), footer
+asiatv.one##.team, .sharethis, .sec-main:nth-of-type(4)
+
+! snapll.online [Following asiatv.one]
+snapll.online##header,.widget, footer
+snapll.online##.breadcrumb, .description, .secComments, .postThumb, .mt10, .con_Ad, .DownloadTitle
+
+! egydead.fyi
+egydead.fyi##.menu-item-79739, .m-slider, .pin-posts-list, .VHolder:nth-of-type(3), footer
+egydead.fyi##.share-post, .singleTopper, .breadcrumbs-single, .singleStory, .trailerBtn, .commentsMaster, .singleBottomArea,  .downloadMaster
+
+! medium.com
+medium.com##.gt.gs
+
+! supjav.com
+supjav.com##.totop, .menu-item-103868, .menu-item-232365, .menu-item-104594, .menu-item-328572, .menu-item-135, .menu-item-123731, .clearfix.recommendm, #mocat-4, #mocat-5, .footer
+supjav.com##.downscase, .content:nth-of-type(5)
+
+! sextb.net
+sextb.net##.login-member, [href="/contact"], [href="https://r.trwl1.com/c1/b3ebbad2-f7f3-4061-a8e1-335bfe73170f"], [href="https://bongacams.com"], [href="https://theporndude.com"], [href="https://pubjav.com"], [href="https://javplayer.org"], [href="https://fcjav.com"]
+sextb.net##.navbar-menu-item:nth-of-type(9), .navbar-menu-item:nth-of-type(8), .navbar-menu-item:nth-of-type(1), .navbar-menu-item:nth-of-type(7)
+sextb.net##.notice, footer, .welcome, .tray-item-trailer, .ss-box 
+sextb.net##section.all.tray:nth-of-type(6),  section.all.tray:nth-of-type(5),  section.all.tray:nth-of-type(4), section.all.tray:nth-of-type(3)
+sextb.net##.player-footer, .player-header, .list-vip, .button-list, .load_more, .text-desc-container.description, .fa-heart.fas, .col-4, h5.tab_info:nth-of-type(4), h5.tab_info:nth-of-type(3), h5.tab_info:nth-of-type(2)
