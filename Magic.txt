@@ -1,15 +1,18 @@
 ! Title: 🪄 Magic List
-! Version: 1.0
+! Version: 1.1
 ! Description: Filters for cleaning websites.
 ! Maintainer: Murtaza Salih
 ! Expires: 7 days
 ! Homepage: https://github.com/itsrody/Lists
 
 ! faselhds.care
-www.faselhds.care##.breakNews, .promoLink, .social, .accBtn
+www.faselhds.care##.breakNews, .promoLink, .social, .accBtn, .dwnApp
 www.faselhds.care##.quality, .bimdb, .bviews, .seasonMeta, .pViews, .posTop, .slideMeta, .slideCats
 www.faselhds.care##.epHomeContent > div > span:nth-of-type(2), #footer, #pr, #scroll-to-top
 www.faselhds.care##.singleBtns, .Teamwork, .ralatedMovies, .downloadLinks, .shortLink, .singleStar, .social-block, .postShare
+
+! cee.buzz
+cee.buzz##cinemana-collections, .pwa-modal-container
 
 ! wecima.video
 wecima.video##.ProductionsListButton, #menu-item-273058, #menu-item-273057, #menu-item-273056, .LeftUI, .LeftSideFlex--user
