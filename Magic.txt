@@ -1,5 +1,5 @@
 ! Title: 🪄 Magic List
-! Version: 1.1
+! Version: 1.2
 ! Description: Filters for cleaning websites.
 ! Maintainer: Murtaza Salih
 ! Expires: 7 days
@@ -67,3 +67,9 @@ sextb.net##.navbar-menu-item:nth-of-type(9), .navbar-menu-item:nth-of-type(8), .
 sextb.net##.notice, footer, .welcome, .tray-item-trailer, .ss-box 
 sextb.net##section.all.tray:nth-of-type(6),  section.all.tray:nth-of-type(5),  section.all.tray:nth-of-type(4), section.all.tray:nth-of-type(3)
 sextb.net##.player-footer, .player-header, .list-vip, .button-list, .load_more, .text-desc-container.description, .fa-heart.fas, .col-4, h5.tab_info:nth-of-type(4), h5.tab_info:nth-of-type(3), h5.tab_info:nth-of-type(2)
+
+! porn00.tv/org
+porn00.tv##li:nth-of-type(7), .round, .headline7, .tototo, .tags-cloud, .footer
+porn00.tv##.headline5, .table, .info-buttons, .username
+porn00.org##li:nth-of-type(7), .round, .headline7, .tototo, .tags-cloud, .footer
+porn00.org##.headline5, .table, .info-buttons, .username
