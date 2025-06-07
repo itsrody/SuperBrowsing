@@ -1,5 +1,5 @@
 ! Title: 🪄 Magic List
-! Version: 1.2
+! Version: 1.3
 ! Description: Filters for cleaning websites.
 ! Maintainer: Murtaza Salih
 ! Expires: 7 days
@@ -56,6 +56,38 @@ egydead.fyi##.share-post, .singleTopper, .breadcrumbs-single, .singleStory, .tra
 
 ! medium.com
 medium.com##.gt.gs
+
+! Yuanbao AI
+yuanbao.tencent.com##.agent-dialogue__tool__download, .hyc-login__left, .index_pc_download__IjaBf
+
+! MedScape
+medscape.com##.hcp-notify, .header-date, .header-invitations-link, .hp_trending, .hp_mtv, .hp_mrktcallouts, section.hp_bucket2col:nth-of-type(11), .hp_columnist, .hp_partners, #footercontents
+reference.medscape.com##.hcp-notify, .header-invitations-link, #footercontents, .column-right.column
+medscape.org##.hcp-notify, .tooltip-container, .divider, #footercontents, .info-bar, .right-sidebar, .activity-footer, .medscape-footer, #hcpnotice, .header-invitations-link
+decisionpoint.medscape.com##.hcp-notify, .header-date, .header-invitations-link, #footercontents
+medscape.com##.breadcrumb, .add-email-alerts, .footer-section, #rel-links, .right-end-sticky, #hcpnotice
+
+! WebMD
+webmd.com###hp-about,.hp-blogs, #hp-hlthtopics, #hp-jhnwhyt, #hp-lvnghlthy, #hc-hp
+webmd.com###hp-conditions, #hp-lvnghlthtool, .breadcrumb, .module-f-seo, .main-container-3.main-container, .webmd-bottom-recommended-module, #ContentPane46
+webmd.com##.ic-disclaimer, .faq-section, .webmd-footer, .menu-and-breadcrumb, .checker-subtitle
+symptoms.webmd.com###footer, .bottom-webmd-content
+
+
+! Libgen
+libgen.is###menu
+
+! Anna's Archive
+annas-archive.org##.mb-1\.5, .js-recent-downloads-container.mb-1.text-xs.sm\:flex.hidden, div.lg\:w-\[485px\]:nth-of-type(2), .text-sm.rounded.p-2.bg-yellow-100.-mx-2.mt-4, .text-\[\#777\].bg-black\/5
+annas-archive.org##.items-center.gap-1.flex, .z-20.relative.header-links > [href="/donate"], .text-black\/64.mb-1.flex-wrap.flex, .\[html\.aa-logged-in_\&\]\:hidden.header-link-first
+annas-archive.org###md5-panel-downloads > div.mb-4:nth-of-type(1), .border-t.border-dashed.pt-4.mb-4, .text-right.text-xs.mt-2.block
+
+! Perplexity.ai
+perplexity.ai##.items-center.flex-col.appearance-none.inline-flex.group.gap-xs
+perplexity.ai##.justify-center.items-center.flex-col.flex.mt-auto.gap-md.pb-sm > .items-center.flex-col.flex.gap-xs
+
+! Pathway.md
+www.pathway.md##.css-fkq82k, .css-merjbm
 
 ! supjav.com
 supjav.com##.totop, .menu-item-103868, .menu-item-232365, .menu-item-104594, .menu-item-328572, .menu-item-135, .menu-item-123731, .clearfix.recommendm, #mocat-4, #mocat-5, .footer
