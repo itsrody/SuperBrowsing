@@ -1,5 +1,5 @@
 ! Title: 🪄 Magic List
-! Version: 1.3
+! Version: 1.4
 ! Description: Filters for cleaning websites.
 ! Maintainer: Murtaza Salih
 ! Expires: 7 days
@@ -88,20 +88,3 @@ perplexity.ai##.justify-center.items-center.flex-col.flex.mt-auto.gap-md.pb-sm >
 
 ! Pathway.md
 www.pathway.md##.css-fkq82k, .css-merjbm
-
-! supjav.com
-supjav.com##.totop, .menu-item-103868, .menu-item-232365, .menu-item-104594, .menu-item-328572, .menu-item-135, .menu-item-123731, .clearfix.recommendm, #mocat-4, #mocat-5, .footer
-supjav.com##.downscase, .content:nth-of-type(5)
-
-! sextb.net
-sextb.net##.login-member, [href="/contact"], [href="https://r.trwl1.com/c1/b3ebbad2-f7f3-4061-a8e1-335bfe73170f"], [href="https://bongacams.com"], [href="https://theporndude.com"], [href="https://pubjav.com"], [href="https://javplayer.org"], [href="https://fcjav.com"]
-sextb.net##.navbar-menu-item:nth-of-type(9), .navbar-menu-item:nth-of-type(8), .navbar-menu-item:nth-of-type(1), .navbar-menu-item:nth-of-type(7)
-sextb.net##.notice, footer, .welcome, .tray-item-trailer, .ss-box 
-sextb.net##section.all.tray:nth-of-type(6),  section.all.tray:nth-of-type(5),  section.all.tray:nth-of-type(4), section.all.tray:nth-of-type(3)
-sextb.net##.player-footer, .player-header, .list-vip, .button-list, .load_more, .text-desc-container.description, .fa-heart.fas, .col-4, h5.tab_info:nth-of-type(4), h5.tab_info:nth-of-type(3), h5.tab_info:nth-of-type(2)
-
-! porn00.tv/org
-porn00.tv##li:nth-of-type(7), .round, .headline7, .tototo, .tags-cloud, .footer
-porn00.tv##.headline5, .table, .info-buttons, .username
-porn00.org##li:nth-of-type(7), .round, .headline7, .tototo, .tags-cloud, .footer
-porn00.org##.headline5, .table, .info-buttons, .username
