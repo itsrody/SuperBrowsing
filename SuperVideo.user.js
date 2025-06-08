@@ -1,130 +1,129 @@
 // ==UserScript==
-// @name         SuperVideo
-// @namespace    http://tampermonkey.net/
-// @version      1.2
-// @description  Mobile video gestures and css filters.
-// @author       Murtaza Sailh
-// @license      MIT
+// @name         Super Video
+// @namespace    https://greasyfork.org/
+// @version      2.0
+// @description  Adds universal touch gestures for video elements: skip, speed, volume, progress, PiP
+// @author       Murtaza Salih
 // @match        *://*/*
-// @grant        GM_getValue
-// @grant        GM_setValue
-// @grant        GM_registerMenuCommand
-// @downloadURL  https://update.greasyfork.org/scripts/524654/SuperVideo.user.js
-// @updateURL    https://update.greasyfork.org/scripts/524654/SuperVideo.meta.js
+// @grant        none
+// @run-at       document-start
 // ==/UserScript==
-
 
 (function() {
   'use strict';
 
-  // Load Hammer.js
-  function loadScript(src, onload) {
-    const s = document.createElement('script');
-    s.src = src;
-    s.onload = onload;
-    document.head.appendChild(s);
-  }
+  // Gesture definitions: only video gestures (paths starting with 'V' and picture-in-picture)
+  const gestureData = {
+    gesture: {
+      'V→': { name: 'Forward 10s', code: 'gestureData.videoPlayer.currentTime += 10; showTip("+10s");' },
+      'V←': { name: 'Back 10s', code: 'gestureData.videoPlayer.currentTime -= 10; showTip("-10s");' },
+      'V↑': { name: 'Increase Speed', code: 'if(document.fullscreen){ let s = gestureData.videoPlayer.playbackRate; s += s<1.5?0.25:0.5; gestureData.videoPlayer.playbackRate = s; showTip(`×${s}`); }' },
+      'V↓': { name: 'Decrease Speed', code: 'if(document.fullscreen){ let s = gestureData.videoPlayer.playbackRate; s -= s>1.5?0.5: (s>0.25?0.25:0); gestureData.videoPlayer.playbackRate = s; showTip(`×${s}`); }' },
+      'V→●': { name: 'Fast Play', code: 'gestureData.playSpeed = gestureData.videoPlayer.playbackRate; gestureData.videoPlayer.playbackRate = 10; showTip("×10");' },
+      'V→○': { name: 'Stop Fast Play', code: 'gestureData.videoPlayer.playbackRate = gestureData.playSpeed; hideTip();' },
+      'V←●': { name: 'Fast Rewind', code: 'gestureData.videoTimer = setInterval(()=>{ gestureData.videoPlayer.currentTime--; },100); showTip("-×10");' },
+      'V←○': { name: 'Stop Rewind', code: 'clearInterval(gestureData.videoTimer); hideTip();' },
+      'V↑▼': { name: 'Increase Volume', code: 'adjustVolume("up");' },
+      'V↑▽': { name: 'End Increase Volume', code: 'stopAdjustVolume();' },
+      'V↓▼': { name: 'Decrease Volume', code: 'adjustVolume("down");' },
+      'V↓▽': { name: 'End Decrease Volume', code: 'stopAdjustVolume();' },
+      'V→▼': { name: 'Progress Right', code: 'scrubProgress("right");' },
+      'V→▽': { name: 'End Progress Right', code: 'stopScrub();' },
+      'V←▼': { name: 'Progress Left', code: 'scrubProgress("left");' },
+      'V←▽': { name: 'End Progress Left', code: 'stopScrub();' },
+      '◆◆◆': { name: 'Picture-in-Picture', code: 'togglePiP();' }
+    },
 
-  // After Hammer and HLS have loaded, initialize
-  loadScript('https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js', () => {
-    loadScript('https://cdn.jsdelivr.net/npm/hls.js@latest', initGestures);
+    settings: {
+      'videoGestures': true
+    }
+  };
+
+  // Internal state
+  let startPoint = {}, path = '', fingers = 0;
+
+  // Gesture execution utilities
+  gestureData.run = code => { try { eval(code); } catch(e){ console.error('Gesture error', e); } };
+  gestureData.runGesture = p => {
+    const g = gestureData.gesture[p];
+    if(!g) return;
+    gestureData.run(g.code);
+    path = '';
+  };
+
+  // Tip display
+  const tipBox = document.createElement('div');
+  tipBox.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);padding:10px;border-radius:8px;background:rgba(0,0,0,0.6);color:#fff;font-size:18px;visibility:hidden;z-index:9999;';
+  document.body.appendChild(tipBox);
+  function showTip(text) { tipBox.textContent = text; tipBox.style.visibility = 'visible'; setTimeout(()=>tipBox.style.visibility='hidden',500); }
+  function hideTip() { tipBox.style.visibility = 'hidden'; }
+
+  // Video detection
+  function initVideo(v) {
+    gestureData.videoPlayer = v;
+    v.addEventListener('ctxmenu', e=>e.preventDefault());
+  }
+  document.addEventListener('DOMContentLoaded', ()=>{
+    document.querySelectorAll('video').forEach(initVideo);
+    new MutationObserver(m=>{
+      document.querySelectorAll('video:not([data-gest])').forEach(v=>{ v.dataset.gest=1; initVideo(v); });
+    }).observe(document.body,{childList:true,subtree:true});
   });
 
-  function initGestures() {
-    document.querySelectorAll('video').forEach(video => {
-      // Prevent native context menu
-      video.addEventListener('contextmenu', e => e.preventDefault());
-
-      // If HLS
-      const src = video.currentSrc || video.src;
-      if (src && src.endsWith('.m3u8') && window.Hls) {
-        const hls = new Hls();
-        hls.loadSource(src);
-        hls.attachMedia(video);
-      }
-
-      // Create overlay
-      const overlay = document.createElement('div');
-      Object.assign(overlay.style, {
-        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-        display: 'flex', justifyContent: 'center', alignItems: 'center',
-        pointerEvents: 'none', fontFamily: 'system-ui',
-        color: '#fff', backgroundColor: 'rgba(0,0,0,0.5)',
-        opacity: 0, transition: 'opacity 0.3s'
-      });
-      overlay.textContent = '';
-      video.parentElement.style.position = 'relative';
-      video.parentElement.appendChild(overlay);
-
-      // Helper to show overlay text
-      function showLabel(text) {
-        overlay.textContent = text;
-        overlay.style.opacity = 1;
-        clearTimeout(overlay._hideTimeout);
-        overlay._hideTimeout = setTimeout(() => {
-          overlay.style.opacity = 0;
-        }, 600);
-      }
-
-      // Disable default controls so our overlay can cover
-      video.controls = false;
-
-      // Setup Hammer
-      const hm = new Hammer.Manager(video);
-      hm.add(new Hammer.Swipe({ direction: Hammer.DIRECTION_ALL, threshold: 10 }));
-      hm.add(new Hammer.Press({ time: 500 }));
-      hm.add(new Hammer.Pan({ direction: Hammer.DIRECTION_HORIZONTAL | Hammer.DIRECTION_VERTICAL, threshold: 0 }));
-
-      let panStartTime;
-      hm.on('swipeleft swiperight swipeup swipedown press pressup panstart panmove doubletap', ev => {
-        const { type, deltaX, deltaY } = ev;
-        const w = video.clientWidth;
-        switch(type) {
-          case 'swipeleft':
-            video.currentTime = Math.max(0, video.currentTime - 5);
-            showLabel('⏮ –5 s');
-            break;
-          case 'swiperight':
-            video.currentTime = Math.min(video.duration, video.currentTime + 5);
-            showLabel('⏭ +5 s');
-            break;
-          case 'press':
-            video.playbackRate = 2;
-            showLabel('▶ 2×');
-            break;
-          case 'pressup':
-            video.playbackRate = 1;
-            showLabel('▶ 1×');
-            break;
-          case 'swipeup':
-            video.volume = Math.min(1, video.volume + 0.1);
-            showLabel(`🔊 ${Math.round(video.volume*100)}%`);
-            break;
-          case 'swipedown':
-            video.volume = Math.max(0, video.volume - 0.1);
-            showLabel(`🔉 ${Math.round(video.volume*100)}%`);
-            break;
-          case 'panstart':
-            panStartTime = video.currentTime;
-            break;
-          case 'panmove':
-            if (panStartTime != null) {
-              const pct = deltaX / w;
-              video.currentTime = Math.min(video.duration, Math.max(0, panStartTime + pct * video.duration));
-              showLabel(`▶ ${Math.floor(video.currentTime)} / ${Math.floor(video.duration)} s`);
-            }
-            break;
-          case 'doubletap':
-            if (video.videoWidth > video.videoHeight) {
-              if (!document.fullscreenElement) {
-                video.requestFullscreen().catch(() => {});
-              } else {
-                document.exitFullscreen();
-              }
-            }
-            break;
-        }
-      });
-    });
+  // Touch handling
+  function onTouchStart(e) {
+    if(!gestureData.settings.videoGestures) return;
+    if(e.touches.length !== 1) return;
+    fingers = 1;
+    startPoint = e.touches[0];
+    path = 'V';
   }
+  function onTouchMove(e) {
+    if(fingers!==1) return;
+    const p = e.touches[0], dx = p.clientX - startPoint.clientX, dy = p.clientY - startPoint.clientY;
+    const dir = Math.abs(dx)>Math.abs(dy)? (dx>0?'→':'←') : (dy>0?'↓':'↑');
+    if(path.slice(-1)!==dir) path += dir;
+    startPoint = p;
+  }
+  function onTouchEnd(e) {
+    fingers = 0;
+    if(path in gestureData.gesture) gestureData.runGesture(path);
+  }
+
+  window.addEventListener('touchstart', onTouchStart, {passive:true});
+  window.addEventListener('touchmove', onTouchMove, {passive:true});
+  window.addEventListener('touchend', onTouchEnd, {passive:true});
+
+  // Volume adjust helpers
+  let volTimer;
+  function adjustVolume(dir) {
+    if(!document.fullscreen) return;
+    const v = gestureData.videoPlayer;
+    v.muted = false;
+    volTimer = setInterval(()=>{
+      v.volume = Math.max(0, Math.min(1, v.volume + (dir==='up'?0.02:-0.02)));
+      showTip((v.volume*100|0)+'%');
+    },50);
+  }
+  function stopAdjustVolume() { clearInterval(volTimer); hideTip(); }
+
+  // Scrub helpers
+  let scrubTimer;
+  function scrubProgress(dir) {
+    const v = gestureData.videoPlayer;
+    scrubTimer = setInterval(()=>{
+      v.currentTime += (dir==='right'?1:-1);
+      showTip(formatTime(v.currentTime));
+    },100);
+  }
+  function stopScrub() { clearInterval(scrubTimer); hideTip(); }
+  function formatTime(t){ const m = Math.floor(t/60), s = Math.floor(t%60); return `${m}:${s<10?'0':''}${s}`; }
+
+  // Picture-in-Picture
+  function togglePiP() {
+    const v = gestureData.videoPlayer;
+    if(document.pictureInPictureElement) document.exitPictureInPicture();
+    else v.requestPictureInPicture();
+  }
+
 })();
