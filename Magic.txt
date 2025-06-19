@@ -1,5 +1,5 @@
 ! Title: 🪄 Magic List
-! Version: 1.4
+! Version: 1.5
 ! Description: Filters for cleaning websites.
 ! Maintainer: Murtaza Salih
 ! Expires: 7 days
@@ -54,18 +54,8 @@ snapll.online##.breadcrumb, .description, .secComments, .postThumb, .mt10, .con_
 egydead.fyi##.menu-item-79739, .m-slider, .pin-posts-list, .VHolder:nth-of-type(3), footer
 egydead.fyi##.share-post, .singleTopper, .breadcrumbs-single, .singleStory, .trailerBtn, .commentsMaster, .singleBottomArea,  .downloadMaster
 
-! medium.com
-medium.com##.gt.gs
-
 ! Yuanbao AI
 yuanbao.tencent.com##.agent-dialogue__tool__download, .hyc-login__left, .index_pc_download__IjaBf
-
-! MedScape
-medscape.com##.hcp-notify, .header-date, .header-invitations-link, .hp_trending, .hp_mtv, .hp_mrktcallouts, section.hp_bucket2col:nth-of-type(11), .hp_columnist, .hp_partners, #footercontents
-reference.medscape.com##.hcp-notify, .header-invitations-link, #footercontents, .column-right.column
-medscape.org##.hcp-notify, .tooltip-container, .divider, #footercontents, .info-bar, .right-sidebar, .activity-footer, .medscape-footer, #hcpnotice, .header-invitations-link
-decisionpoint.medscape.com##.hcp-notify, .header-date, .header-invitations-link, #footercontents
-medscape.com##.breadcrumb, .add-email-alerts, .footer-section, #rel-links, .right-end-sticky, #hcpnotice
 
 ! WebMD
 webmd.com###hp-about,.hp-blogs, #hp-hlthtopics, #hp-jhnwhyt, #hp-lvnghlthy, #hc-hp
