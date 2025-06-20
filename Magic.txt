@@ -1,5 +1,5 @@
 ! Title: 🪄 Magic List
-! Version: 1.5
+! Version: 1.6
 ! Description: Filters for cleaning websites.
 ! Maintainer: Murtaza Salih
 ! Expires: 7 days
@@ -19,12 +19,12 @@ wecima.video##.ProductionsListButton, #menu-item-273058, #menu-item-273057, #men
 wecima.video##.Slider--Grid, .InnerButton, .GotoTop, footer
 wecima.video##singlecontainerleft, .Breadcrumb--UX, .WecimaonSocialnetwork, .Download--Wecima--Single, singlerelated
 
-! 5tv.asia
-5tv.asia###menu-item-129997, #menu-item-106263, #menu-item-28656, .dv.rw
-5tv.asia###widget_list_movies_series-6, #widget_list_movies_series-4, #widget_list_movies_series-10, #widget_list_movies_series-11, #widget_list_movies_series-9, #widget_list_movies_series-8, #widget_list_movies_series-12, .tac.ft
-5tv.asia##.description > p:nth-of-type(1), #fav-tv, .owl-drag, .alg-cr.jst-sb.dfxa, .widget.comments-area
+! 5tv.center
+5tv.center###menu-item-129997, #menu-item-106263, #menu-item-28656, .dv.rw
+5tv.center###widget_list_movies_series-6, #widget_list_movies_series-4, #widget_list_movies_series-10, #widget_list_movies_series-11, #widget_list_movies_series-9, #widget_list_movies_series-8, #widget_list_movies_series-12, .tac.ft
+5tv.center##.description > p:nth-of-type(1), #fav-tv, .owl-drag, .alg-cr.jst-sb.dfxa, .widget.comments-area
 
-! spotnews.buzz [Following 5tv.asia]
+! spotnews.buzz [Following 5tv.center]
 what.spotnews.buzz##.header-footer-group.has-text-align-center.entry-header, .entry-content, .section-inner.pagination-single, .thin.post-inner, #site-footer, server--title, .comment-respond
 
 ! cimaa4u.com
