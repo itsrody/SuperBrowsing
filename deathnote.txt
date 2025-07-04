@@ -1,0 +1,74 @@
+! Title: 📓 Annoyances Deathnote
+! Version: 1.0
+! Description: Filters for cleaning websites.
+! Maintainer: Murtaza Salih
+! Expires: 7 days
+! Homepage: https://github.com/itsrody/Lists
+
+! faselhds.xyz
+faselhds.xyz##.social
+faselhds.xyz##.promoLink, .promoTab
+faselhds.xyz##.accBtn
+faselhds.xyz##.breakNews
+faselhds.xyz##.slideMeta
+faselhds.xyz##.blockMovieMeta
+faselhds.xyz###scroll-to-top
+faselhds.xyz###pr
+faselhds.xyz###footer
+faselhds.xyz##.posTop
+faselhds.xyz##.singleBtns
+faselhds.xyz##.seasonMeta
+faselhds.xyz##.downloadLinks
+faselhds.xyz##.shortLink
+faselhds.xyz##.slider
+faselhds.xyz##.singleStar
+faselhds.xyz##.Teamwork
+faselhds.xyz##.ralatedMovies
+faselhds.xyz##.social-block
+
+! wecima.video
+wecima.video##.LeftSideFlex, #menu-item-273056, #menu-item-273057, .ProductionsListButton
+wecima.video##.LeftUI
+wecima.video##.Slider--Grid
+wecima.video##.list--Tabsui
+wecima.video##.PostItemStats
+wecima.video##.GotoTop
+wecima.video##footer
+wecima.video##singlecontainerleft
+wecima.video##.Breadcrumb--UX
+wecima.video##.WecimaonSocialnetwork
+wecima.video##.Download--Wecima--Single
+wecima.video##singlerelated
+wecima.video##.RightUI > .activable.hoverable
+
+! 5tv.center
+5tv.center###menu-item-129997
+5tv.center###menu-item-106263
+5tv.center###menu-item-28656
+5tv.center##.btn-login
+5tv.center###widget_list_movies_series-6
+5tv.center###widget_list_movies_series-4
+5tv.center###widget_list_movies_series-7
+5tv.center###widget_list_movies_series-11
+5tv.center###widget_list_movies_series-12
+5tv.center##.ft
+5tv.center###fav-tv
+5tv.center##.description > p:nth-of-type(1)
+5tv.center##.dfxa
+5tv.center##.comments-title
+5tv.center##section.episodes.section:nth-of-type(2)
+5tv.center##.owl-drag
+
+! what.spotnews.buzz
+what.spotnews.buzz##server--title
+what.spotnews.buzz##.entry-header
+what.spotnews.buzz##.entry-content
+what.spotnews.buzz##.pagination-single
+what.spotnews.buzz##.comment-respond
+what.spotnews.buzz###site-footer
+what.spotnews.buzz##.thin.post-inner
+
+! cee.buzz
+cee.buzz##cinemana-collections, .pwa-modal-container
+
+
