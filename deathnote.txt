@@ -1,73 +1,30 @@
-! Title: 📓 Annoyances Deathnote
-! Version: 1.0
+! Title: 📓 DeathNote
+! Version: 2.0
 ! Description: Filters for cleaning websites.
 ! Maintainer: Murtaza Salih
 ! Expires: 7 days
 ! Homepage: https://github.com/itsrody/Lists
 
 ! faselhds.xyz
-faselhds.xyz##.social
-faselhds.xyz##.promoLink, .promoTab
-faselhds.xyz##.accBtn
-faselhds.xyz##.breakNews
-faselhds.xyz##.slideMeta
-faselhds.xyz##.blockMovieMeta
-faselhds.xyz###scroll-to-top
-faselhds.xyz###pr
-faselhds.xyz###footer
-faselhds.xyz##.posTop
-faselhds.xyz##.singleBtns
-faselhds.xyz##.seasonMeta
-faselhds.xyz##.downloadLinks
-faselhds.xyz##.shortLink
-faselhds.xyz##.slider
-faselhds.xyz##.singleStar
-faselhds.xyz##.Teamwork
-faselhds.xyz##.ralatedMovies
-faselhds.xyz##.social-block
+faselhds.xyz##.promoLink, .promoTab, .social, .accBtn, .breakNews
+faselhds.xyz##.slideMeta, .posTop, .blockMovieMeta, .seasonMeta
+faselhds.xyz###footer, #pr, #scroll-to-top 
+faselhds.xyz##.singleBtns, .social-block, .postElse, .downloadLinks, .singleStar, .Teamwork, .ralatedMovies
 
 ! wecima.video
-wecima.video##.LeftSideFlex, #menu-item-273056, #menu-item-273057, .ProductionsListButton
-wecima.video##.LeftUI
-wecima.video##.Slider--Grid
-wecima.video##.list--Tabsui
-wecima.video##.PostItemStats
-wecima.video##.GotoTop
-wecima.video##footer
-wecima.video##singlecontainerleft
-wecima.video##.Breadcrumb--UX
-wecima.video##.WecimaonSocialnetwork
-wecima.video##.Download--Wecima--Single
-wecima.video##singlerelated
-wecima.video##.RightUI > .activable.hoverable
+wecima.video###menu-item-273056, #menu-item-273057, .ProductionsListButton, .LeftSideFlex--user
+wecima.video##.LeftUI, singlecontainerleft
+wecima.video##.Slider--Grid, .list--Tabsui, .PostItemStats
+wecima.video##footer,.GotoTop
+wecima.video##.Breadcrumb--UX, .WecimaonSocialnetwork, .Download--Wecima--Single
+wecima.video##singlesection:nth-of-type(3), singlerelated
 
 ! 5tv.center
-5tv.center###menu-item-129997
-5tv.center###menu-item-106263
-5tv.center###menu-item-28656
-5tv.center##.btn-login
-5tv.center###widget_list_movies_series-6
-5tv.center###widget_list_movies_series-4
-5tv.center###widget_list_movies_series-7
-5tv.center###widget_list_movies_series-11
-5tv.center###widget_list_movies_series-12
-5tv.center##.ft
-5tv.center###fav-tv
-5tv.center##.description > p:nth-of-type(1)
-5tv.center##.dfxa
-5tv.center##.comments-title
-5tv.center##section.episodes.section:nth-of-type(2)
-5tv.center##.owl-drag
-
-! what.spotnews.buzz
-what.spotnews.buzz##server--title
-what.spotnews.buzz##.entry-header
-what.spotnews.buzz##.entry-content
-what.spotnews.buzz##.pagination-single
-what.spotnews.buzz##.comment-respond
-what.spotnews.buzz###site-footer
-what.spotnews.buzz##.thin.post-inner
-
+5tv.center##.btn-login, .menu-item-129997, .menu-item-106263, .menu-item-28656
+5tv.center###widget_list_movies_series-6, #widget_list_movies_series-4, .widget_list_episodes, #widget_list_movies_series-11, #widget_list_movies_series-12
+5tv.center###fav-tv, .description > p:nth-of-type(1), .dfxa, .comments-area, .owl-stage, .description > .description, .jst-sb.alg-cr.rw, .owl-drag
+5tv.center##.tac.logo,.ft
+what.spotnews.buzz##server--title, .entry-header, .entry-content, .pagination-single, .comment-respond, #site-footer
 ! cee.buzz
 cee.buzz##cinemana-collections, .pwa-modal-container
 
