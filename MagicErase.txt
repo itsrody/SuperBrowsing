@@ -1,0 +1,22 @@
+! Title: MagicErase
+! Version: 1.0
+! Description: Filters for cleaning websites.
+! Maintainer: Murtaza Salih
+! Expires: 7 days
+! Homepage: https://github.com/itsrody/Lists
+
+! faselhd
+faselhds.xyz##.breakNews, .accBtn, .promoLink, .promoTab, .social, .slider
+faselhds.xyz###pr, #footer, #scroll-to-top
+faselhds.xyz##.blockMovieMeta,.slideMeta, .posTop, .seasonMeta
+faselhds.xyz##.singleBtns, .singleStar, .shortLink, .downloadLinks, #Teamwork, .ralatedMovies
+
+! wecima
+wecima.video###menu-item-273056, #menu-item-273057, .LeftSideFlex, .ProductionsListButton, .LeftUI, footer
+wecima.video##.Slider--Grid, .InnerButton, .GotoTop
+wecima.video##singlecontainerleft, singlerelated, .WecimaonSocialnetwork, .Download--Wecima--Single, .BreadcrumbsFilters
+
+! cee
+cee.buzz##cinemana-collections, .pwa-modal-container
+
+
