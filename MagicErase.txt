@@ -1,5 +1,5 @@
 ! Title: MagicErase
-! Version: 1.0
+! Version: 1.1
 ! Description: Filters for cleaning websites.
 ! Maintainer: Murtaza Salih
 ! Expires: 7 days
@@ -19,4 +19,9 @@ wecima.video##singlecontainerleft, singlerelated, .WecimaonSocialnetwork, .Downl
 ! cee
 cee.buzz##cinemana-collections, .pwa-modal-container
 
-
+! 5tv
+5tv.center##.btn-login, #menu-item-129997, #menu-item-106263, #menu-item-28656
+5tv.center##.ft, #widget_list_movies_series-6, #widget_list_movies_series-4
+5tv.center##.widget_list_episodes.section.widget.wdgt-home, #widget_list_movies_series-11, #widget_list_movies_series-12
+5tv.center###fav-tv, .dfxa, .comments-area, .owl-drag, .description > p:nth-of-type(1), section.episodes.section:nth-of-type(2)
+towhtch.spotnews.buzz##server--title, .entry-header,  .entry-content, .comment-respond, #site-footer, .section-inner.pagination-single
