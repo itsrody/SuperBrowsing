@@ -1,5 +1,5 @@
 ! Title: 🧙‍♂Web Wizard
-! Version: 1.2
+! Version: 1.3
 ! Description: Filters for cleaning websites.
 ! Maintainer: Murtaza Salih
 ! Expires: 7 days
@@ -9,7 +9,7 @@
 faselhds.xyz##.breakNews, .accBtn, .promoLink, .promoTab, .social, .slider
 faselhds.xyz###pr, #footer, #scroll-to-top
 faselhds.xyz##.blockMovieMeta,.slideMeta, .posTop, .seasonMeta
-faselhds.xyz##.singleBtns, .singleStar, .shortLink, .downloadLinks, #Teamwork, .ralatedMovies
+faselhds.xyz##.singleBtns, .singleStar, .shortLink, .downloadLinks, #Teamwork, .ralatedMovies, .social-block
 
 ! wecima
 wecima.video###menu-item-273056, #menu-item-273057, .LeftSideFlex, .ProductionsListButton, .LeftUI, footer
@@ -25,6 +25,9 @@ cee.buzz##cinemana-collections, .pwa-modal-container
 5tv.center##.widget_list_episodes.section.widget.wdgt-home, #widget_list_movies_series-11, #widget_list_movies_series-12
 5tv.center###fav-tv, .dfxa, .comments-area, .owl-drag, .description > p:nth-of-type(1), section.episodes.section:nth-of-type(2)
 towhtch.spotnews.buzz##server--title, .entry-header,  .entry-content, .comment-respond, #site-footer, .section-inner.pagination-single
+
+! quillbot
+quillbot.com##.MuiButton-root, .css-fl7web, .css-1dkvnan, #qb-footer
 
 ! ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -45,3 +48,10 @@ sextb.net##h5.tab_info:nth-of-type(2) > .h-text, h5.tab_info:nth-of-type(3) > .h
 ! roshy
 roshy.tv##.beeteam368_color_bar, .menu-item-142786, .menu-item-108510, #menu-item-66230, .menu-item-20164, .menu-item-7431, .menu-item-93540, .site-footer, .total-posts-content
 roshy.tv##.btnn-primary, .is-square, .beeteam368-related-posts > div:nth-of-type(2)
+
+! pornhits.com
+pornhits.com##.promo-bar, [href="https://theporndude.com/"], #item10, .sites__list, .seo, .tags, .tags-cloud, .tototo, .footer
+
+! porn00
+porn00.tv##.headline7, .round, .bottom-adv.box, li:nth-of-type(7)
+porn00.tv##.headline5, .table, .info-buttons, .username
