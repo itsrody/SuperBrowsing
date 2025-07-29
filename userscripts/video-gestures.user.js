@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Universal Video Touch Gestures (Pro)
-// @namespace    http://your-namespace.com
-// @version      7.2
+// @name          Video Gestures Pro
+// @namespace    https://github.com/itsrody/SuperBrowsing
+// @version      7.3
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos.
-// @author       Your Name
+// @author       Murtaza Salih
 // @match        *://*/*
 // @exclude      *://*.youtube.com/*
 // @exclude      *://*.dailymotion.com/*
