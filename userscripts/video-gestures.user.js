@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      4.9
+// @version      5.0
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -75,30 +75,25 @@
     // --- Global State ---
     let touchStartX = 0, touchStartY = 0;
     let currentVideo = null;
-    let gestureType = null;
+    let gestureType = null; // tap, swipe-x, swipe-y, swipe-y-fullscreen, long-press
     let tapTimeout = null, longPressTimeout = null;
     let tapCount = 0;
     let originalPlaybackRate = 1.0;
-    let modifiedElements = []; // To store elements whose styles we change
+    let modifiedElements = [];
 
     // --- UI & Feedback ---
-    function createElements(video) {
-        if (video.gestureIndicator) return;
-        const parent = video.parentElement;
-        if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
-
-        const indicator = document.createElement('div');
-        indicator.className = 'vg-indicator';
-        parent.appendChild(indicator);
-        video.gestureIndicator = indicator;
-    }
-
     function showIndicator(video, html) {
-        if (!video.gestureIndicator) createElements(video);
-        const { gestureIndicator } = video;
+        const parent = document.fullscreenElement || video.parentElement;
+        if (!parent.gestureIndicator) {
+             const indicator = document.createElement('div');
+             indicator.className = 'vg-indicator';
+             parent.appendChild(indicator);
+             parent.gestureIndicator = indicator;
+        }
+        const { gestureIndicator } = parent;
         gestureIndicator.innerHTML = html;
         gestureIndicator.classList.add('visible');
-        setTimeout(() => gestureIndicator.classList.remove('visible'), 800);
+        setTimeout(() => { if (gestureIndicator) gestureIndicator.classList.remove('visible'); }, 800);
     }
 
     function triggerHapticFeedback() {
@@ -118,21 +113,23 @@
         touchStartY = e.touches[0].clientY;
         gestureType = 'tap';
 
-        longPressTimeout = setTimeout(() => {
-            if (gestureType !== 'tap' || !document.fullscreenElement) return;
-            
-            gestureType = 'long-press';
-            e.preventDefault();
-            
-            originalPlaybackRate = currentVideo.playbackRate;
-            currentVideo.playbackRate = 2.0;
-            showIndicator(currentVideo, `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg> <span>2.0x Speed</span>`);
-            triggerHapticFeedback();
-        }, 500);
+        // All advanced gestures are fullscreen-only
+        if (document.fullscreenElement) {
+            longPressTimeout = setTimeout(() => {
+                if (gestureType !== 'tap') return;
+                gestureType = 'long-press';
+                e.preventDefault();
+                
+                originalPlaybackRate = currentVideo.playbackRate;
+                currentVideo.playbackRate = 2.0;
+                showIndicator(currentVideo, `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg> <span>2.0x Speed</span>`);
+                triggerHapticFeedback();
+            }, 500);
 
-        const DOUBLE_TAP_TIMEOUT_MS = 350;
-        tapTimeout = setTimeout(() => { tapCount = 0; }, DOUBLE_TAP_TIMEOUT_MS);
-        tapCount++;
+            const DOUBLE_TAP_TIMEOUT_MS = 350;
+            tapTimeout = setTimeout(() => { tapCount = 0; }, DOUBLE_TAP_TIMEOUT_MS);
+            tapCount++;
+        }
     }
 
     function onTouchMove(e) {
@@ -145,18 +142,14 @@
             clearTimeout(longPressTimeout);
             if (gestureType === 'tap') {
                 const isVerticalSwipe = Math.abs(deltaY) > Math.abs(deltaX);
-                if (document.fullscreenElement) {
-                    if (isVerticalSwipe) {
-                        const rect = currentVideo.getBoundingClientRect();
-                        const tapZone = (touchStartX - rect.left) / rect.width;
-                        if (tapZone > 0.33 && tapZone < 0.66) {
-                            gestureType = 'swipe-y-exit';
-                        } else {
-                            gestureType = 'swipe-y';
-                        }
-                    } else {
-                        gestureType = 'swipe-x';
-                    }
+                const rect = currentVideo.getBoundingClientRect();
+                const tapZone = (touchStartX - rect.left) / rect.width;
+
+                if (isVerticalSwipe && tapZone > 0.33 && tapZone < 0.66) {
+                    gestureType = 'swipe-y-fullscreen'; // This gesture is always available
+                } else if (document.fullscreenElement) {
+                    // Other swipes are fullscreen only
+                    gestureType = isVerticalSwipe ? 'swipe-y' : 'swipe-x';
                 }
             }
         }
@@ -172,22 +165,20 @@
         clearTimeout(longPressTimeout);
         if (!currentVideo) return;
 
-        if (gestureType === 'tap' && tapCount >= 2) {
-            e.preventDefault();
-            if (document.fullscreenElement) {
-                handleDoubleTapSeek();
-            } else {
-                handleDoubleTapFullscreen();
+        // Handle fullscreen toggle gesture first, as it's always available
+        if (gestureType === 'swipe-y-fullscreen') {
+            const deltaY = e.changedTouches[0].clientY - touchStartY;
+            if (deltaY > config.SWIPE_THRESHOLD) { // Only on swipe down
+                handleFullscreenToggle();
             }
-            clearTimeout(tapTimeout);
-            tapCount = 0;
-        } 
+        }
+        // Handle all other gestures, which are strictly fullscreen-only
         else if (document.fullscreenElement) {
-            if (gestureType === 'swipe-y-exit') {
-                const deltaY = e.changedTouches[0].clientY - touchStartY;
-                if (deltaY > config.SWIPE_THRESHOLD) {
-                    handleFullscreenExit();
-                }
+            if (gestureType === 'tap' && tapCount >= 2) {
+                e.preventDefault();
+                handleDoubleTapSeek();
+                clearTimeout(tapTimeout);
+                tapCount = 0;
             } else if (gestureType === 'long-press') {
                 currentVideo.playbackRate = originalPlaybackRate;
                 triggerHapticFeedback();
@@ -201,42 +192,32 @@
             }
         }
 
-        setTimeout(() => {
-             if (currentVideo && currentVideo.gestureIndicator) {
-                currentVideo.gestureIndicator.classList.remove('visible');
-            }
-        }, 300);
-
         currentVideo = null;
         gestureType = null;
     }
 
     // --- Gesture Logic ---
-    function handleFullscreenExit() {
-        const icon = `<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>`;
+    function handleFullscreenToggle() {
+        const isFullscreen = document.fullscreenElement;
+        const icon = isFullscreen 
+            ? `<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>`
+            : `<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`;
         showIndicator(currentVideo, icon);
         triggerHapticFeedback();
-        if (document.fullscreenElement) {
+
+        if (isFullscreen) {
             document.exitFullscreen();
-        }
-    }
-
-    function handleDoubleTapFullscreen() {
-        const icon = `<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`;
-        showIndicator(currentVideo, icon);
-        triggerHapticFeedback();
-
-        const container = currentVideo.parentElement;
-        const fsPromise = container.requestFullscreen ? container.requestFullscreen() : currentVideo.requestFullscreen();
-        
-        if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
-            fsPromise.then(() => {
-                if (screen.orientation && typeof screen.orientation.lock === 'function') {
-                    screen.orientation.lock('landscape').catch(err => {
-                        console.warn('Could not lock screen orientation:', err.message);
-                    });
-                }
-            }).catch(err => console.warn('Fullscreen request failed:', err.message));
+        } else {
+            const container = currentVideo.parentElement;
+            const fsPromise = container.requestFullscreen ? container.requestFullscreen() : currentVideo.requestFullscreen();
+            
+            if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
+                fsPromise.then(() => {
+                    if (screen.orientation && typeof screen.orientation.lock === 'function') {
+                        screen.orientation.lock('landscape').catch(err => console.warn('Could not lock orientation:', err.message));
+                    }
+                }).catch(err => console.warn('Fullscreen request failed:', err.message));
+            }
         }
     }
 
@@ -275,17 +256,14 @@
         }
     }
     
-    // ** DEFINITIVE FIX: Active Stacking Repair **
     function handleFullscreenChange() {
         const fullscreenElement = document.fullscreenElement;
         
-        // Restore original styles when exiting fullscreen
         if (!fullscreenElement) {
-            modifiedElements.forEach(({ element, originalZIndex, originalPosition }) => {
+            modifiedElements.forEach(({ element, originalZIndex }) => {
                 element.style.zIndex = originalZIndex;
-                element.style.position = originalPosition;
             });
-            modifiedElements = []; // Clear the list
+            modifiedElements = [];
 
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
@@ -299,27 +277,16 @@
         const playerContainer = video.parentElement;
         if (!playerContainer) return;
 
-        // Function to save original styles
-        const saveAndSetStyle = (element, zIndex, position) => {
-            modifiedElements.push({
-                element,
-                originalZIndex: element.style.zIndex,
-                originalPosition: element.style.position
-            });
+        const saveAndSetStyle = (element, zIndex) => {
+            modifiedElements.push({ element, originalZIndex: element.style.zIndex });
             element.style.zIndex = zIndex;
-            // Set position only if it's not already relative or absolute
-            if (getComputedStyle(element).position === 'static') {
-                 element.style.position = position;
-            }
         };
 
-        // Push the video to the back
-        saveAndSetStyle(video, '1', 'relative');
+        saveAndSetStyle(video, '1');
         
-        // Bring all sibling elements (like control bars) to the front
         for (const child of playerContainer.children) {
             if (child !== video) {
-                saveAndSetStyle(child, '2', 'relative');
+                saveAndSetStyle(child, '2');
             }
         }
     }
