@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      5.4
+// @version      5.5
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -118,18 +118,14 @@
             return;
         }
 
-        if (!document.fullscreenElement) {
-            currentVideo = null;
-            gestureType = null;
-            return;
-        }
-
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
         gestureType = 'tap';
 
+        // **FIX**: Set up long-press timer, but check for fullscreen inside the timeout.
         longPressTimeout = setTimeout(() => {
-            if (gestureType !== 'tap') return;
+            if (gestureType !== 'tap' || !document.fullscreenElement) return; // Only trigger in fullscreen
+            
             gestureType = 'long-press';
             e.preventDefault();
             
@@ -139,6 +135,7 @@
             triggerHapticFeedback();
         }, 500);
 
+        // Double tap timer is always active
         const DOUBLE_TAP_TIMEOUT_MS = 350;
         tapTimeout = setTimeout(() => { tapCount = 0; }, DOUBLE_TAP_TIMEOUT_MS);
         tapCount++;
@@ -146,7 +143,12 @@
 
     function onTouchMove(e) {
         if (!currentVideo || e.touches.length > 1 || gestureType === 'long-press' || gestureType === 'two-finger-tap') return;
-        if (!document.fullscreenElement) return;
+        
+        // **FIX**: All swipe gestures are fullscreen-only.
+        if (!document.fullscreenElement) {
+            clearTimeout(longPressTimeout); // Cancel long press if swipe starts outside fullscreen
+            return;
+        }
 
         const deltaX = e.touches[0].clientX - touchStartX;
         const deltaY = e.touches[0].clientY - touchStartY;
@@ -170,21 +172,21 @@
         clearTimeout(longPressTimeout);
         if (!currentVideo) return;
 
+        // Two-finger tap and double-tap can happen anytime
         if (gestureType === 'two-finger-tap' && e.touches.length === 0) {
             e.preventDefault();
             handleTwoFingerTap();
+        } else if (gestureType === 'tap' && tapCount >= 2) {
+            e.preventDefault();
+            handleDoubleTap();
+            clearTimeout(tapTimeout);
+            tapCount = 0;
         } 
+        // Other gestures only complete if we are in fullscreen
         else if (document.fullscreenElement) {
             if (gestureType === 'long-press') {
                 currentVideo.playbackRate = originalPlaybackRate;
                 triggerHapticFeedback();
-            } else if (gestureType === 'tap') {
-                if (tapCount >= 2) {
-                    e.preventDefault();
-                    handleDoubleTap();
-                    clearTimeout(tapTimeout);
-                    tapCount = 0;
-                }
             } else if (gestureType === 'swipe-x') {
                 const deltaX = e.changedTouches[0].clientX - touchStartX;
                 const seekTime = deltaX * config.SEEK_SENSITIVITY;
@@ -218,7 +220,6 @@
             document.exitFullscreen();
         } else {
             const container = currentVideo.parentElement;
-            // ** FIX: Request fullscreen first, then attempt to lock orientation **
             const fsPromise = container.requestFullscreen ? container.requestFullscreen() : currentVideo.requestFullscreen();
             
             if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
@@ -268,7 +269,6 @@
         }
     }
     
-    // ** FIX: This function now only handles UNLOCKING on exit **
     function handleFullscreenChange() {
         if (!document.fullscreenElement) {
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
