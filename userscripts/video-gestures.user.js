@@ -1,29 +1,54 @@
 // ==UserScript==
 // @name         Universal Video Gestures
-// @namespace    http://your-namespace.com
-// @version      5.1
+// @namespace    https://github.com/itsrody/SuperBrowsing
+// @version      5.2
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
-// @author       Your Name
+// @author       Murtaza Salih
 // @match        *://*/*
 // @exclude      *://*.youtube.com/*
 // @exclude      *://*.dailymotion.com/*
 // @exclude      *://*.vimeo.com/*
 // @exclude      *://*.netflix.com/*
-// @grant        none
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_registerMenuCommand
 // @run-at       document-start
 // ==/UserScript==
 
-(function() {
+(async function() {
     'use strict';
 
-    // --- Configuration ---
-    const MIN_VIDEO_DURATION_SECONDS = 60;
-    const DOUBLE_TAP_SEEK_SECONDS = 10;
-    const DOUBLE_TAP_TIMEOUT_MS = 350;
-    const SWIPE_THRESHOLD = 15;
-    const SEEK_SENSITIVITY = 0.1;
-    const ENABLE_HAPTIC_FEEDBACK = true; // Set to false to disable vibration
-    const HAPTIC_FEEDBACK_DURATION_MS = 20; // Vibration duration in milliseconds
+    // --- Central Configuration Panel ---
+    // Default settings. These will be used if no settings are saved yet.
+    const DEFAULTS = {
+        MIN_VIDEO_DURATION_SECONDS: 60,
+        DOUBLE_TAP_SEEK_SECONDS: 10,
+        SWIPE_THRESHOLD: 15,
+        SEEK_SENSITIVITY: 0.1,
+        ENABLE_HAPTIC_FEEDBACK: true,
+        HAPTIC_FEEDBACK_DURATION_MS: 20
+    };
+    
+    // Load settings from userscript manager's storage
+    let config = await GM_getValue('config', DEFAULTS);
+
+    // Register the menu command to allow users to edit the settings
+    GM_registerMenuCommand('Configure Gestures', () => {
+        const currentConfig = JSON.stringify(config, null, 2);
+        const newConfigStr = prompt('Edit Gesture Settings:', currentConfig);
+        if (newConfigStr) {
+            try {
+                const newConfig = JSON.parse(newConfigStr);
+                // Merge new settings with defaults to ensure all keys are present
+                config = { ...DEFAULTS, ...newConfig }; 
+                GM_setValue('config', config);
+                alert('Settings saved! Please reload the page for changes to take effect.');
+            } catch (e) {
+                alert('Error parsing settings. Please ensure it is valid JSON.\n\n' + e);
+            }
+        }
+    });
+
 
     // --- Styles ---
     function injectStyles() {
@@ -51,7 +76,7 @@
     // --- Global State ---
     let touchStartX = 0, touchStartY = 0;
     let currentVideo = null;
-    let gestureType = null; // 'tap', 'swipe-x', 'swipe-y', 'long-press', 'two-finger-tap'
+    let gestureType = null;
     let tapTimeout = null, longPressTimeout = null;
     let tapCount = 0;
     let originalPlaybackRate = 1.0;
@@ -77,15 +102,15 @@
     }
 
     function triggerHapticFeedback() {
-        if (ENABLE_HAPTIC_FEEDBACK && navigator.vibrate) {
-            navigator.vibrate(HAPTIC_FEEDBACK_DURATION_MS);
+        if (config.ENABLE_HAPTIC_FEEDBACK && navigator.vibrate) {
+            navigator.vibrate(config.HAPTIC_FEEDBACK_DURATION_MS);
         }
     }
 
     // --- Event Handlers ---
     function onTouchStart(e) {
         const video = e.target.closest('video');
-        if (!video || video.duration < MIN_VIDEO_DURATION_SECONDS) return;
+        if (!video || video.duration < config.MIN_VIDEO_DURATION_SECONDS) return;
         
         currentVideo = video;
         
@@ -109,8 +134,7 @@
         longPressTimeout = setTimeout(() => {
             if (gestureType !== 'tap') return;
             gestureType = 'long-press';
-            // We only need to prevent the default action here. The contextmenu listener will handle the rest.
-            e.preventDefault(); 
+            e.preventDefault();
             
             originalPlaybackRate = currentVideo.playbackRate;
             currentVideo.playbackRate = 2.0;
@@ -118,6 +142,7 @@
             triggerHapticFeedback();
         }, 500);
 
+        const DOUBLE_TAP_TIMEOUT_MS = 350; // This is not configurable as it's tied to system feel
         tapTimeout = setTimeout(() => { tapCount = 0; }, DOUBLE_TAP_TIMEOUT_MS);
         tapCount++;
     }
@@ -129,7 +154,7 @@
         const deltaX = e.touches[0].clientX - touchStartX;
         const deltaY = e.touches[0].clientY - touchStartY;
 
-        if (Math.abs(deltaX) > SWIPE_THRESHOLD || Math.abs(deltaY) > SWIPE_THRESHOLD) {
+        if (Math.abs(deltaX) > config.SWIPE_THRESHOLD || Math.abs(deltaY) > config.SWIPE_THRESHOLD) {
             clearTimeout(longPressTimeout);
             if (gestureType === 'tap') {
                 gestureType = Math.abs(deltaX) > Math.abs(deltaY) ? 'swipe-x' : 'swipe-y';
@@ -165,7 +190,7 @@
                 }
             } else if (gestureType === 'swipe-x') {
                 const deltaX = e.changedTouches[0].clientX - touchStartX;
-                const seekTime = deltaX * SEEK_SENSITIVITY;
+                const seekTime = deltaX * config.SEEK_SENSITIVITY;
                 currentVideo.currentTime += seekTime;
                 triggerHapticFeedback();
             } else if (gestureType === 'swipe-y') {
@@ -209,17 +234,17 @@
         const tapZone = (touchStartX - rect.left) / rect.width;
 
         if (tapZone < 0.33) {
-            currentVideo.currentTime -= DOUBLE_TAP_SEEK_SECONDS;
-            showIndicator(currentVideo, `<svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6l-8.5 6z"/></svg> -10s`);
+            currentVideo.currentTime -= config.DOUBLE_TAP_SEEK_SECONDS;
+            showIndicator(currentVideo, `<svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6l-8.5 6z"/></svg> -${config.DOUBLE_TAP_SEEK_SECONDS}s`);
         } else if (tapZone > 0.66) {
-            currentVideo.currentTime += DOUBLE_TAP_SEEK_SECONDS;
-            showIndicator(currentVideo, `+10s <svg viewBox="0 0 24 24"><path d="M18 6h-2v12h2zM4 6v12l8.5-6L4 6z"/></svg>`);
+            currentVideo.currentTime += config.DOUBLE_TAP_SEEK_SECONDS;
+            showIndicator(currentVideo, `+${config.DOUBLE_TAP_SEEK_SECONDS}s <svg viewBox="0 0 24 24"><path d="M18 6h-2v12h2zM4 6v12l8.5-6L4 6z"/></svg>`);
         }
         triggerHapticFeedback();
     }
 
     function handleHorizontalSwipe(deltaX) {
-        const seekTime = deltaX * SEEK_SENSITIVITY;
+        const seekTime = deltaX * config.SEEK_SENSITIVITY;
         const newTime = currentVideo.currentTime + seekTime;
         const direction = seekTime > 0 ? 'forward' : 'rewind';
         const icon = direction === 'forward' ? `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>` : `<svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm-2-6l6.5 4.5V7.5L9 12z"/></svg>`;
@@ -253,14 +278,6 @@
         document.body.addEventListener('touchstart', onTouchStart, { passive: false });
         document.body.addEventListener('touchmove', onTouchMove, { passive: false });
         document.body.addEventListener('touchend', onTouchEnd, { passive: false });
-
-        // ** NEW: Add a listener to specifically block the context menu during our long-press gesture **
-        document.body.addEventListener('contextmenu', function(e) {
-            // If our long-press gesture is active on the video, prevent the default menu
-            if (currentVideo && gestureType === 'long-press') {
-                e.preventDefault();
-            }
-        }, { capture: true }); // Use capture to ensure our listener runs first
     }
 
     if (document.readyState === 'loading') {
