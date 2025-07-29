@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures
 // @namespace    http://your-namespace.com
-// @version      3.2
+// @version      3.3
 // @description  Adds universal touch gestures (seek, fast-forward) to web videos (>3 min) with an Android Material Design UI.
 // @author       Your Name
 // @match        *://*/*
@@ -9,25 +9,24 @@
 // @run-at       document-start
 // ==/UserScript==
 
+
 (function() {
     'use strict';
 
     // --- Configuration ---
     const MIN_VIDEO_DURATION_SECONDS = 180; // 3 minutes
     const LONG_PRESS_DELAY_MS = 500; // 0.5 seconds to trigger 2x speed
-    const SEEK_SENSITIVITY = 0.1; // Higher value = faster seeking
+    const SEEK_SENSITIVITY = 0.1; // Higher value = faster seeking for swipe
+    const DOUBLE_TAP_SEEK_SECONDS = 10; // Seconds to seek on double-tap
+    const DOUBLE_TAP_TIMEOUT_MS = 300; // Max time between taps for a double-tap
 
     // --- Material Design Styles ---
-    // Injects the necessary CSS for the UI into the page head.
     function injectStyles() {
-        // Avoid injecting styles multiple times
         if (document.getElementById('video-gesture-styles')) return;
-
         const style = document.createElement('style');
         style.id = 'video-gesture-styles';
         style.innerHTML = `
             @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap');
-
             .video-gesture-indicator {
                 position: absolute;
                 top: 50%;
@@ -39,24 +38,22 @@
                 font-family: 'Roboto', sans-serif;
                 font-size: 16px;
                 text-align: center;
-                border-radius: 24px; /* Pill shape */
+                border-radius: 24px;
                 z-index: 2147483647;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 gap: 8px;
                 opacity: 0;
-                pointer-events: none; /* Prevent indicator from blocking other controls */
+                pointer-events: none;
                 transition: opacity 0.2s ease-out, transform 0.2s ease-out;
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
                 line-height: 1.5;
             }
-
             .video-gesture-indicator.visible {
                 opacity: 1;
                 transform: translate(-50%, -50%) scale(1);
             }
-
             .video-gesture-indicator svg {
                 width: 24px;
                 height: 24px;
@@ -75,19 +72,15 @@
     let isSpeedingUp = false;
     let hasMovedEnoughForSeek = false;
     const userPlaybackRates = new Map();
+    let tapTimer = null;
+    let tapCount = 0;
 
     // --- UI and Gesture Logic ---
 
-    /**
-     * Creates the gesture indicator UI for a given video.
-     * @param {HTMLVideoElement} video - The video element to attach the indicator to.
-     */
     function createGestureIndicator(video) {
-        if (video.gestureIndicator) return; // Already created
-
+        if (video.gestureIndicator) return;
         const indicator = document.createElement('div');
         indicator.className = 'video-gesture-indicator';
-        // The parent needs to be positioned for the absolute positioning to work correctly.
         if (getComputedStyle(video.parentElement).position === 'static') {
             video.parentElement.style.position = 'relative';
         }
@@ -95,21 +88,12 @@
         video.gestureIndicator = indicator;
     }
 
-    /**
-     * Updates the indicator's content (icon and text).
-     * @param {HTMLVideoElement} video - The video element.
-     * @param {string} htmlContent - The HTML content to display.
-     */
     function updateIndicator(video, htmlContent) {
         if (!video.gestureIndicator) return;
         video.gestureIndicator.innerHTML = htmlContent;
         video.gestureIndicator.classList.add('visible');
     }
 
-    /**
-     * Hides the indicator.
-     * @param {HTMLVideoElement} video - The video element.
-     */
     function hideIndicator(video) {
         if (!video.gestureIndicator) return;
         video.gestureIndicator.classList.remove('visible');
@@ -124,9 +108,9 @@
         hasMovedEnoughForSeek = false;
         timeChange = 0;
 
-        // Long press to activate 2x speed
+        // Long press logic
         longPressTimeout = setTimeout(() => {
-            if (!hasMovedEnoughForSeek) { // Only if not already seeking
+            if (!hasMovedEnoughForSeek) {
                 userPlaybackRates.set(video, video.playbackRate);
                 video.playbackRate = 2.0;
                 isSpeedingUp = true;
@@ -142,7 +126,10 @@
         const deltaX = e.touches[0].clientX - startX;
         if (Math.abs(deltaX) > 10 && !hasMovedEnoughForSeek) {
             hasMovedEnoughForSeek = true;
-            clearTimeout(longPressTimeout); // Cancel long press if user starts swiping
+            // A swipe cancels both long press and double-tap intentions
+            clearTimeout(longPressTimeout);
+            clearTimeout(tapTimer);
+            tapCount = 0;
         }
 
         if (hasMovedEnoughForSeek) {
@@ -152,13 +139,7 @@
             const icon = direction === 'forward'
                 ? `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`
                 : `<svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm-2-6l6.5 4.5V7.5L9 12z"/></svg>`;
-
-            updateIndicator(video, `
-                ${icon}
-                <div>
-                    <span>${formatTime(newTime)}</span> / <span>${formatTime(video.duration)}</span>
-                </div>
-            `);
+            updateIndicator(video, `${icon} <div><span>${formatTime(newTime)}</span> / <span>${formatTime(video.duration)}</span></div>`);
         }
     }
 
@@ -168,141 +149,114 @@
         if (isSpeedingUp) {
             video.playbackRate = userPlaybackRates.get(video) || 1.0;
             isSpeedingUp = false;
+            setTimeout(() => hideIndicator(video), 300);
         } else if (hasMovedEnoughForSeek) {
             const newTime = initialTime + timeChange;
             video.currentTime = Math.max(0, Math.min(newTime, video.duration));
+            setTimeout(() => hideIndicator(video), 300);
+        } else {
+            // This is a tap, not a swipe or long press
+            handleTap(e, video);
         }
 
-        setTimeout(() => hideIndicator(video), 300); // Hide after a small delay
         isSeeking = false;
         hasMovedEnoughForSeek = false;
     }
 
+    function handleTap(e, video) {
+        tapCount++;
+        clearTimeout(tapTimer); // Clear previous timer
+
+        if (tapCount > 1) { // Double-tap or more
+            // Determine tap area
+            const videoRect = video.getBoundingClientRect();
+            const tapZone = (startX - videoRect.left) / videoRect.width;
+
+            if (tapZone < 0.33) { // Left side
+                video.currentTime = Math.max(0, video.currentTime - DOUBLE_TAP_SEEK_SECONDS);
+                showSeekFeedback(video, 'backward');
+            } else if (tapZone > 0.66) { // Right side
+                video.currentTime = Math.min(video.duration, video.currentTime + DOUBLE_TAP_SEEK_SECONDS);
+                showSeekFeedback(video, 'forward');
+            }
+            // Taps in the middle do nothing to allow for default play/pause
+            
+            tapCount = 0; // Reset after action
+        } else {
+            tapTimer = setTimeout(() => {
+                tapCount = 0; // Reset if it's just a single tap
+            }, DOUBLE_TAP_TIMEOUT_MS);
+        }
+    }
+
+    function showSeekFeedback(video, direction) {
+        const icon = direction === 'forward'
+            ? `<svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6-6-6z M18 6h-2v12h2V6z"/></svg>`
+            : `<svg viewBox="0 0 24 24"><path d="M14 18l1.41-1.41L10.83 12l4.58-4.59L14 6l-6 6 6 6z M6 6h2v12H6V6z"/></svg>`;
+        const text = `<span>${DOUBLE_TAP_SEEK_SECONDS}s</span>`;
+        updateIndicator(video, `${icon} ${text}`);
+        setTimeout(() => hideIndicator(video), 500);
+    }
+
     // --- Utility Functions ---
 
-    /**
-     * Formats seconds into HH:MM:SS or MM:SS format.
-     * @param {number} totalSeconds - The time in seconds.
-     * @returns {string} The formatted time string.
-     */
     function formatTime(totalSeconds) {
         const seconds = Math.floor(totalSeconds % 60);
         const minutes = Math.floor((totalSeconds / 60) % 60);
         const hours = Math.floor(totalSeconds / 3600);
-
         const paddedSeconds = seconds.toString().padStart(2, '0');
         const paddedMinutes = minutes.toString().padStart(2, '0');
-
-        if (hours > 0) {
-            return `${hours}:${paddedMinutes}:${paddedSeconds}`;
-        }
-        return `${minutes}:${paddedSeconds}`;
+        return hours > 0 ? `${hours}:${paddedMinutes}:${paddedSeconds}` : `${minutes}:${paddedSeconds}`;
     }
 
     // --- Main Logic ---
 
-    /**
-     * Adds gesture controls to a video element if it meets the criteria.
-     * @param {HTMLVideoElement} video - The video element.
-     */
     function addGestureControls(video) {
-        // Use a flag to prevent adding listeners multiple times
         if (video._gestureControlsAdded) return;
-        video._gestureControlsAdded = true; // Mark as processed immediately
+        video._gestureControlsAdded = true;
 
         const setupControls = () => {
-            // Check video duration. Only apply to videos longer than the minimum.
-            if (video.duration < MIN_VIDEO_DURATION_SECONDS) {
-                console.log('Video gesture script: Skipping video shorter than 3 minutes.');
-                return;
-            }
-
-            console.log('Video gesture script: Initializing for video.');
+            if (video.duration < MIN_VIDEO_DURATION_SECONDS) return;
             createGestureIndicator(video);
-
-            // Store the initial playback rate
             userPlaybackRates.set(video, video.playbackRate);
             video.addEventListener('ratechange', () => {
-                if (!isSpeedingUp) {
-                    userPlaybackRates.set(video, video.playbackRate);
-                }
+                if (!isSpeedingUp) userPlaybackRates.set(video, video.playbackRate);
             });
-
-            // Attach touch event listeners
             video.addEventListener('touchstart', (e) => onTouchStart(e, video), { passive: true });
             video.addEventListener('touchmove', (e) => onTouchMove(e, video), { passive: true });
-            video.addEventListener('touchend', (e) => onTouchEnd(e, video), { passive: true });
+            video.addEventListener('touchend', (e) => onTouchEnd(e, video), { passive: false }); // Needs to be not passive to prevent default on double tap
         };
 
-        // The 'duration' property may not be available immediately.
-        // Wait for the 'loadedmetadata' event to ensure we can check it.
-        if (video.readyState >= 1) { // METADATA is already loaded
+        if (video.readyState >= 1) {
             setupControls();
         } else {
             video.addEventListener('loadedmetadata', setupControls, { once: true });
         }
     }
 
-    /**
-     * Scans the entire document, including Shadow DOMs, for video elements.
-     * @param {Document|ShadowRoot} rootNode - The node to start scanning from.
-     */
     function scanForVideos(rootNode) {
         if (!rootNode) return;
         try {
             rootNode.querySelectorAll('video').forEach(addGestureControls);
             rootNode.querySelectorAll('*').forEach(el => {
-                if (el.shadowRoot) {
-                    scanForVideos(el.shadowRoot);
-                }
+                if (el.shadowRoot) scanForVideos(el.shadowRoot);
             });
         } catch (error) {
             console.error('Video gesture script: Error scanning for videos.', error);
         }
     }
 
-    // --- Initialization ---
-
-    /**
-     * This function starts the process of scanning for videos and observing DOM changes.
-     * It's called once the document body is available.
-     */
     function initialize() {
-        // Initial scan when the script runs
         scanForVideos(document.body);
-
-        // Use MutationObserver to detect videos added to the DOM later
-        const observer = new MutationObserver((mutations) => {
-            for (const mutation of mutations) {
-                if (mutation.addedNodes.length) {
-                    // Check if any of the added nodes are videos or contain videos
-                    for (const node of mutation.addedNodes) {
-                        if (node.nodeType === Node.ELEMENT_NODE) {
-                            if (node.matches('video')) {
-                                addGestureControls(node);
-                            } else {
-                                node.querySelectorAll('video').forEach(addGestureControls);
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
+        const observer = new MutationObserver(() => scanForVideos(document.body));
+        observer.observe(document.body, { childList: true, subtree: true });
     }
 
-    // Inject styles immediately since @run-at is document-start
     injectStyles();
 
-    // Defer the main logic until the body element exists
     if (document.body) {
         initialize();
     } else {
         document.addEventListener('DOMContentLoaded', initialize, { once: true });
     }
-
 })();
