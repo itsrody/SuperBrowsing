@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Universal Video Gestures (Pro)
-// @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      5.3
+// @name         Universal Video Touch Gestures (Pro)
+// @namespace    http://your-namespace.com
+// @version      5.4
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
-// @author       itsrody
+// @author       Your Name
 // @match        *://*/*
 // @exclude      *://*.youtube.com/*
 // @exclude      *://*.dailymotion.com/*
@@ -26,7 +26,7 @@
         SEEK_SENSITIVITY: 0.1,
         ENABLE_HAPTIC_FEEDBACK: true,
         HAPTIC_FEEDBACK_DURATION_MS: 20,
-        FORCE_LANDSCAPE: true // New: Force landscape for horizontal videos in fullscreen
+        FORCE_LANDSCAPE: true
     };
     
     let config = await GM_getValue('config', DEFAULTS);
@@ -218,10 +218,17 @@
             document.exitFullscreen();
         } else {
             const container = currentVideo.parentElement;
-            if (container.requestFullscreen) {
-                container.requestFullscreen();
-            } else {
-                currentVideo.requestFullscreen();
+            // ** FIX: Request fullscreen first, then attempt to lock orientation **
+            const fsPromise = container.requestFullscreen ? container.requestFullscreen() : currentVideo.requestFullscreen();
+            
+            if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
+                fsPromise.then(() => {
+                    if (screen.orientation && typeof screen.orientation.lock === 'function') {
+                        screen.orientation.lock('landscape').catch(err => {
+                            console.warn('Could not lock screen orientation:', err.message);
+                        });
+                    }
+                }).catch(err => console.warn('Fullscreen request failed:', err.message));
             }
         }
     }
@@ -261,22 +268,9 @@
         }
     }
     
-    // --- New: Handle screen orientation on fullscreen change ---
+    // ** FIX: This function now only handles UNLOCKING on exit **
     function handleFullscreenChange() {
-        if (!config.FORCE_LANDSCAPE) return;
-
-        if (document.fullscreenElement) {
-            const fsElement = document.fullscreenElement;
-            const videoInFs = fsElement.matches('video') ? fsElement : fsElement.querySelector('video');
-
-            if (videoInFs && videoInFs.videoWidth > videoInFs.videoHeight) {
-                if (screen.orientation && typeof screen.orientation.lock === 'function') {
-                    screen.orientation.lock('landscape').catch(err => {
-                        console.warn('Could not lock screen orientation:', err.message);
-                    });
-                }
-            }
-        } else {
+        if (!document.fullscreenElement) {
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
             }
@@ -297,7 +291,7 @@
         document.body.addEventListener('touchstart', onTouchStart, { passive: false });
         document.body.addEventListener('touchmove', onTouchMove, { passive: false });
         document.body.addEventListener('touchend', onTouchEnd, { passive: false });
-        document.addEventListener('fullscreenchange', handleFullscreenChange); // Add listener
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
     }
 
     if (document.readyState === 'loading') {
