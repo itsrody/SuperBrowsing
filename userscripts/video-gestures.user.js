@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Universal Video Gestures
+// @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      4.0
-// @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, speed) to most web videos.
+// @version      3.0
+// @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
 // @exclude      *://*.youtube.com/*
@@ -17,12 +17,13 @@
     'use strict';
 
     // --- Configuration ---
-    const MIN_VIDEO_DURATION_SECONDS = 60; // Lowered to 1 minute for wider compatibility
+    const MIN_VIDEO_DURATION_SECONDS = 60;
     const DOUBLE_TAP_SEEK_SECONDS = 10;
     const DOUBLE_TAP_TIMEOUT_MS = 350;
     const SWIPE_THRESHOLD = 15;
     const SEEK_SENSITIVITY = 0.1;
-    const PLAYBACK_RATES = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+    const ENABLE_HAPTIC_FEEDBACK = true; // Set to false to disable vibration
+    const HAPTIC_FEEDBACK_DURATION_MS = 20; // Vibration duration in milliseconds
 
     // --- Styles ---
     function injectStyles() {
@@ -43,22 +44,6 @@
             }
             .vg-indicator.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
             .vg-indicator svg { width: 24px; height: 24px; fill: #fff; }
-
-            .vg-speed-menu {
-                position: absolute; display: flex; flex-direction: column;
-                gap: 5px; background-color: rgba(30, 30, 30, 0.9);
-                padding: 8px; border-radius: 12px; z-index: 2147483647;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-                opacity: 0; transition: opacity 0.2s ease; pointer-events: none;
-            }
-            .vg-speed-menu.visible { opacity: 1; pointer-events: auto; }
-            .vg-speed-menu button {
-                background: none; border: none; color: #fff; font-size: 15px;
-                padding: 8px 12px; border-radius: 8px; cursor: pointer;
-                transition: background-color 0.2s ease;
-            }
-            .vg-speed-menu button:hover { background-color: rgba(255,255,255,0.1); }
-            .vg-speed-menu button.active { background-color: rgba(70,130,255,0.7); }
         `;
         document.head.appendChild(style);
     }
@@ -66,32 +51,35 @@
     // --- Global State ---
     let touchStartX = 0, touchStartY = 0;
     let currentVideo = null;
-    let gestureType = null; // 'tap', 'swipe-x', 'swipe-y', 'long-press'
+    let gestureType = null; // 'tap', 'swipe-x', 'swipe-y', 'long-press', 'two-finger-tap'
     let tapTimeout = null, longPressTimeout = null;
     let tapCount = 0;
+    let originalPlaybackRate = 1.0;
 
-    // --- UI Elements ---
+    // --- UI & Feedback ---
     function createElements(video) {
-        if (video.gestureElements) return;
+        if (video.gestureIndicator) return;
         const parent = video.parentElement;
         if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
 
         const indicator = document.createElement('div');
         indicator.className = 'vg-indicator';
         parent.appendChild(indicator);
-
-        const speedMenu = document.createElement('div');
-        speedMenu.className = 'vg-speed-menu';
-        parent.appendChild(speedMenu);
-
-        video.gestureElements = { indicator, speedMenu };
+        video.gestureIndicator = indicator;
     }
 
     function showIndicator(video, html) {
-        const { indicator } = video.gestureElements;
-        indicator.innerHTML = html;
-        indicator.classList.add('visible');
-        setTimeout(() => indicator.classList.remove('visible'), 800);
+        if (!video.gestureIndicator) createElements(video);
+        const { gestureIndicator } = video;
+        gestureIndicator.innerHTML = html;
+        gestureIndicator.classList.add('visible');
+        setTimeout(() => gestureIndicator.classList.remove('visible'), 800);
+    }
+
+    function triggerHapticFeedback() {
+        if (ENABLE_HAPTIC_FEEDBACK && navigator.vibrate) {
+            navigator.vibrate(HAPTIC_FEEDBACK_DURATION_MS);
+        }
     }
 
     // --- Event Handlers ---
@@ -100,41 +88,56 @@
         if (!video || video.duration < MIN_VIDEO_DURATION_SECONDS) return;
         
         currentVideo = video;
-        createElements(currentVideo);
+        
+        if (e.touches.length === 2) {
+            gestureType = 'two-finger-tap';
+            clearTimeout(longPressTimeout);
+            clearTimeout(tapTimeout);
+            return;
+        }
+
+        if (!document.fullscreenElement) {
+            currentVideo = null;
+            gestureType = null;
+            return;
+        }
 
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
-        gestureType = 'tap'; // Assume tap initially
+        gestureType = 'tap';
 
         longPressTimeout = setTimeout(() => {
+            if (gestureType !== 'tap') return;
             gestureType = 'long-press';
-            showSpeedMenu(currentVideo, touchStartX, touchStartY);
             e.preventDefault();
+            
+            originalPlaybackRate = currentVideo.playbackRate;
+            currentVideo.playbackRate = 2.0;
+            showIndicator(currentVideo, `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg> <span>2.0x Speed</span>`);
+            triggerHapticFeedback();
         }, 500);
 
-        tapTimeout = setTimeout(() => {
-            tapCount = 0;
-        }, DOUBLE_TAP_TIMEOUT_MS);
-        
+        tapTimeout = setTimeout(() => { tapCount = 0; }, DOUBLE_TAP_TIMEOUT_MS);
         tapCount++;
     }
 
     function onTouchMove(e) {
-        if (!currentVideo || gestureType === 'long-press') return;
+        if (!currentVideo || e.touches.length > 1 || gestureType === 'long-press' || gestureType === 'two-finger-tap') return;
+        if (!document.fullscreenElement) return;
 
         const deltaX = e.touches[0].clientX - touchStartX;
         const deltaY = e.touches[0].clientY - touchStartY;
 
         if (Math.abs(deltaX) > SWIPE_THRESHOLD || Math.abs(deltaY) > SWIPE_THRESHOLD) {
             clearTimeout(longPressTimeout);
-            if (!gestureType || gestureType === 'tap') {
+            if (gestureType === 'tap') {
                 gestureType = Math.abs(deltaX) > Math.abs(deltaY) ? 'swipe-x' : 'swipe-y';
             }
         }
         
-        if (!gestureType.startsWith('swipe')) return;
+        if (!gestureType || !gestureType.startsWith('swipe')) return;
 
-        e.preventDefault(); // Prevent page scroll only when swiping on video
+        e.preventDefault();
 
         if (gestureType === 'swipe-x') handleHorizontalSwipe(deltaX);
         if (gestureType === 'swipe-y') handleVerticalSwipe(deltaY);
@@ -144,23 +147,34 @@
         clearTimeout(longPressTimeout);
         if (!currentVideo) return;
 
-        if (gestureType === 'tap') {
-            if (tapCount >= 2) {
-                e.preventDefault();
-                handleDoubleTap();
-                clearTimeout(tapTimeout);
-                tapCount = 0;
+        if (gestureType === 'two-finger-tap' && e.touches.length === 0) {
+            e.preventDefault();
+            handleTwoFingerTap();
+        } 
+        else if (document.fullscreenElement) {
+            if (gestureType === 'long-press') {
+                currentVideo.playbackRate = originalPlaybackRate;
+                triggerHapticFeedback();
+            } else if (gestureType === 'tap') {
+                if (tapCount >= 2) {
+                    e.preventDefault();
+                    handleDoubleTap();
+                    clearTimeout(tapTimeout);
+                    tapCount = 0;
+                }
+            } else if (gestureType === 'swipe-x') {
+                const deltaX = e.changedTouches[0].clientX - touchStartX;
+                const seekTime = deltaX * SEEK_SENSITIVITY;
+                currentVideo.currentTime += seekTime;
+                triggerHapticFeedback();
+            } else if (gestureType === 'swipe-y') {
+                triggerHapticFeedback();
             }
-            // Single tap is ignored to allow native play/pause
-        } else if (gestureType === 'swipe-x') {
-            const deltaX = e.changedTouches[0].clientX - touchStartX;
-            const seekTime = deltaX * SEEK_SENSITIVITY;
-            currentVideo.currentTime += seekTime;
         }
 
         setTimeout(() => {
-             if (currentVideo && currentVideo.gestureElements) {
-                currentVideo.gestureElements.indicator.classList.remove('visible');
+             if (currentVideo && currentVideo.gestureIndicator) {
+                currentVideo.gestureIndicator.classList.remove('visible');
             }
         }, 300);
 
@@ -169,17 +183,38 @@
     }
 
     // --- Gesture Logic ---
+    function handleTwoFingerTap() {
+        const isFullscreen = document.fullscreenElement;
+        const icon = isFullscreen 
+            ? `<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>` 
+            : `<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`;
+        showIndicator(currentVideo, icon);
+        triggerHapticFeedback();
+
+        if (isFullscreen) {
+            document.exitFullscreen();
+        } else {
+            const container = currentVideo.parentElement;
+            if (container.requestFullscreen) {
+                container.requestFullscreen();
+            } else {
+                currentVideo.requestFullscreen();
+            }
+        }
+    }
+
     function handleDoubleTap() {
         const rect = currentVideo.getBoundingClientRect();
         const tapZone = (touchStartX - rect.left) / rect.width;
 
-        if (tapZone < 0.33) { // Left
+        if (tapZone < 0.33) {
             currentVideo.currentTime -= DOUBLE_TAP_SEEK_SECONDS;
             showIndicator(currentVideo, `<svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6l-8.5 6z"/></svg> -10s`);
-        } else if (tapZone > 0.66) { // Right
+        } else if (tapZone > 0.66) {
             currentVideo.currentTime += DOUBLE_TAP_SEEK_SECONDS;
             showIndicator(currentVideo, `+10s <svg viewBox="0 0 24 24"><path d="M18 6h-2v12h2zM4 6v12l8.5-6L4 6z"/></svg>`);
         }
+        triggerHapticFeedback();
     }
 
     function handleHorizontalSwipe(deltaX) {
@@ -195,44 +230,11 @@
         const tapZone = (touchStartX - rect.left) / rect.width;
         
         if (tapZone > 0.5) { // Right side for Volume
-            const volumeChange = -deltaY / 100; // Invert deltaY
+            const volumeChange = -deltaY / 100;
             currentVideo.volume = Math.max(0, Math.min(1, currentVideo.volume + volumeChange));
             showIndicator(currentVideo, `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> ${Math.round(currentVideo.volume * 100)}%`);
         } else { // Left side for Brightness
-            // Browser scripts cannot change system brightness. This is a visual indicator only.
             showIndicator(currentVideo, `<svg viewBox="0 0 24 24"><path d="M20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12 20 8.69zM12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/></svg> Brightness`);
-        }
-    }
-
-    function showSpeedMenu(video, x, y) {
-        const { speedMenu } = video.gestureElements;
-        speedMenu.innerHTML = ''; // Clear old buttons
-        PLAYBACK_RATES.forEach(rate => {
-            const btn = document.createElement('button');
-            btn.textContent = `${rate}x`;
-            if (video.playbackRate === rate) btn.classList.add('active');
-            btn.onclick = (e) => {
-                e.stopPropagation();
-                video.playbackRate = rate;
-                hideSpeedMenu(video);
-            };
-            speedMenu.appendChild(btn);
-        });
-
-        speedMenu.classList.add('visible');
-        const rect = video.getBoundingClientRect();
-        speedMenu.style.left = `${x - rect.left}px`;
-        speedMenu.style.top = `${y - rect.top}px`;
-
-        // Add a one-time listener to hide the menu when clicking outside
-        setTimeout(() => {
-            document.addEventListener('click', () => hideSpeedMenu(video), { once: true });
-        }, 0);
-    }
-    
-    function hideSpeedMenu(video) {
-        if (video && video.gestureElements) {
-            video.gestureElements.speedMenu.classList.remove('visible');
         }
     }
 
@@ -247,7 +249,6 @@
     // --- Initialization ---
     function initialize() {
         injectStyles();
-        // Use event delegation on the body to catch all video interactions
         document.body.addEventListener('touchstart', onTouchStart, { passive: false });
         document.body.addEventListener('touchmove', onTouchMove, { passive: false });
         document.body.addEventListener('touchend', onTouchEnd, { passive: false });
