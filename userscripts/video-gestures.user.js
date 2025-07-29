@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      7.1
+// @version      7.2
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -20,10 +20,10 @@
 
     // --- Central Configuration Panel ---
     const DEFAULTS = {
-        MIN_VIDEO_DURATION_SECONDS: 60,
-        DOUBLE_TAP_SEEK_SECONDS: 10,
+        MIN_VIDEO_DURATION_SECONDS: 90,
+        DOUBLE_TAP_SEEK_SECONDS: 5,
         SWIPE_THRESHOLD: 20,
-        SEEK_SENSITIVITY: 0.1,
+        SEEK_SENSITIVITY: 0.3,
         ENABLE_HAPTIC_FEEDBACK: true,
         HAPTIC_FEEDBACK_DURATION_MS: 20,
         FORCE_LANDSCAPE: true
