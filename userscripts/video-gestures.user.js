@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      4.0
+// @version      4.1
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -26,7 +26,7 @@
         SEEK_SENSITIVITY: 0.1,
         ENABLE_HAPTIC_FEEDBACK: true,
         HAPTIC_FEEDBACK_DURATION_MS: 20,
-        FORCE_LANDSCAPE: true // New: Force landscape for horizontal videos on fullscreen entry
+        FORCE_LANDSCAPE: true
     };
     
     let config = await GM_getValue('config', DEFAULTS);
@@ -59,24 +59,16 @@
                 transform: translate(-50%, -50%);
                 padding: 10px 16px; background-color: rgba(30, 30, 30, 0.9);
                 color: #fff; font-family: 'Roboto', sans-serif; font-size: 16px;
-                border-radius: 20px; z-index: 2147483647; display: flex;
+                border-radius: 20px; 
+                /* Use a very high z-index to ensure our UI is on top of the video */
+                z-index: 2147483647; 
+                display: flex;
                 align-items: center; gap: 8px; opacity: 0; pointer-events: none;
                 transition: opacity 0.2s ease, transform 0.2s ease;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.3);
             }
             .vg-indicator.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
             .vg-indicator svg { width: 24px; height: 24px; fill: #fff; }
-
-            .vg-fullscreen-fix {
-                position: fixed !important;
-                top: 0 !important;
-                left: 0 !important;
-                width: 100% !important;
-                height: 100% !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                transform: none !important;
-            }
         `;
         document.head.appendChild(style);
     }
@@ -84,7 +76,7 @@
     // --- Global State ---
     let touchStartX = 0, touchStartY = 0;
     let currentVideo = null;
-    let gestureType = null; // tap, swipe-x, swipe-y, long-press
+    let gestureType = null;
     let tapTimeout = null, longPressTimeout = null;
     let tapCount = 0;
     let originalPlaybackRate = 1.0;
@@ -146,7 +138,6 @@
     function onTouchMove(e) {
         if (!currentVideo || e.touches.length > 1 || gestureType === 'long-press') return;
 
-        // Swipes are fullscreen-only gestures.
         if (!document.fullscreenElement) {
             clearTimeout(longPressTimeout);
             return;
@@ -176,7 +167,6 @@
 
         if (gestureType === 'tap' && tapCount >= 2) {
             e.preventDefault();
-            // ** NEW: Context-aware double tap **
             if (document.fullscreenElement) {
                 handleDoubleTapSeek();
             } else {
@@ -185,7 +175,6 @@
             clearTimeout(tapTimeout);
             tapCount = 0;
         } 
-        // Handle other fullscreen-only gestures
         else if (document.fullscreenElement) {
             if (gestureType === 'long-press') {
                 currentVideo.playbackRate = originalPlaybackRate;
@@ -265,18 +254,11 @@
         }
     }
     
+    // ** FIX: This listener now ONLY handles unlocking orientation on exit **
     function handleFullscreenChange() {
-        const fullscreenElement = document.fullscreenElement;
-        if (fullscreenElement) {
-            fullscreenElement.classList.add('vg-fullscreen-fix');
-        } else {
-            // Unlock orientation when exiting fullscreen
+        if (!document.fullscreenElement) {
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
-            }
-            const fixedElement = document.querySelector('.vg-fullscreen-fix');
-            if (fixedElement) {
-                fixedElement.classList.remove('vg-fullscreen-fix');
             }
         }
     }
