@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      7.0
+// @version      7.1
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -78,7 +78,10 @@
     let gestureType = null;
     let tapTimeout = null;
     let tapCount = 0;
-    let modifiedElements = [];
+    let playerContainer = null;
+    let originalParent = null;
+    let originalNextSibling = null;
+    let originalPlayerStyle = {};
 
     // --- UI & Feedback ---
     function showIndicator(video, html) {
@@ -136,11 +139,9 @@
                 const rect = currentVideo.getBoundingClientRect();
                 const tapZone = (touchStartX - rect.left) / rect.width;
 
-                // Fullscreen toggle is the only swipe gesture available outside of fullscreen
                 if (isVerticalSwipe && tapZone > 0.33 && tapZone < 0.66) {
                     gestureType = 'swipe-y-fullscreen';
                 } else if (document.fullscreenElement) {
-                    // All other swipes are fullscreen-only
                     gestureType = isVerticalSwipe ? 'swipe-y' : 'swipe-x';
                 }
             }
@@ -156,14 +157,12 @@
     function onTouchEnd(e) {
         if (!currentVideo) return;
 
-        // Handle fullscreen toggle gesture first, as it's always available
         if (gestureType === 'swipe-y-fullscreen') {
             const deltaY = e.changedTouches[0].clientY - touchStartY;
             if (deltaY > config.SWIPE_THRESHOLD) {
                 handleFullscreenToggle();
             }
         }
-        // Handle all other gestures, which are strictly fullscreen-only
         else if (document.fullscreenElement) {
             if (gestureType === 'tap' && tapCount >= 2) {
                 e.preventDefault();
@@ -196,8 +195,36 @@
         if (isFullscreen) {
             document.exitFullscreen();
         } else {
-            const container = currentVideo.parentElement;
-            const fsPromise = container.requestFullscreen ? container.requestFullscreen() : currentVideo.requestFullscreen();
+            const wrapper = document.createElement('div');
+            wrapper.id = 'vg-fullscreen-wrapper';
+            Object.assign(wrapper.style, {
+                position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
+                backgroundColor: 'black', display: 'flex',
+                alignItems: 'center', justifyContent: 'center', zIndex: '2147483646'
+            });
+
+            playerContainer = currentVideo.parentElement;
+            originalParent = playerContainer.parentElement;
+            originalNextSibling = playerContainer.nextElementSibling;
+            
+            originalPlayerStyle = {
+                width: playerContainer.style.width,
+                height: playerContainer.style.height,
+                maxWidth: playerContainer.style.maxWidth,
+                maxHeight: playerContainer.style.maxHeight,
+                position: playerContainer.style.position,
+                zIndex: playerContainer.style.zIndex,
+            };
+
+            Object.assign(playerContainer.style, {
+                width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%',
+                position: 'relative', zIndex: '1'
+            });
+
+            wrapper.appendChild(playerContainer);
+            document.body.appendChild(wrapper);
+            
+            const fsPromise = wrapper.requestFullscreen();
             
             if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
                 fsPromise.then(() => {
@@ -240,11 +267,11 @@
             currentVideo.volume = Math.max(0, Math.min(1, currentVideo.volume + volumeChange));
             showIndicator(currentVideo, `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> ${Math.round(currentVideo.volume * 100)}%`);
         } else if (tapZone < 0.33) { // Left side for Playback Speed
-            if (deltaY < -config.SWIPE_THRESHOLD) {
+            if (deltaY < -config.SWIPE_THRESHOLD) { // Swipe Up
                 currentVideo.playbackRate = 2.0;
                 const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
                 showIndicator(currentVideo, `${speedIcon} <span>2.0x Speed</span>`);
-            } else if (deltaY > config.SWIPE_THRESHOLD) {
+            } else if (deltaY > config.SWIPE_THRESHOLD) { // Swipe Down
                 currentVideo.playbackRate = 1.0;
                 const speedIcon = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
                 showIndicator(currentVideo, `${speedIcon} <span>1.0x Speed</span>`);
@@ -252,54 +279,16 @@
         }
     }
     
-    // ** STABLE FIX: Active Stacking Repair **
     function handleFullscreenChange() {
-        const fullscreenElement = document.fullscreenElement;
-        
-        if (!fullscreenElement) {
-            // Restore all original styles when exiting
-            modifiedElements.forEach(({ element, originalStyle }) => {
-                element.style.cssText = originalStyle;
-            });
-            modifiedElements = [];
-
+        if (!document.fullscreenElement) {
+            const wrapper = document.getElementById('vg-fullscreen-wrapper');
+            if (wrapper && originalParent && playerContainer) {
+                Object.assign(playerContainer.style, originalPlayerStyle);
+                originalParent.insertBefore(playerContainer, originalNextSibling);
+                wrapper.remove();
+            }
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
-            }
-            return;
-        }
-
-        const video = fullscreenElement.querySelector('video') || (fullscreenElement.matches('video') ? fullscreenElement : null);
-        if (!video) return;
-
-        const playerContainer = video.parentElement;
-        if (!playerContainer) return;
-
-        // Function to save original styles before changing them
-        const saveAndSetStyle = (element, styles) => {
-            modifiedElements.push({ element, originalStyle: element.style.cssText });
-            Object.assign(element.style, styles);
-        };
-
-        // 1. Create a stacking context on the parent
-        if (getComputedStyle(playerContainer).position === 'static') {
-            saveAndSetStyle(playerContainer, { position: 'relative' });
-        }
-
-        // 2. Push video to the absolute back and make it fill the container
-        saveAndSetStyle(video, { 
-            position: 'absolute', 
-            zIndex: '1', 
-            top: '0', 
-            left: '0', 
-            width: '100%', 
-            height: '100%'
-        });
-        
-        // 3. Elevate all sibling UI elements above the video
-        for (const child of playerContainer.children) {
-            if (child !== video) {
-                saveAndSetStyle(child, { position: 'relative', zIndex: '2' });
             }
         }
     }
