@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Universal Video Touch Gestures (Pro)
+// @name         Universal Video Gestures
 // @namespace    http://your-namespace.com
-// @version      3.0
+// @version      5.0
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
