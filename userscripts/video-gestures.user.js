@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      5.6
+// @version      6.0
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -78,10 +78,7 @@
     let gestureType = null;
     let tapTimeout = null;
     let tapCount = 0;
-    let playerContainer = null;
-    let originalParent = null;
-    let originalNextSibling = null;
-    let originalPlayerStyle = {};
+    let modifiedElements = [];
 
     // --- UI & Feedback ---
     function showIndicator(video, html) {
@@ -120,10 +117,11 @@
         touchStartY = e.touches[0].clientY;
         gestureType = 'tap';
 
-        // Always set up the double-tap timer
-        const DOUBLE_TAP_TIMEOUT_MS = 350;
-        tapTimeout = setTimeout(() => { tapCount = 0; }, DOUBLE_TAP_TIMEOUT_MS);
-        tapCount++;
+        if (document.fullscreenElement) {
+            const DOUBLE_TAP_TIMEOUT_MS = 350;
+            tapTimeout = setTimeout(() => { tapCount = 0; }, DOUBLE_TAP_TIMEOUT_MS);
+            tapCount++;
+        }
     }
 
     function onTouchMove(e) {
@@ -135,15 +133,13 @@
         if (Math.abs(deltaX) > config.SWIPE_THRESHOLD || Math.abs(deltaY) > config.SWIPE_THRESHOLD) {
             if (gestureType === 'tap') {
                 const isVerticalSwipe = Math.abs(deltaY) > Math.abs(deltaX);
-                // All swipes are fullscreen only
-                if (document.fullscreenElement) {
-                    const rect = currentVideo.getBoundingClientRect();
-                    const tapZone = (touchStartX - rect.left) / rect.width;
-                    if (isVerticalSwipe && tapZone > 0.33 && tapZone < 0.66) {
-                        gestureType = 'swipe-y-exit';
-                    } else {
-                        gestureType = isVerticalSwipe ? 'swipe-y' : 'swipe-x';
-                    }
+                const rect = currentVideo.getBoundingClientRect();
+                const tapZone = (touchStartX - rect.left) / rect.width;
+
+                if (isVerticalSwipe && tapZone > 0.33 && tapZone < 0.66) {
+                    gestureType = 'swipe-y-fullscreen';
+                } else if (document.fullscreenElement) {
+                    gestureType = isVerticalSwipe ? 'swipe-y' : 'swipe-x';
                 }
             }
         }
@@ -158,22 +154,18 @@
     function onTouchEnd(e) {
         if (!currentVideo) return;
 
-        if (gestureType === 'tap' && tapCount >= 2) {
-            e.preventDefault();
-            if (document.fullscreenElement) {
-                handleDoubleTapSeek();
-            } else {
-                handleEnterFullscreen();
+        if (gestureType === 'swipe-y-fullscreen') {
+            const deltaY = e.changedTouches[0].clientY - touchStartY;
+            if (deltaY > config.SWIPE_THRESHOLD) {
+                handleFullscreenToggle();
             }
-            clearTimeout(tapTimeout);
-            tapCount = 0;
         }
         else if (document.fullscreenElement) {
-            if (gestureType === 'swipe-y-exit') {
-                const deltaY = e.changedTouches[0].clientY - touchStartY;
-                if (deltaY > config.SWIPE_THRESHOLD) {
-                    handleExitFullscreen();
-                }
+            if (gestureType === 'tap' && tapCount >= 2) {
+                e.preventDefault();
+                handleDoubleTapSeek();
+                clearTimeout(tapTimeout);
+                tapCount = 0;
             } else if (gestureType === 'swipe-x') {
                 const deltaX = e.changedTouches[0].clientX - touchStartX;
                 const seekTime = deltaX * config.SEEK_SENSITIVITY;
@@ -189,57 +181,27 @@
     }
 
     // --- Gesture Logic ---
-    function handleEnterFullscreen() {
-        const icon = `<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`;
+    function handleFullscreenToggle() {
+        const isFullscreen = document.fullscreenElement;
+        const icon = isFullscreen 
+            ? `<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>`
+            : `<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`;
         showIndicator(currentVideo, icon);
         triggerHapticFeedback();
 
-        const wrapper = document.createElement('div');
-        wrapper.id = 'vg-fullscreen-wrapper';
-        Object.assign(wrapper.style, {
-            position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
-            backgroundColor: 'black', display: 'flex',
-            alignItems: 'center', justifyContent: 'center', zIndex: '2147483646'
-        });
-
-        playerContainer = currentVideo.parentElement;
-        originalParent = playerContainer.parentElement;
-        originalNextSibling = playerContainer.nextElementSibling;
-        
-        originalPlayerStyle = {
-            width: playerContainer.style.width,
-            height: playerContainer.style.height,
-            maxWidth: playerContainer.style.maxWidth,
-            maxHeight: playerContainer.style.maxHeight,
-            position: playerContainer.style.position,
-            zIndex: playerContainer.style.zIndex,
-        };
-
-        Object.assign(playerContainer.style, {
-            width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%',
-            position: 'relative', zIndex: '1'
-        });
-
-        wrapper.appendChild(playerContainer);
-        document.body.appendChild(wrapper);
-        
-        const fsPromise = wrapper.requestFullscreen();
-        
-        if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
-            fsPromise.then(() => {
-                if (screen.orientation && typeof screen.orientation.lock === 'function') {
-                    screen.orientation.lock('landscape').catch(err => console.warn('Could not lock orientation:', err.message));
-                }
-            }).catch(err => console.warn('Fullscreen request failed:', err.message));
-        }
-    }
-
-    function handleExitFullscreen() {
-        const icon = `<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>`;
-        showIndicator(currentVideo, icon);
-        triggerHapticFeedback();
-        if (document.fullscreenElement) {
+        if (isFullscreen) {
             document.exitFullscreen();
+        } else {
+            const container = currentVideo.parentElement;
+            const fsPromise = container.requestFullscreen ? container.requestFullscreen() : currentVideo.requestFullscreen();
+            
+            if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
+                fsPromise.then(() => {
+                    if (screen.orientation && typeof screen.orientation.lock === 'function') {
+                        screen.orientation.lock('landscape').catch(err => console.warn('Could not lock orientation:', err.message));
+                    }
+                }).catch(err => console.warn('Fullscreen request failed:', err.message));
+            }
         }
     }
 
@@ -286,16 +248,40 @@
         }
     }
     
+    // ** STABLE FIX: Active Stacking Repair **
     function handleFullscreenChange() {
-        if (!document.fullscreenElement) {
-            const wrapper = document.getElementById('vg-fullscreen-wrapper');
-            if (wrapper && originalParent && playerContainer) {
-                Object.assign(playerContainer.style, originalPlayerStyle);
-                originalParent.insertBefore(playerContainer, originalNextSibling);
-                wrapper.remove();
-            }
+        const fullscreenElement = document.fullscreenElement;
+        
+        if (!fullscreenElement) {
+            modifiedElements.forEach(({ element, originalZIndex }) => {
+                element.style.zIndex = originalZIndex;
+            });
+            modifiedElements = [];
+
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
+            }
+            return;
+        }
+
+        const video = fullscreenElement.querySelector('video') || (fullscreenElement.matches('video') ? fullscreenElement : null);
+        if (!video) return;
+
+        const playerContainer = video.parentElement;
+        if (!playerContainer) return;
+
+        const saveAndSetStyle = (element, zIndex) => {
+            modifiedElements.push({ element, originalZIndex: element.style.zIndex });
+            element.style.zIndex = zIndex;
+        };
+
+        // Set video to a base layer
+        saveAndSetStyle(video, '1');
+        
+        // Elevate all sibling elements (UI controls) above the video
+        for (const child of playerContainer.children) {
+            if (child !== video) {
+                saveAndSetStyle(child, '2');
             }
         }
     }
