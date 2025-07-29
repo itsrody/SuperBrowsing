@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Video Gestures
+// @name         Universal Video Gestures (Advanced)
 // @namespace    http://tampermonkey.net/
-// @version      2.0
-// @description  Adds swipe-to-seek, long-press for speed, and double-tap for fullscreen to videos longer than 3 minutes. Optimized for Scriptcat on Firefox for Android.
+// @version      2.3
+// @description  Adds swipe-to-seek, momentary long-press for speed, and double-tap for fullscreen to videos longer than 3 minutes. Disables context menu.
 // @author       Your Name
 // @match        *://*/*
 // @grant        none
@@ -16,9 +16,9 @@
     const VIDEO_MIN_DURATION_SECONDS = 180; // 3 minutes
     const SEEK_TIME_SECONDS = 10;
     const DOUBLE_TAP_THRESHOLD_MS = 400;
-    const LONG_PRESS_DURATION_MS = 600;
-    const SWIPE_THRESHOLD_X_PX = 40; // Min horizontal distance for a swipe
-    const SWIPE_MAX_VERTICAL_Y_PX = 50; // Max vertical distance to still be a horizontal swipe
+    const LONG_PRESS_DURATION_MS = 500; // Slightly shorter for better responsiveness
+    const SWIPE_THRESHOLD_X_PX = 40;
+    const SWIPE_MAX_VERTICAL_Y_PX = 50;
 
     // --- Style Injection ---
     function addStyles() {
@@ -98,30 +98,29 @@
         let touchStartTime = 0;
         let lastTapTime = 0;
         let longPressTimeout = null;
-        let actionTaken = false; // Flag to prevent multiple actions from one touch sequence
+        let singleTapTimeout = null;
+        let actionTaken = false;
+        let isLongPressActive = false;
 
-        // Stop native click events to prevent conflicts
-        video.addEventListener('click', e => e.preventDefault(), true);
+        // Stop native click and context menu events to prevent conflicts
+        video.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); }, true);
+        video.addEventListener('contextmenu', e => e.preventDefault(), true); // **NEW**: Disable context menu
 
         video.addEventListener('touchstart', (e) => {
-            if (e.touches.length > 1) return; // Ignore multi-touch gestures
+            if (e.touches.length > 1) return;
             
             actionTaken = false;
+            isLongPressActive = false;
             const touch = e.touches[0];
             touchStartX = touch.clientX;
             touchStartY = touch.clientY;
             touchStartTime = Date.now();
 
-            // Start a timer for long press
             longPressTimeout = setTimeout(() => {
-                actionTaken = true; // Mark that an action has been performed
-                if (video.playbackRate === 1.0) {
-                    video.playbackRate = 2.0;
-                    showIndicator(container, 'Speed: 2x', icons.playSpeed);
-                } else {
-                    video.playbackRate = 1.0;
-                    showIndicator(container, 'Speed: 1x', icons.playSpeed);
-                }
+                actionTaken = true;
+                isLongPressActive = true;
+                video.playbackRate = 2.0;
+                showIndicator(container, 'Speed: 2x', icons.playSpeed);
             }, LONG_PRESS_DURATION_MS);
 
         }, { passive: true });
@@ -133,39 +132,44 @@
             const deltaX = touch.clientX - touchStartX;
             const deltaY = touch.clientY - touchStartY;
 
-            // Check if it's a horizontal swipe
             if (Math.abs(deltaX) > SWIPE_THRESHOLD_X_PX && Math.abs(deltaY) < SWIPE_MAX_VERTICAL_Y_PX) {
-                clearTimeout(longPressTimeout); // It's a swipe, not a long press
+                clearTimeout(longPressTimeout);
                 actionTaken = true;
 
-                if (deltaX > 0) { // Swipe right -> Fast Forward
+                if (deltaX > 0) {
                     video.currentTime = Math.min(video.duration, video.currentTime + SEEK_TIME_SECONDS);
                     showIndicator(container, `+${SEEK_TIME_SECONDS}s`, icons.fastForward);
-                } else { // Swipe left -> Rewind
+                } else {
                     video.currentTime = Math.max(0, video.currentTime - SEEK_TIME_SECONDS);
                     showIndicator(container, `-${SEEK_TIME_SECONDS}s`, icons.rewind);
                 }
-                // Reset start position to allow for continuous swiping without lifting finger
                 touchStartX = touch.clientX;
             } else if (Math.abs(deltaY) > SWIPE_MAX_VERTICAL_Y_PX) {
-                // If it's a vertical swipe, cancel the long press timer
                  clearTimeout(longPressTimeout);
             }
         }, { passive: true });
 
         video.addEventListener('touchend', (e) => {
             clearTimeout(longPressTimeout);
-            if (actionTaken) return; // An action (swipe, long press) was already handled
+
+            if (isLongPressActive) {
+                video.playbackRate = 1.0;
+                showIndicator(container, 'Speed: 1x', icons.playSpeed);
+                isLongPressActive = false;
+                return;
+            }
+
+            if (actionTaken) return;
 
             const now = Date.now();
             const tapDuration = now - touchStartTime;
             
-            // It's a tap, not a swipe or long press
             if (tapDuration < DOUBLE_TAP_THRESHOLD_MS) {
                 if ((now - lastTapTime) < DOUBLE_TAP_THRESHOLD_MS) {
-                    // --- Double Tap Action: Fullscreen ---
-                    lastTapTime = 0; // Reset tap timer
-                    const isFullscreen = !!document.fullscreenElement;
+                    clearTimeout(singleTapTimeout);
+                    lastTapTime = 0;
+                    
+                    const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
                     if (!isFullscreen) {
                         (container.requestFullscreen || container.webkitRequestFullscreen || container.mozRequestFullScreen).call(container);
                         showIndicator(container, 'Enter Fullscreen', icons.fullscreenEnter);
@@ -174,14 +178,8 @@
                         showIndicator(container, 'Exit Fullscreen', icons.fullscreenExit);
                     }
                 } else {
-                    // --- Single Tap Action: Play/Pause ---
-                    // This is the first tap, wait to see if a second one comes.
-                    // We trigger play/pause via a timeout. If a double tap occurs, this gets cancelled.
-                    // But a simple play/pause is better.
                     lastTapTime = now;
-                    // We add a small delay to allow the double-tap to register.
-                    setTimeout(() => {
-                        // if lastTapTime is still the same, it means no double tap happened
+                    singleTapTimeout = setTimeout(() => {
                         if (lastTapTime === now) {
                              if (video.paused) {
                                 video.play();
@@ -211,7 +209,7 @@
                 }
             };
 
-            if (video.readyState >= 1) { // HAVE_METADATA
+            if (video.readyState >= 1) {
                 checkDuration();
             } else {
                 video.addEventListener('loadedmetadata', checkDuration);
