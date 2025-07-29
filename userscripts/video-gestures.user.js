@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Gestures (Advanced)
 // @namespace    http://tampermonkey.net/
-// @version      2.3
+// @version      2.4
 // @description  Adds swipe-to-seek, momentary long-press for speed, and double-tap for fullscreen to videos longer than 3 minutes. Disables context menu.
 // @author       Your Name
 // @match        *://*/*
@@ -102,9 +102,8 @@
         let actionTaken = false;
         let isLongPressActive = false;
 
-        // Stop native click and context menu events to prevent conflicts
         video.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); }, true);
-        video.addEventListener('contextmenu', e => e.preventDefault(), true); // **NEW**: Disable context menu
+        video.addEventListener('contextmenu', e => e.preventDefault(), true);
 
         video.addEventListener('touchstart', (e) => {
             if (e.touches.length > 1) return;
@@ -171,7 +170,8 @@
                     
                     const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
                     if (!isFullscreen) {
-                        (container.requestFullscreen || container.webkitRequestFullscreen || container.mozRequestFullScreen).call(container);
+                        // **FIX**: Request fullscreen on the video element itself, not the container
+                        (video.requestFullscreen || video.webkitRequestFullscreen || video.mozRequestFullScreen).call(video);
                         showIndicator(container, 'Enter Fullscreen', icons.fullscreenEnter);
                     } else {
                         (document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen).call(document);
