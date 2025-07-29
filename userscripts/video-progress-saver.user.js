@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Progress Saver (Background Version)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      2.2
+// @version      2.3
 // @description  Automatically saves and restores progress for HTML5 videos using a central background script.
 // @match        *://*/*
 // @grant        GM_setValue
@@ -116,8 +116,6 @@ if (typeof window !== 'undefined') {
         STORAGE_PREFIX: 'vps_progress_'
     };
 
-    const processedVideos = new WeakMap();
-
     const createStorageKey = (video) => {
         const duration = Math.round(video.duration);
         let identifier = video.currentSrc || video.src;
@@ -139,11 +137,10 @@ if (typeof window !== 'undefined') {
     };
 
     const handleVideo = (video) => {
-        // Use a flag on the element itself to ensure we only process it once
         if (video._vpsHandled) return;
         video._vpsHandled = true;
 
-        const init = () => {
+        const init = async () => {
             if (video.duration < CONFIG.MIN_DURATION_TO_SAVE) {
                 return;
             }
@@ -151,28 +148,38 @@ if (typeof window !== 'undefined') {
             const key = createStorageKey(video);
             if (!key) return;
 
-            // ** FIX: Use a more reliable event for restoring progress **
-            let restoreAttempted = false;
-            const tryRestoreProgress = async () => {
-                if (restoreAttempted) return;
-                restoreAttempted = true; // Prevent running more than once
+            // ** DEFINITIVE FIX: Decouple fetching data from restoring progress **
+            
+            // 1. Fetch progress data as soon as possible
+            const data = await GM.script.call('getProgress', { key });
+            if (data && typeof data.progress === 'number' && data.progress < video.duration - 10) {
+                // Store the target time on the element itself
+                video._vpsRestoreTime = data.progress;
+                console.log(`[VPS] Found saved progress for ${key} at ${data.progress}. Will attempt to restore.`);
+            }
 
-                const data = await GM.script.call('getProgress', { key });
-                if (data && typeof data.progress === 'number' && data.progress < video.duration - 10) {
-                    video.currentTime = data.progress;
-                    const progressTime = new Date(data.progress * 1000).toISOString().substr(11, 8);
-                    const totalTime = new Date(data.duration * 1000).toISOString().substr(11, 8);
+            // 2. Create a single function to attempt restoration
+            const tryRestoreProgress = () => {
+                // Check if there's a time to restore and if the video is ready to be seeked
+                if (video._vpsRestoreTime && video.seekable && video.seekable.length > 0) {
+                    video.currentTime = video._vpsRestoreTime;
+                    const progressTime = new Date(video._vpsRestoreTime * 1000).toISOString().substr(11, 8);
+                    const totalTime = new Date(video.duration * 1000).toISOString().substr(11, 8);
                     createToast(`Restored to ${progressTime} / ${totalTime}`, video);
-                    console.log(`[VPS] Restored progress for ${key} to ${data.progress}`);
+                    console.log(`[VPS] Successfully restored progress for ${key} to ${video._vpsRestoreTime}`);
+                    
+                    // Clean up to prevent re-restoring
+                    delete video._vpsRestoreTime;
+                    video.removeEventListener('canplay', tryRestoreProgress);
+                    video.removeEventListener('play', tryRestoreProgress);
                 }
             };
             
-            // The 'canplay' event is the safest time to set currentTime.
-            // The 'play' event is a fallback for autoplay restrictions.
+            // 3. Listen on the two most reliable events to apply the restoration
             video.addEventListener('canplay', tryRestoreProgress, { once: true });
             video.addEventListener('play', tryRestoreProgress, { once: true });
 
-            // Set up the throttled save function
+            // 4. Set up the throttled save function as before
             const throttledSave = throttle(() => {
                 GM.script.call('saveProgress', {
                     key,
@@ -186,8 +193,7 @@ if (typeof window !== 'undefined') {
             console.log(`[VPS] Now tracking video: ${key}`);
         };
 
-        // The duration might not be available immediately, so wait for loadedmetadata
-        if (video.readyState >= 1) { // METADATA is already loaded
+        if (video.readyState >= 1) {
             init();
         } else {
             video.addEventListener('loadedmetadata', init, { once: true });
