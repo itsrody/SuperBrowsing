@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      4.8
+// @version      4.9
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -79,7 +79,7 @@
     let tapTimeout = null, longPressTimeout = null;
     let tapCount = 0;
     let originalPlaybackRate = 1.0;
-    let lastFullscreenVideo = null; // Store the video that was in fullscreen
+    let modifiedElements = []; // To store elements whose styles we change
 
     // --- UI & Feedback ---
     function createElements(video) {
@@ -275,26 +275,51 @@
         }
     }
     
+    // ** DEFINITIVE FIX: Active Stacking Repair **
     function handleFullscreenChange() {
         const fullscreenElement = document.fullscreenElement;
         
-        if (fullscreenElement) {
-            // Find the video within the fullscreen element
-            const video = fullscreenElement.querySelector('video') || (fullscreenElement.matches('video') ? fullscreenElement : null);
-            if (video) {
-                // ** UNIVERSAL FIX: Push the video to the back of its stacking context **
-                video.style.zIndex = -1;
-                lastFullscreenVideo = video; // Remember which video was fullscreen
-            }
-        } else {
-            // When exiting, restore the z-index of the last known fullscreen video
-            if (lastFullscreenVideo) {
-                lastFullscreenVideo.style.zIndex = '';
-                lastFullscreenVideo = null;
-            }
-            // Unlock orientation
+        // Restore original styles when exiting fullscreen
+        if (!fullscreenElement) {
+            modifiedElements.forEach(({ element, originalZIndex, originalPosition }) => {
+                element.style.zIndex = originalZIndex;
+                element.style.position = originalPosition;
+            });
+            modifiedElements = []; // Clear the list
+
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
+            }
+            return;
+        }
+
+        const video = fullscreenElement.querySelector('video') || (fullscreenElement.matches('video') ? fullscreenElement : null);
+        if (!video) return;
+
+        const playerContainer = video.parentElement;
+        if (!playerContainer) return;
+
+        // Function to save original styles
+        const saveAndSetStyle = (element, zIndex, position) => {
+            modifiedElements.push({
+                element,
+                originalZIndex: element.style.zIndex,
+                originalPosition: element.style.position
+            });
+            element.style.zIndex = zIndex;
+            // Set position only if it's not already relative or absolute
+            if (getComputedStyle(element).position === 'static') {
+                 element.style.position = position;
+            }
+        };
+
+        // Push the video to the back
+        saveAndSetStyle(video, '1', 'relative');
+        
+        // Bring all sibling elements (like control bars) to the front
+        for (const child of playerContainer.children) {
+            if (child !== video) {
+                saveAndSetStyle(child, '2', 'relative');
             }
         }
     }
