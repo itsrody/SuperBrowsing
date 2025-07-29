@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      3.9
+// @version      4.0
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -25,7 +25,8 @@
         SWIPE_THRESHOLD: 15,
         SEEK_SENSITIVITY: 0.1,
         ENABLE_HAPTIC_FEEDBACK: true,
-        HAPTIC_FEEDBACK_DURATION_MS: 20
+        HAPTIC_FEEDBACK_DURATION_MS: 20,
+        FORCE_LANDSCAPE: true // New: Force landscape for horizontal videos on fullscreen entry
     };
     
     let config = await GM_getValue('config', DEFAULTS);
@@ -83,7 +84,7 @@
     // --- Global State ---
     let touchStartX = 0, touchStartY = 0;
     let currentVideo = null;
-    let gestureType = null; // tap, swipe-x, swipe-y, swipe-y-middle, long-press
+    let gestureType = null; // tap, swipe-x, swipe-y, long-press
     let tapTimeout = null, longPressTimeout = null;
     let tapCount = 0;
     let originalPlaybackRate = 1.0;
@@ -145,62 +146,48 @@
     function onTouchMove(e) {
         if (!currentVideo || e.touches.length > 1 || gestureType === 'long-press') return;
 
+        // Swipes are fullscreen-only gestures.
+        if (!document.fullscreenElement) {
+            clearTimeout(longPressTimeout);
+            return;
+        }
+
         const deltaX = e.touches[0].clientX - touchStartX;
         const deltaY = e.touches[0].clientY - touchStartY;
 
         if (Math.abs(deltaX) > config.SWIPE_THRESHOLD || Math.abs(deltaY) > config.SWIPE_THRESHOLD) {
             clearTimeout(longPressTimeout);
             if (gestureType === 'tap') {
-                const isVerticalSwipe = Math.abs(deltaY) > Math.abs(deltaX);
-                if (isVerticalSwipe) {
-                    const rect = currentVideo.getBoundingClientRect();
-                    const tapZone = (touchStartX - rect.left) / rect.width;
-                    // Check for middle zone for fullscreen gesture
-                    if (tapZone > 0.33 && tapZone < 0.66) {
-                        gestureType = 'swipe-y-middle';
-                    } else {
-                        // Only allow volume/brightness swipes in fullscreen
-                        if (document.fullscreenElement) {
-                           gestureType = 'swipe-y';
-                        }
-                    }
-                } else {
-                    // Horizontal swipes are fullscreen only
-                    if (document.fullscreenElement) {
-                        gestureType = 'swipe-x';
-                    }
-                }
+                gestureType = Math.abs(deltaX) > Math.abs(deltaY) ? 'swipe-x' : 'swipe-y';
             }
         }
         
-        if (gestureType === 'swipe-x' || gestureType === 'swipe-y') {
-            e.preventDefault();
-            if (gestureType === 'swipe-x') handleHorizontalSwipe(deltaX);
-            if (gestureType === 'swipe-y') handleVerticalSwipe(deltaY);
-        } else if (gestureType === 'swipe-y-middle') {
-            e.preventDefault(); // Prevent page scroll for this gesture too
-        }
+        if (!gestureType || !gestureType.startsWith('swipe')) return;
+
+        e.preventDefault();
+
+        if (gestureType === 'swipe-x') handleHorizontalSwipe(deltaX);
+        if (gestureType === 'swipe-y') handleVerticalSwipe(deltaY);
     }
 
     function onTouchEnd(e) {
         clearTimeout(longPressTimeout);
         if (!currentVideo) return;
 
-        // Handle fullscreen swipe gesture (always available)
-        if (gestureType === 'swipe-y-middle') {
-            const deltaY = e.changedTouches[0].clientY - touchStartY;
-            if (deltaY > config.SWIPE_THRESHOLD) { // Only on swipe down
-                handleFullscreenToggle();
+        if (gestureType === 'tap' && tapCount >= 2) {
+            e.preventDefault();
+            // ** NEW: Context-aware double tap **
+            if (document.fullscreenElement) {
+                handleDoubleTapSeek();
+            } else {
+                handleDoubleTapFullscreen();
             }
-        }
-        // Handle fullscreen-only gestures
+            clearTimeout(tapTimeout);
+            tapCount = 0;
+        } 
+        // Handle other fullscreen-only gestures
         else if (document.fullscreenElement) {
-            if (gestureType === 'tap' && tapCount >= 2) {
-                e.preventDefault();
-                handleDoubleTap();
-                clearTimeout(tapTimeout);
-                tapCount = 0;
-            } else if (gestureType === 'long-press') {
+            if (gestureType === 'long-press') {
                 currentVideo.playbackRate = originalPlaybackRate;
                 triggerHapticFeedback();
             } else if (gestureType === 'swipe-x') {
@@ -224,27 +211,26 @@
     }
 
     // --- Gesture Logic ---
-    function handleFullscreenToggle() {
-        const isFullscreen = document.fullscreenElement;
-        const icon = isFullscreen 
-            ? `<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>` 
-            : `<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`;
+    function handleDoubleTapFullscreen() {
+        const icon = `<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`;
         showIndicator(currentVideo, icon);
         triggerHapticFeedback();
 
-        if (isFullscreen) {
-            document.exitFullscreen();
-        } else {
-            const container = currentVideo.parentElement;
-            if (container.requestFullscreen) {
-                container.requestFullscreen();
-            } else {
-                currentVideo.requestFullscreen();
-            }
+        const container = currentVideo.parentElement;
+        const fsPromise = container.requestFullscreen ? container.requestFullscreen() : currentVideo.requestFullscreen();
+        
+        if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
+            fsPromise.then(() => {
+                if (screen.orientation && typeof screen.orientation.lock === 'function') {
+                    screen.orientation.lock('landscape').catch(err => {
+                        console.warn('Could not lock screen orientation:', err.message);
+                    });
+                }
+            }).catch(err => console.warn('Fullscreen request failed:', err.message));
         }
     }
 
-    function handleDoubleTap() {
+    function handleDoubleTapSeek() {
         const rect = currentVideo.getBoundingClientRect();
         const tapZone = (touchStartX - rect.left) / rect.width;
 
@@ -270,7 +256,7 @@
         const rect = currentVideo.getBoundingClientRect();
         const tapZone = (touchStartX - rect.left) / rect.width;
         
-        if (tapZone > 0.66) { // Right side for Volume
+        if (tapZone > 0.5) { // Right side for Volume
             const volumeChange = -deltaY / 100;
             currentVideo.volume = Math.max(0, Math.min(1, currentVideo.volume + volumeChange));
             showIndicator(currentVideo, `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> ${Math.round(currentVideo.volume * 100)}%`);
@@ -284,6 +270,10 @@
         if (fullscreenElement) {
             fullscreenElement.classList.add('vg-fullscreen-fix');
         } else {
+            // Unlock orientation when exiting fullscreen
+            if (screen.orientation && typeof screen.orientation.unlock === 'function') {
+                screen.orientation.unlock();
+            }
             const fixedElement = document.querySelector('.vg-fullscreen-fix');
             if (fixedElement) {
                 fixedElement.classList.remove('vg-fullscreen-fix');
