@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      5.0
+// @version      5.1
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -75,7 +75,7 @@
     // --- Global State ---
     let touchStartX = 0, touchStartY = 0;
     let currentVideo = null;
-    let gestureType = null; // tap, swipe-x, swipe-y, swipe-y-fullscreen, long-press
+    let gestureType = null;
     let tapTimeout = null, longPressTimeout = null;
     let tapCount = 0;
     let originalPlaybackRate = 1.0;
@@ -84,6 +84,7 @@
     // --- UI & Feedback ---
     function showIndicator(video, html) {
         const parent = document.fullscreenElement || video.parentElement;
+        if (!parent) return;
         if (!parent.gestureIndicator) {
              const indicator = document.createElement('div');
              indicator.className = 'vg-indicator';
@@ -104,7 +105,14 @@
 
     // --- Event Handlers ---
     function onTouchStart(e) {
-        const video = e.target.closest('video');
+        let video;
+        // ** FIX: In fullscreen, find the video within the active element, not the event target **
+        if (document.fullscreenElement) {
+            video = document.fullscreenElement.querySelector('video');
+        } else {
+            video = e.target.closest('video');
+        }
+
         if (!video || video.duration < config.MIN_VIDEO_DURATION_SECONDS) return;
         
         currentVideo = video;
@@ -113,7 +121,6 @@
         touchStartY = e.touches[0].clientY;
         gestureType = 'tap';
 
-        // All advanced gestures are fullscreen-only
         if (document.fullscreenElement) {
             longPressTimeout = setTimeout(() => {
                 if (gestureType !== 'tap') return;
@@ -146,9 +153,8 @@
                 const tapZone = (touchStartX - rect.left) / rect.width;
 
                 if (isVerticalSwipe && tapZone > 0.33 && tapZone < 0.66) {
-                    gestureType = 'swipe-y-fullscreen'; // This gesture is always available
+                    gestureType = 'swipe-y-fullscreen';
                 } else if (document.fullscreenElement) {
-                    // Other swipes are fullscreen only
                     gestureType = isVerticalSwipe ? 'swipe-y' : 'swipe-x';
                 }
             }
@@ -165,14 +171,12 @@
         clearTimeout(longPressTimeout);
         if (!currentVideo) return;
 
-        // Handle fullscreen toggle gesture first, as it's always available
         if (gestureType === 'swipe-y-fullscreen') {
             const deltaY = e.changedTouches[0].clientY - touchStartY;
-            if (deltaY > config.SWIPE_THRESHOLD) { // Only on swipe down
+            if (deltaY > config.SWIPE_THRESHOLD) {
                 handleFullscreenToggle();
             }
         }
-        // Handle all other gestures, which are strictly fullscreen-only
         else if (document.fullscreenElement) {
             if (gestureType === 'tap' && tapCount >= 2) {
                 e.preventDefault();
@@ -256,12 +260,14 @@
         }
     }
     
+    // ** DEFINITIVE FIX: Active Stacking Repair with Pointer Events **
     function handleFullscreenChange() {
         const fullscreenElement = document.fullscreenElement;
         
         if (!fullscreenElement) {
-            modifiedElements.forEach(({ element, originalZIndex }) => {
+            modifiedElements.forEach(({ element, originalZIndex, originalPointerEvents }) => {
                 element.style.zIndex = originalZIndex;
+                element.style.pointerEvents = originalPointerEvents;
             });
             modifiedElements = [];
 
@@ -277,16 +283,25 @@
         const playerContainer = video.parentElement;
         if (!playerContainer) return;
 
-        const saveAndSetStyle = (element, zIndex) => {
-            modifiedElements.push({ element, originalZIndex: element.style.zIndex });
+        const saveAndSetStyle = (element, zIndex, pointerEvents) => {
+            modifiedElements.push({ 
+                element, 
+                originalZIndex: element.style.zIndex,
+                originalPointerEvents: element.style.pointerEvents
+            });
             element.style.zIndex = zIndex;
+            if (pointerEvents) {
+                element.style.pointerEvents = pointerEvents;
+            }
         };
 
-        saveAndSetStyle(video, '1');
+        // Push the video to the back AND make it ignore touch events
+        saveAndSetStyle(video, '1', 'none');
         
+        // Bring all sibling elements (like control bars) to the front
         for (const child of playerContainer.children) {
             if (child !== video) {
-                saveAndSetStyle(child, '2');
+                saveAndSetStyle(child, '2', 'auto');
             }
         }
     }
