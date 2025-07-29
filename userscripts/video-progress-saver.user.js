@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Progress Saver (Background Version)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      2.4
+// @version      2.5
 // @description  Automatically saves and restores progress for HTML5 videos using a central background script.
 // @match        *://*/*
 // @grant        GM_setValue
@@ -148,7 +148,7 @@ if (typeof window !== 'undefined') {
             const key = createStorageKey(video);
             if (!key) return;
 
-            // ** DEFINITIVE FIX: "Restore on Play" Logic **
+            // ** DEFINITIVE FIX: "Unconditional Restore on Play" Logic **
             
             // 1. Fetch the saved progress data immediately.
             const data = await GM.script.call('getProgress', { key });
@@ -156,15 +156,13 @@ if (typeof window !== 'undefined') {
             // 2. If data exists, set up a one-time listener for the 'play' event.
             if (data && typeof data.progress === 'number' && data.progress < video.duration - 10) {
                 const restoreOnPlay = () => {
-                    // Only restore if the current time is near the start.
-                    // This prevents re-seeking if the user manually seeks back and replays.
-                    if (video.currentTime < 5) {
-                        video.currentTime = data.progress;
-                        const progressTime = new Date(data.progress * 1000).toISOString().substr(11, 8);
-                        const totalTime = new Date(video.duration * 1000).toISOString().substr(11, 8);
-                        createToast(`Restored to ${progressTime} / ${totalTime}`, video);
-                        console.log(`[VPS] Successfully restored progress for ${key} to ${data.progress}`);
-                    }
+                    // ** FIX: Removed the unreliable currentTime check. **
+                    // This will now restore progress unconditionally on the first play event.
+                    video.currentTime = data.progress;
+                    const progressTime = new Date(data.progress * 1000).toISOString().substr(11, 8);
+                    const totalTime = new Date(video.duration * 1000).toISOString().substr(11, 8);
+                    createToast(`Restored to ${progressTime} / ${totalTime}`, video);
+                    console.log(`[VPS] Successfully restored progress for ${key} to ${data.progress}`);
                 };
                 video.addEventListener('play', restoreOnPlay, { once: true });
                 console.log(`[VPS] Found saved progress for ${key} at ${data.progress}. Will restore on first play.`);
