@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      5.5
+// @version      5.7
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -25,8 +25,7 @@
         SWIPE_THRESHOLD: 15,
         SEEK_SENSITIVITY: 0.1,
         ENABLE_HAPTIC_FEEDBACK: true,
-        HAPTIC_FEEDBACK_DURATION_MS: 20,
-        FORCE_LANDSCAPE: true
+        HAPTIC_FEEDBACK_DURATION_MS: 20
     };
     
     let config = await GM_getValue('config', DEFAULTS);
@@ -122,9 +121,9 @@
         touchStartY = e.touches[0].clientY;
         gestureType = 'tap';
 
-        // **FIX**: Set up long-press timer, but check for fullscreen inside the timeout.
         longPressTimeout = setTimeout(() => {
-            if (gestureType !== 'tap' || !document.fullscreenElement) return; // Only trigger in fullscreen
+            // Long press is a fullscreen-only gesture
+            if (gestureType !== 'tap' || !document.fullscreenElement) return;
             
             gestureType = 'long-press';
             e.preventDefault();
@@ -144,9 +143,9 @@
     function onTouchMove(e) {
         if (!currentVideo || e.touches.length > 1 || gestureType === 'long-press' || gestureType === 'two-finger-tap') return;
         
-        // **FIX**: All swipe gestures are fullscreen-only.
+        // Swipes are fullscreen-only gestures.
         if (!document.fullscreenElement) {
-            clearTimeout(longPressTimeout); // Cancel long press if swipe starts outside fullscreen
+            clearTimeout(longPressTimeout);
             return;
         }
 
@@ -172,19 +171,20 @@
         clearTimeout(longPressTimeout);
         if (!currentVideo) return;
 
-        // Two-finger tap and double-tap can happen anytime
+        // Handle always-on gestures first
         if (gestureType === 'two-finger-tap' && e.touches.length === 0) {
             e.preventDefault();
             handleTwoFingerTap();
-        } else if (gestureType === 'tap' && tapCount >= 2) {
-            e.preventDefault();
-            handleDoubleTap();
-            clearTimeout(tapTimeout);
-            tapCount = 0;
         } 
-        // Other gestures only complete if we are in fullscreen
+        // Then, handle fullscreen-only gestures
         else if (document.fullscreenElement) {
-            if (gestureType === 'long-press') {
+            // ** FIX: Double-tap is now a fullscreen-only gesture **
+            if (gestureType === 'tap' && tapCount >= 2) {
+                e.preventDefault();
+                handleDoubleTap();
+                clearTimeout(tapTimeout);
+                tapCount = 0;
+            } else if (gestureType === 'long-press') {
                 currentVideo.playbackRate = originalPlaybackRate;
                 triggerHapticFeedback();
             } else if (gestureType === 'swipe-x') {
@@ -220,16 +220,10 @@
             document.exitFullscreen();
         } else {
             const container = currentVideo.parentElement;
-            const fsPromise = container.requestFullscreen ? container.requestFullscreen() : currentVideo.requestFullscreen();
-            
-            if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
-                fsPromise.then(() => {
-                    if (screen.orientation && typeof screen.orientation.lock === 'function') {
-                        screen.orientation.lock('landscape').catch(err => {
-                            console.warn('Could not lock screen orientation:', err.message);
-                        });
-                    }
-                }).catch(err => console.warn('Fullscreen request failed:', err.message));
+            if (container.requestFullscreen) {
+                container.requestFullscreen();
+            } else {
+                currentVideo.requestFullscreen();
             }
         }
     }
@@ -269,14 +263,6 @@
         }
     }
     
-    function handleFullscreenChange() {
-        if (!document.fullscreenElement) {
-            if (screen.orientation && typeof screen.orientation.unlock === 'function') {
-                screen.orientation.unlock();
-            }
-        }
-    }
-
     // --- Utilities ---
     function formatTime(totalSeconds) {
         const sec = Math.floor(totalSeconds % 60).toString().padStart(2, '0');
@@ -291,7 +277,6 @@
         document.body.addEventListener('touchstart', onTouchStart, { passive: false });
         document.body.addEventListener('touchmove', onTouchMove, { passive: false });
         document.body.addEventListener('touchend', onTouchEnd, { passive: false });
-        document.addEventListener('fullscreenchange', handleFullscreenChange);
     }
 
     if (document.readyState === 'loading') {
