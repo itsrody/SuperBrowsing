@@ -1,24 +1,21 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures
 // @namespace    http://your-namespace.com
-// @version      3.3
-// @description  Adds universal touch gestures (seek, fast-forward) to web videos (>3 min) with an Android Material Design UI.
+// @version      3.4
+// @description  Adds universal swipe gestures (seek, playback speed) to web videos (>3 min) with an Android Material Design UI.
 // @author       Your Name
 // @match        *://*/*
 // @grant        none
 // @run-at       document-start
 // ==/UserScript==
 
-
 (function() {
     'use strict';
 
     // --- Configuration ---
     const MIN_VIDEO_DURATION_SECONDS = 180; // 3 minutes
-    const LONG_PRESS_DELAY_MS = 500; // 0.5 seconds to trigger 2x speed
     const SEEK_SENSITIVITY = 0.1; // Higher value = faster seeking for swipe
-    const DOUBLE_TAP_SEEK_SECONDS = 10; // Seconds to seek on double-tap
-    const DOUBLE_TAP_TIMEOUT_MS = 300; // Max time between taps for a double-tap
+    const SWIPE_THRESHOLD = 20; // Minimum pixels moved to register a swipe
 
     // --- Material Design Styles ---
     function injectStyles() {
@@ -65,15 +62,11 @@
 
     // --- Global State ---
     let startX = 0;
+    let startY = 0;
     let initialTime = 0;
-    let isSeeking = false;
+    let isGestureActive = false;
     let timeChange = 0;
-    let longPressTimeout = null;
-    let isSpeedingUp = false;
-    let hasMovedEnoughForSeek = false;
-    const userPlaybackRates = new Map();
-    let tapTimer = null;
-    let tapCount = 0;
+    let gestureType = null; // Can be 'seek' or 'speed'
 
     // --- UI and Gesture Logic ---
 
@@ -103,36 +96,29 @@
 
     function onTouchStart(e, video) {
         startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
         initialTime = video.currentTime;
-        isSeeking = true;
-        hasMovedEnoughForSeek = false;
+        isGestureActive = true;
         timeChange = 0;
-
-        // Long press logic
-        longPressTimeout = setTimeout(() => {
-            if (!hasMovedEnoughForSeek) {
-                userPlaybackRates.set(video, video.playbackRate);
-                video.playbackRate = 2.0;
-                isSpeedingUp = true;
-                const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
-                updateIndicator(video, `${speedIcon} <span>2.0x Speed</span>`);
-            }
-        }, LONG_PRESS_DELAY_MS);
+        gestureType = null; // Reset gesture type on new touch
     }
 
     function onTouchMove(e, video) {
-        if (!isSeeking || isSpeedingUp) return;
+        if (!isGestureActive) return;
 
         const deltaX = e.touches[0].clientX - startX;
-        if (Math.abs(deltaX) > 10 && !hasMovedEnoughForSeek) {
-            hasMovedEnoughForSeek = true;
-            // A swipe cancels both long press and double-tap intentions
-            clearTimeout(longPressTimeout);
-            clearTimeout(tapTimer);
-            tapCount = 0;
+        const deltaY = e.touches[0].clientY - startY;
+
+        // Determine gesture type on first significant movement
+        if (!gestureType) {
+            if (Math.abs(deltaX) > SWIPE_THRESHOLD) {
+                gestureType = 'seek';
+            } else if (Math.abs(deltaY) > SWIPE_THRESHOLD) {
+                gestureType = 'speed';
+            }
         }
 
-        if (hasMovedEnoughForSeek) {
+        if (gestureType === 'seek') {
             timeChange = deltaX * SEEK_SENSITIVITY;
             const newTime = Math.max(0, Math.min(initialTime + timeChange, video.duration));
             const direction = timeChange >= 0 ? 'forward' : 'rewind';
@@ -140,62 +126,30 @@
                 ? `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`
                 : `<svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm-2-6l6.5 4.5V7.5L9 12z"/></svg>`;
             updateIndicator(video, `${icon} <div><span>${formatTime(newTime)}</span> / <span>${formatTime(video.duration)}</span></div>`);
+        } else if (gestureType === 'speed') {
+            if (deltaY < -SWIPE_THRESHOLD) { // Swipe Up
+                video.playbackRate = 2.0;
+                const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
+                updateIndicator(video, `${speedIcon} <span>2.0x Speed</span>`);
+            } else if (deltaY > SWIPE_THRESHOLD) { // Swipe Down
+                video.playbackRate = 1.0;
+                const speedIcon = `<svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>`;
+                updateIndicator(video, `${speedIcon} <span>1.0x Speed</span>`);
+            }
         }
     }
 
     function onTouchEnd(e, video) {
-        clearTimeout(longPressTimeout);
-
-        if (isSpeedingUp) {
-            video.playbackRate = userPlaybackRates.get(video) || 1.0;
-            isSpeedingUp = false;
-            setTimeout(() => hideIndicator(video), 300);
-        } else if (hasMovedEnoughForSeek) {
+        if (gestureType === 'seek') {
             const newTime = initialTime + timeChange;
             video.currentTime = Math.max(0, Math.min(newTime, video.duration));
-            setTimeout(() => hideIndicator(video), 300);
-        } else {
-            // This is a tap, not a swipe or long press
-            handleTap(e, video);
         }
 
-        isSeeking = false;
-        hasMovedEnoughForSeek = false;
-    }
-
-    function handleTap(e, video) {
-        tapCount++;
-        clearTimeout(tapTimer); // Clear previous timer
-
-        if (tapCount > 1) { // Double-tap or more
-            // Determine tap area
-            const videoRect = video.getBoundingClientRect();
-            const tapZone = (startX - videoRect.left) / videoRect.width;
-
-            if (tapZone < 0.33) { // Left side
-                video.currentTime = Math.max(0, video.currentTime - DOUBLE_TAP_SEEK_SECONDS);
-                showSeekFeedback(video, 'backward');
-            } else if (tapZone > 0.66) { // Right side
-                video.currentTime = Math.min(video.duration, video.currentTime + DOUBLE_TAP_SEEK_SECONDS);
-                showSeekFeedback(video, 'forward');
-            }
-            // Taps in the middle do nothing to allow for default play/pause
-            
-            tapCount = 0; // Reset after action
-        } else {
-            tapTimer = setTimeout(() => {
-                tapCount = 0; // Reset if it's just a single tap
-            }, DOUBLE_TAP_TIMEOUT_MS);
-        }
-    }
-
-    function showSeekFeedback(video, direction) {
-        const icon = direction === 'forward'
-            ? `<svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6-6-6z M18 6h-2v12h2V6z"/></svg>`
-            : `<svg viewBox="0 0 24 24"><path d="M14 18l1.41-1.41L10.83 12l4.58-4.59L14 6l-6 6 6 6z M6 6h2v12H6V6z"/></svg>`;
-        const text = `<span>${DOUBLE_TAP_SEEK_SECONDS}s</span>`;
-        updateIndicator(video, `${icon} ${text}`);
+        // Hide indicator after a delay regardless of gesture
         setTimeout(() => hideIndicator(video), 500);
+
+        isGestureActive = false;
+        gestureType = null;
     }
 
     // --- Utility Functions ---
@@ -218,13 +172,9 @@
         const setupControls = () => {
             if (video.duration < MIN_VIDEO_DURATION_SECONDS) return;
             createGestureIndicator(video);
-            userPlaybackRates.set(video, video.playbackRate);
-            video.addEventListener('ratechange', () => {
-                if (!isSpeedingUp) userPlaybackRates.set(video, video.playbackRate);
-            });
             video.addEventListener('touchstart', (e) => onTouchStart(e, video), { passive: true });
             video.addEventListener('touchmove', (e) => onTouchMove(e, video), { passive: true });
-            video.addEventListener('touchend', (e) => onTouchEnd(e, video), { passive: false }); // Needs to be not passive to prevent default on double tap
+            video.addEventListener('touchend', (e) => onTouchEnd(e, video), { passive: true });
         };
 
         if (video.readyState >= 1) {
