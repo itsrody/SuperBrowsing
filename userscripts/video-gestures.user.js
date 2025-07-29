@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      4.4
+// @version      4.5
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -71,39 +71,6 @@
         `;
         document.head.appendChild(style);
     }
-    
-    // ** DEFINITIVE FIX: Function to inject/remove a powerful fullscreen style override **
-    function toggleFullscreenStyle(shouldExist) {
-        const styleId = 'vg-fullscreen-override-style';
-        const existingStyle = document.getElementById(styleId);
-        if (shouldExist && !existingStyle) {
-            const style = document.createElement('style');
-            style.id = styleId;
-            style.innerHTML = `
-                :fullscreen, :-webkit-full-screen, :-moz-full-screen {
-                    background-color: black !important;
-                    width: 100% !important;
-                    height: 100% !important;
-                    display: flex !important;
-                    justify-content: center !important;
-                    align-items: center !important;
-                    top: 0 !important;
-                    left: 0 !important;
-                    margin: 0 !important;
-                    padding: 0 !important;
-                }
-                :fullscreen video, :-webkit-full-screen video, :-moz-full-screen video {
-                    width: 100% !important;
-                    height: 100% !important;
-                    object-fit: contain !important;
-                }
-            `;
-            document.head.appendChild(style);
-        } else if (!shouldExist && existingStyle) {
-            existingStyle.remove();
-        }
-    }
-
 
     // --- Global State ---
     let touchStartX = 0, touchStartY = 0;
@@ -112,6 +79,8 @@
     let tapTimeout = null, longPressTimeout = null;
     let tapCount = 0;
     let originalPlaybackRate = 1.0;
+    let videoOriginalParent = null;
+    let videoOriginalNextSibling = null;
 
     // --- UI & Feedback ---
     function createElements(video) {
@@ -248,7 +217,9 @@
         const icon = `<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>`;
         showIndicator(currentVideo, icon);
         triggerHapticFeedback();
-        document.exitFullscreen();
+        if (document.fullscreenElement) {
+            document.exitFullscreen();
+        }
     }
 
     function handleDoubleTapFullscreen() {
@@ -256,8 +227,24 @@
         showIndicator(currentVideo, icon);
         triggerHapticFeedback();
 
-        const container = currentVideo.parentElement;
-        const fsPromise = container.requestFullscreen ? container.requestFullscreen() : currentVideo.requestFullscreen();
+        // ** UNIVERSAL FIX: Create our own wrapper for fullscreen **
+        const wrapper = document.createElement('div');
+        wrapper.id = 'vg-fullscreen-wrapper';
+        Object.assign(wrapper.style, {
+            position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
+            backgroundColor: 'black', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: '2147483646'
+        });
+
+        // Save the video's original location
+        videoOriginalParent = currentVideo.parentElement;
+        videoOriginalNextSibling = currentVideo.nextElementSibling;
+
+        // Move the video into our wrapper
+        wrapper.appendChild(currentVideo);
+        document.body.appendChild(wrapper);
+        
+        const fsPromise = wrapper.requestFullscreen();
         
         if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
             fsPromise.then(() => {
@@ -306,10 +293,14 @@
     }
     
     function handleFullscreenChange() {
-        if (document.fullscreenElement) {
-            toggleFullscreenStyle(true);
-        } else {
-            toggleFullscreenStyle(false);
+        if (!document.fullscreenElement) {
+            // When exiting fullscreen, move video back to its original parent
+            const wrapper = document.getElementById('vg-fullscreen-wrapper');
+            if (wrapper && videoOriginalParent) {
+                videoOriginalParent.insertBefore(currentVideo, videoOriginalNextSibling);
+                wrapper.remove();
+            }
+            // Unlock orientation
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
             }
