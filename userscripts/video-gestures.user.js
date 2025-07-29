@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      3.8
+// @version      3.9
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -66,7 +66,6 @@
             .vg-indicator.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
             .vg-indicator svg { width: 24px; height: 24px; fill: #fff; }
 
-            /* ** NEW: CSS class to fix fullscreen layout issues ** */
             .vg-fullscreen-fix {
                 position: fixed !important;
                 top: 0 !important;
@@ -84,7 +83,7 @@
     // --- Global State ---
     let touchStartX = 0, touchStartY = 0;
     let currentVideo = null;
-    let gestureType = null;
+    let gestureType = null; // tap, swipe-x, swipe-y, swipe-y-middle, long-press
     let tapTimeout = null, longPressTimeout = null;
     let tapCount = 0;
     let originalPlaybackRate = 1.0;
@@ -122,13 +121,6 @@
         
         currentVideo = video;
         
-        if (e.touches.length === 2) {
-            gestureType = 'two-finger-tap';
-            clearTimeout(longPressTimeout);
-            clearTimeout(tapTimeout);
-            return;
-        }
-
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
         gestureType = 'tap';
@@ -151,12 +143,7 @@
     }
 
     function onTouchMove(e) {
-        if (!currentVideo || e.touches.length > 1 || gestureType === 'long-press' || gestureType === 'two-finger-tap') return;
-        
-        if (!document.fullscreenElement) {
-            clearTimeout(longPressTimeout);
-            return;
-        }
+        if (!currentVideo || e.touches.length > 1 || gestureType === 'long-press') return;
 
         const deltaX = e.touches[0].clientX - touchStartX;
         const deltaY = e.touches[0].clientY - touchStartY;
@@ -164,26 +151,49 @@
         if (Math.abs(deltaX) > config.SWIPE_THRESHOLD || Math.abs(deltaY) > config.SWIPE_THRESHOLD) {
             clearTimeout(longPressTimeout);
             if (gestureType === 'tap') {
-                gestureType = Math.abs(deltaX) > Math.abs(deltaY) ? 'swipe-x' : 'swipe-y';
+                const isVerticalSwipe = Math.abs(deltaY) > Math.abs(deltaX);
+                if (isVerticalSwipe) {
+                    const rect = currentVideo.getBoundingClientRect();
+                    const tapZone = (touchStartX - rect.left) / rect.width;
+                    // Check for middle zone for fullscreen gesture
+                    if (tapZone > 0.33 && tapZone < 0.66) {
+                        gestureType = 'swipe-y-middle';
+                    } else {
+                        // Only allow volume/brightness swipes in fullscreen
+                        if (document.fullscreenElement) {
+                           gestureType = 'swipe-y';
+                        }
+                    }
+                } else {
+                    // Horizontal swipes are fullscreen only
+                    if (document.fullscreenElement) {
+                        gestureType = 'swipe-x';
+                    }
+                }
             }
         }
         
-        if (!gestureType || !gestureType.startsWith('swipe')) return;
-
-        e.preventDefault();
-
-        if (gestureType === 'swipe-x') handleHorizontalSwipe(deltaX);
-        if (gestureType === 'swipe-y') handleVerticalSwipe(deltaY);
+        if (gestureType === 'swipe-x' || gestureType === 'swipe-y') {
+            e.preventDefault();
+            if (gestureType === 'swipe-x') handleHorizontalSwipe(deltaX);
+            if (gestureType === 'swipe-y') handleVerticalSwipe(deltaY);
+        } else if (gestureType === 'swipe-y-middle') {
+            e.preventDefault(); // Prevent page scroll for this gesture too
+        }
     }
 
     function onTouchEnd(e) {
         clearTimeout(longPressTimeout);
         if (!currentVideo) return;
 
-        if (gestureType === 'two-finger-tap' && e.touches.length === 0) {
-            e.preventDefault();
-            handleTwoFingerTap();
-        } 
+        // Handle fullscreen swipe gesture (always available)
+        if (gestureType === 'swipe-y-middle') {
+            const deltaY = e.changedTouches[0].clientY - touchStartY;
+            if (deltaY > config.SWIPE_THRESHOLD) { // Only on swipe down
+                handleFullscreenToggle();
+            }
+        }
+        // Handle fullscreen-only gestures
         else if (document.fullscreenElement) {
             if (gestureType === 'tap' && tapCount >= 2) {
                 e.preventDefault();
@@ -214,7 +224,7 @@
     }
 
     // --- Gesture Logic ---
-    function handleTwoFingerTap() {
+    function handleFullscreenToggle() {
         const isFullscreen = document.fullscreenElement;
         const icon = isFullscreen 
             ? `<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>` 
@@ -260,7 +270,7 @@
         const rect = currentVideo.getBoundingClientRect();
         const tapZone = (touchStartX - rect.left) / rect.width;
         
-        if (tapZone > 0.5) { // Right side for Volume
+        if (tapZone > 0.66) { // Right side for Volume
             const volumeChange = -deltaY / 100;
             currentVideo.volume = Math.max(0, Math.min(1, currentVideo.volume + volumeChange));
             showIndicator(currentVideo, `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> ${Math.round(currentVideo.volume * 100)}%`);
@@ -269,14 +279,11 @@
         }
     }
     
-    // ** NEW: Add a listener to apply/remove the fullscreen fix class **
     function handleFullscreenChange() {
         const fullscreenElement = document.fullscreenElement;
         if (fullscreenElement) {
-            // Apply the fix class to the element that is in fullscreen
             fullscreenElement.classList.add('vg-fullscreen-fix');
         } else {
-            // When exiting, find any element with the class and remove it
             const fixedElement = document.querySelector('.vg-fullscreen-fix');
             if (fixedElement) {
                 fixedElement.classList.remove('vg-fullscreen-fix');
