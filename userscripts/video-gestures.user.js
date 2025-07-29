@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures
 // @namespace    http://your-namespace.com
-// @version      3.1
+// @version      3.2
 // @description  Adds universal touch gestures (seek, fast-forward) to web videos (>3 min) with an Android Material Design UI.
 // @author       Your Name
 // @match        *://*/*
@@ -148,7 +148,6 @@
         if (hasMovedEnoughForSeek) {
             timeChange = deltaX * SEEK_SENSITIVITY;
             const newTime = Math.max(0, Math.min(initialTime + timeChange, video.duration));
-            const timeDiffFormatted = formatTime(Math.abs(timeChange));
             const direction = timeChange >= 0 ? 'forward' : 'rewind';
             const icon = direction === 'forward'
                 ? `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`
@@ -249,34 +248,61 @@
      * @param {Document|ShadowRoot} rootNode - The node to start scanning from.
      */
     function scanForVideos(rootNode) {
-        rootNode.querySelectorAll('video').forEach(addGestureControls);
-        rootNode.querySelectorAll('*').forEach(el => {
-            if (el.shadowRoot) {
-                scanForVideos(el.shadowRoot);
-            }
-        });
+        if (!rootNode) return;
+        try {
+            rootNode.querySelectorAll('video').forEach(addGestureControls);
+            rootNode.querySelectorAll('*').forEach(el => {
+                if (el.shadowRoot) {
+                    scanForVideos(el.shadowRoot);
+                }
+            });
+        } catch (error) {
+            console.error('Video gesture script: Error scanning for videos.', error);
+        }
     }
 
     // --- Initialization ---
+
+    /**
+     * This function starts the process of scanning for videos and observing DOM changes.
+     * It's called once the document body is available.
+     */
+    function initialize() {
+        // Initial scan when the script runs
+        scanForVideos(document.body);
+
+        // Use MutationObserver to detect videos added to the DOM later
+        const observer = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                if (mutation.addedNodes.length) {
+                    // Check if any of the added nodes are videos or contain videos
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeType === Node.ELEMENT_NODE) {
+                            if (node.matches('video')) {
+                                addGestureControls(node);
+                            } else {
+                                node.querySelectorAll('video').forEach(addGestureControls);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    }
+
+    // Inject styles immediately since @run-at is document-start
     injectStyles();
 
-    // Initial scan when the script runs
-    scanForVideos(document);
-
-    // Use MutationObserver to detect videos added to the DOM later
-    const observer = new MutationObserver((mutations) => {
-        for (const mutation of mutations) {
-            if (mutation.addedNodes.length) {
-                scanForVideos(document.body);
-                // We can break here because scanForVideos will handle all new videos at once.
-                break;
-            }
-        }
-    });
-
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
+    // Defer the main logic until the body element exists
+    if (document.body) {
+        initialize();
+    } else {
+        document.addEventListener('DOMContentLoaded', initialize, { once: true });
+    }
 
 })();
