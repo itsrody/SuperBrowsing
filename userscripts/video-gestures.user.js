@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Gestures
 // @namespace    http://your-namespace.com
-// @version      5.0
+// @version      5.1
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -109,7 +109,8 @@
         longPressTimeout = setTimeout(() => {
             if (gestureType !== 'tap') return;
             gestureType = 'long-press';
-            e.preventDefault();
+            // We only need to prevent the default action here. The contextmenu listener will handle the rest.
+            e.preventDefault(); 
             
             originalPlaybackRate = currentVideo.playbackRate;
             currentVideo.playbackRate = 2.0;
@@ -252,6 +253,14 @@
         document.body.addEventListener('touchstart', onTouchStart, { passive: false });
         document.body.addEventListener('touchmove', onTouchMove, { passive: false });
         document.body.addEventListener('touchend', onTouchEnd, { passive: false });
+
+        // ** NEW: Add a listener to specifically block the context menu during our long-press gesture **
+        document.body.addEventListener('contextmenu', function(e) {
+            // If our long-press gesture is active on the video, prevent the default menu
+            if (currentVideo && gestureType === 'long-press') {
+                e.preventDefault();
+            }
+        }, { capture: true }); // Use capture to ensure our listener runs first
     }
 
     if (document.readyState === 'loading') {
