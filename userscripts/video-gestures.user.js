@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      4.2
+// @version      4.3
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -22,7 +22,7 @@
     const DEFAULTS = {
         MIN_VIDEO_DURATION_SECONDS: 60,
         DOUBLE_TAP_SEEK_SECONDS: 10,
-        SWIPE_THRESHOLD: 20, // Increased threshold for better gesture detection
+        SWIPE_THRESHOLD: 20,
         SEEK_SENSITIVITY: 0.1,
         ENABLE_HAPTIC_FEEDBACK: true,
         HAPTIC_FEEDBACK_DURATION_MS: 20,
@@ -69,11 +69,12 @@
             .vg-indicator.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
             .vg-indicator svg { width: 24px; height: 24px; fill: #fff; }
 
-            /* ** NEW, SAFER FIX for fullscreen layout issues ** */
-            .vg-fullscreen-active > video {
-                width: 100% !important;
-                height: 100% !important;
-                object-fit: contain !important;
+            /* ** DEFINITIVE FIX for fullscreen layout issues ** */
+            /* This class ensures the container is centered without hiding its own UI */
+            .vg-fullscreen-container {
+                display: flex !important;
+                justify-content: center !important;
+                align-items: center !important;
             }
         `;
         document.head.appendChild(style);
@@ -156,12 +157,12 @@
                         const rect = currentVideo.getBoundingClientRect();
                         const tapZone = (touchStartX - rect.left) / rect.width;
                         if (tapZone > 0.33 && tapZone < 0.66) {
-                            gestureType = 'swipe-y-exit'; // Swipe down in middle to exit
+                            gestureType = 'swipe-y-exit';
                         } else {
-                            gestureType = 'swipe-y'; // Volume/Brightness
+                            gestureType = 'swipe-y';
                         }
                     } else {
-                        gestureType = 'swipe-x'; // Seek
+                        gestureType = 'swipe-x';
                     }
                 }
             }
@@ -191,7 +192,7 @@
         else if (document.fullscreenElement) {
             if (gestureType === 'swipe-y-exit') {
                 const deltaY = e.changedTouches[0].clientY - touchStartY;
-                if (deltaY > config.SWIPE_THRESHOLD) { // Ensure it's a downward swipe
+                if (deltaY > config.SWIPE_THRESHOLD) {
                     handleFullscreenExit();
                 }
             } else if (gestureType === 'long-press') {
@@ -281,21 +282,16 @@
     
     function handleFullscreenChange() {
         const fullscreenElement = document.fullscreenElement;
-        const activeElement = document.querySelector('.vg-fullscreen-active');
+        const activeElement = document.querySelector('.vg-fullscreen-container');
 
         if (fullscreenElement) {
-            // Find the video's container and apply our class
-            const videoContainer = fullscreenElement.querySelector('video') ? fullscreenElement : (fullscreenElement.parentElement.querySelector('video') ? fullscreenElement : null);
-            if (videoContainer) {
-                videoContainer.classList.add('vg-fullscreen-active');
-            }
+            fullscreenElement.classList.add('vg-fullscreen-container');
         } else {
-            // Unlock orientation and remove the class from any element that has it
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
             }
             if (activeElement) {
-                activeElement.classList.remove('vg-fullscreen-active');
+                activeElement.classList.remove('vg-fullscreen-container');
             }
         }
     }
