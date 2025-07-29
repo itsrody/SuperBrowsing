@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      5.7
+// @version      3.8
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -65,6 +65,18 @@
             }
             .vg-indicator.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
             .vg-indicator svg { width: 24px; height: 24px; fill: #fff; }
+
+            /* ** NEW: CSS class to fix fullscreen layout issues ** */
+            .vg-fullscreen-fix {
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                transform: none !important;
+            }
         `;
         document.head.appendChild(style);
     }
@@ -122,7 +134,6 @@
         gestureType = 'tap';
 
         longPressTimeout = setTimeout(() => {
-            // Long press is a fullscreen-only gesture
             if (gestureType !== 'tap' || !document.fullscreenElement) return;
             
             gestureType = 'long-press';
@@ -134,7 +145,6 @@
             triggerHapticFeedback();
         }, 500);
 
-        // Double tap timer is always active
         const DOUBLE_TAP_TIMEOUT_MS = 350;
         tapTimeout = setTimeout(() => { tapCount = 0; }, DOUBLE_TAP_TIMEOUT_MS);
         tapCount++;
@@ -143,7 +153,6 @@
     function onTouchMove(e) {
         if (!currentVideo || e.touches.length > 1 || gestureType === 'long-press' || gestureType === 'two-finger-tap') return;
         
-        // Swipes are fullscreen-only gestures.
         if (!document.fullscreenElement) {
             clearTimeout(longPressTimeout);
             return;
@@ -171,14 +180,11 @@
         clearTimeout(longPressTimeout);
         if (!currentVideo) return;
 
-        // Handle always-on gestures first
         if (gestureType === 'two-finger-tap' && e.touches.length === 0) {
             e.preventDefault();
             handleTwoFingerTap();
         } 
-        // Then, handle fullscreen-only gestures
         else if (document.fullscreenElement) {
-            // ** FIX: Double-tap is now a fullscreen-only gesture **
             if (gestureType === 'tap' && tapCount >= 2) {
                 e.preventDefault();
                 handleDoubleTap();
@@ -263,6 +269,21 @@
         }
     }
     
+    // ** NEW: Add a listener to apply/remove the fullscreen fix class **
+    function handleFullscreenChange() {
+        const fullscreenElement = document.fullscreenElement;
+        if (fullscreenElement) {
+            // Apply the fix class to the element that is in fullscreen
+            fullscreenElement.classList.add('vg-fullscreen-fix');
+        } else {
+            // When exiting, find any element with the class and remove it
+            const fixedElement = document.querySelector('.vg-fullscreen-fix');
+            if (fixedElement) {
+                fixedElement.classList.remove('vg-fullscreen-fix');
+            }
+        }
+    }
+
     // --- Utilities ---
     function formatTime(totalSeconds) {
         const sec = Math.floor(totalSeconds % 60).toString().padStart(2, '0');
@@ -277,6 +298,7 @@
         document.body.addEventListener('touchstart', onTouchStart, { passive: false });
         document.body.addEventListener('touchmove', onTouchMove, { passive: false });
         document.body.addEventListener('touchend', onTouchEnd, { passive: false });
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
     }
 
     if (document.readyState === 'loading') {
