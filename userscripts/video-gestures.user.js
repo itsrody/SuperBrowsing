@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      6.0
+// @version      6.1
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -248,13 +248,16 @@
         }
     }
     
-    // ** STABLE FIX: Active Stacking Repair **
+    // ** DEFINITIVE FIX: Active Stacking Repair with Event Passthrough **
     function handleFullscreenChange() {
         const fullscreenElement = document.fullscreenElement;
         
         if (!fullscreenElement) {
-            modifiedElements.forEach(({ element, originalZIndex }) => {
+            // Restore all original styles when exiting
+            modifiedElements.forEach(({ element, originalZIndex, originalPointerEvents, originalPosition }) => {
                 element.style.zIndex = originalZIndex;
+                element.style.pointerEvents = originalPointerEvents;
+                element.style.position = originalPosition;
             });
             modifiedElements = [];
 
@@ -270,18 +273,30 @@
         const playerContainer = video.parentElement;
         if (!playerContainer) return;
 
-        const saveAndSetStyle = (element, zIndex) => {
-            modifiedElements.push({ element, originalZIndex: element.style.zIndex });
-            element.style.zIndex = zIndex;
+        // Function to save original styles before changing them
+        const saveAndSetStyle = (element, styles) => {
+            const originalStyles = {
+                element,
+                originalZIndex: element.style.zIndex,
+                originalPointerEvents: element.style.pointerEvents,
+                originalPosition: element.style.position
+            };
+            modifiedElements.push(originalStyles);
+            Object.assign(element.style, styles);
         };
 
-        // Set video to a base layer
-        saveAndSetStyle(video, '1');
+        // Create a stacking context on the parent
+        if (getComputedStyle(playerContainer).position === 'static') {
+            saveAndSetStyle(playerContainer, { position: 'relative' });
+        }
+
+        // Push video to the back and make it ignore touch events
+        saveAndSetStyle(video, { position: 'relative', zIndex: '1', pointerEvents: 'none' });
         
-        // Elevate all sibling elements (UI controls) above the video
+        // Elevate all sibling UI elements above the video
         for (const child of playerContainer.children) {
             if (child !== video) {
-                saveAndSetStyle(child, '2');
+                saveAndSetStyle(child, { position: 'relative', zIndex: '2' });
             }
         }
     }
