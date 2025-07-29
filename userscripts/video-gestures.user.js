@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      4.5
+// @version      4.6
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -79,8 +79,6 @@
     let tapTimeout = null, longPressTimeout = null;
     let tapCount = 0;
     let originalPlaybackRate = 1.0;
-    let videoOriginalParent = null;
-    let videoOriginalNextSibling = null;
 
     // --- UI & Feedback ---
     function createElements(video) {
@@ -227,24 +225,8 @@
         showIndicator(currentVideo, icon);
         triggerHapticFeedback();
 
-        // ** UNIVERSAL FIX: Create our own wrapper for fullscreen **
-        const wrapper = document.createElement('div');
-        wrapper.id = 'vg-fullscreen-wrapper';
-        Object.assign(wrapper.style, {
-            position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
-            backgroundColor: 'black', display: 'flex',
-            alignItems: 'center', justifyContent: 'center', zIndex: '2147483646'
-        });
-
-        // Save the video's original location
-        videoOriginalParent = currentVideo.parentElement;
-        videoOriginalNextSibling = currentVideo.nextElementSibling;
-
-        // Move the video into our wrapper
-        wrapper.appendChild(currentVideo);
-        document.body.appendChild(wrapper);
-        
-        const fsPromise = wrapper.requestFullscreen();
+        const container = currentVideo.parentElement;
+        const fsPromise = container.requestFullscreen ? container.requestFullscreen() : currentVideo.requestFullscreen();
         
         if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
             fsPromise.then(() => {
@@ -294,13 +276,7 @@
     
     function handleFullscreenChange() {
         if (!document.fullscreenElement) {
-            // When exiting fullscreen, move video back to its original parent
-            const wrapper = document.getElementById('vg-fullscreen-wrapper');
-            if (wrapper && videoOriginalParent) {
-                videoOriginalParent.insertBefore(currentVideo, videoOriginalNextSibling);
-                wrapper.remove();
-            }
-            // Unlock orientation
+            // When exiting fullscreen, unlock orientation
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
             }
