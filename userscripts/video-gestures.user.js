@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      6.1
+// @version      6.2
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -296,7 +296,7 @@
         // Elevate all sibling UI elements above the video
         for (const child of playerContainer.children) {
             if (child !== video) {
-                saveAndSetStyle(child, { position: 'relative', zIndex: '2' });
+                saveAndSetStyle(child, { position: 'relative', zIndex: '2', pointerEvents: 'auto' });
             }
         }
     }
