@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      5.2
+// @version      5.3
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -264,10 +264,9 @@
         const fullscreenElement = document.fullscreenElement;
         
         if (!fullscreenElement) {
-            modifiedElements.forEach(({ element, originalZIndex, originalPointerEvents, originalPosition }) => {
+            modifiedElements.forEach(({ element, originalZIndex, originalPointerEvents }) => {
                 element.style.zIndex = originalZIndex;
                 element.style.pointerEvents = originalPointerEvents;
-                element.style.position = originalPosition;
             });
             modifiedElements = [];
 
@@ -280,21 +279,30 @@
         const video = fullscreenElement.querySelector('video') || (fullscreenElement.matches('video') ? fullscreenElement : null);
         if (!video) return;
 
-        // Save original styles and apply new ones
-        modifiedElements.push({ 
-            element: video, 
-            originalZIndex: video.style.zIndex,
-            originalPointerEvents: video.style.pointerEvents,
-            originalPosition: video.style.position
-        });
+        const playerContainer = video.parentElement;
+        if (!playerContainer) return;
 
-        // This is the core fix:
-        // 1. Ensure the video has a position so z-index works.
-        // 2. Push the video to the back layer.
-        // 3. Make the video ignore clicks, letting them pass through to the UI below.
-        video.style.position = 'relative';
-        video.style.zIndex = '-1';
-        video.style.pointerEvents = 'none';
+        const saveAndSetStyle = (element, zIndex, pointerEvents) => {
+            modifiedElements.push({ 
+                element, 
+                originalZIndex: element.style.zIndex,
+                originalPointerEvents: element.style.pointerEvents
+            });
+            element.style.zIndex = zIndex;
+            if (pointerEvents) {
+                element.style.pointerEvents = pointerEvents;
+            }
+        };
+
+        // Push the video back slightly and make it ignore clicks
+        saveAndSetStyle(video, '1', 'none');
+        
+        // Bring all sibling elements (the UI) to the front
+        for (const child of playerContainer.children) {
+            if (child !== video) {
+                saveAndSetStyle(child, '2', 'auto');
+            }
+        }
     }
 
     // --- Utilities ---
