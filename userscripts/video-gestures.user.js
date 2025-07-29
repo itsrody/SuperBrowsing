@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      4.3
+// @version      4.4
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -68,17 +68,42 @@
             }
             .vg-indicator.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
             .vg-indicator svg { width: 24px; height: 24px; fill: #fff; }
-
-            /* ** DEFINITIVE FIX for fullscreen layout issues ** */
-            /* This class ensures the container is centered without hiding its own UI */
-            .vg-fullscreen-container {
-                display: flex !important;
-                justify-content: center !important;
-                align-items: center !important;
-            }
         `;
         document.head.appendChild(style);
     }
+    
+    // ** DEFINITIVE FIX: Function to inject/remove a powerful fullscreen style override **
+    function toggleFullscreenStyle(shouldExist) {
+        const styleId = 'vg-fullscreen-override-style';
+        const existingStyle = document.getElementById(styleId);
+        if (shouldExist && !existingStyle) {
+            const style = document.createElement('style');
+            style.id = styleId;
+            style.innerHTML = `
+                :fullscreen, :-webkit-full-screen, :-moz-full-screen {
+                    background-color: black !important;
+                    width: 100% !important;
+                    height: 100% !important;
+                    display: flex !important;
+                    justify-content: center !important;
+                    align-items: center !important;
+                    top: 0 !important;
+                    left: 0 !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                }
+                :fullscreen video, :-webkit-full-screen video, :-moz-full-screen video {
+                    width: 100% !important;
+                    height: 100% !important;
+                    object-fit: contain !important;
+                }
+            `;
+            document.head.appendChild(style);
+        } else if (!shouldExist && existingStyle) {
+            existingStyle.remove();
+        }
+    }
+
 
     // --- Global State ---
     let touchStartX = 0, touchStartY = 0;
@@ -281,17 +306,12 @@
     }
     
     function handleFullscreenChange() {
-        const fullscreenElement = document.fullscreenElement;
-        const activeElement = document.querySelector('.vg-fullscreen-container');
-
-        if (fullscreenElement) {
-            fullscreenElement.classList.add('vg-fullscreen-container');
+        if (document.fullscreenElement) {
+            toggleFullscreenStyle(true);
         } else {
+            toggleFullscreenStyle(false);
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
-            }
-            if (activeElement) {
-                activeElement.classList.remove('vg-fullscreen-container');
             }
         }
     }
