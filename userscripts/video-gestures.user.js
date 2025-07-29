@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      5.3
+// @version      5.4
 // @description  Adds a powerful, zoned gesture interface (seek, volume, brightness, fullscreen, 2x speed) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -53,7 +53,7 @@
         const style = document.createElement('style');
         style.id = 'video-gesture-pro-styles';
         style.innerHTML = `
-            @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display-swap');
             .vg-indicator {
                 position: absolute; top: 50%; left: 50%;
                 transform: translate(-50%, -50%);
@@ -79,7 +79,10 @@
     let tapTimeout = null, longPressTimeout = null;
     let tapCount = 0;
     let originalPlaybackRate = 1.0;
-    let modifiedElements = [];
+    let playerContainer = null;
+    let originalParent = null;
+    let originalNextSibling = null;
+    let originalPlayerStyle = {};
 
     // --- UI & Feedback ---
     function showIndicator(video, html) {
@@ -105,11 +108,9 @@
 
     // --- Event Handlers ---
     function onTouchStart(e) {
-        let video;
+        let video = e.target.closest('video');
         if (document.fullscreenElement) {
-            video = document.fullscreenElement.querySelector('video');
-        } else {
-            video = e.target.closest('video');
+             video = document.fullscreenElement.querySelector('video');
         }
 
         if (!video || video.duration < config.MIN_VIDEO_DURATION_SECONDS) return;
@@ -211,8 +212,39 @@
         if (isFullscreen) {
             document.exitFullscreen();
         } else {
-            const container = currentVideo.parentElement;
-            const fsPromise = container.requestFullscreen ? container.requestFullscreen() : currentVideo.requestFullscreen();
+            // ** UNIVERSAL FIX: Create our own wrapper for fullscreen **
+            const wrapper = document.createElement('div');
+            wrapper.id = 'vg-fullscreen-wrapper';
+            Object.assign(wrapper.style, {
+                position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
+                backgroundColor: 'black', display: 'flex',
+                alignItems: 'center', justifyContent: 'center', zIndex: '2147483646'
+            });
+
+            playerContainer = currentVideo.parentElement;
+            originalParent = playerContainer.parentElement;
+            originalNextSibling = playerContainer.nextElementSibling;
+            
+            // Save original styles to restore them later
+            originalPlayerStyle = {
+                width: playerContainer.style.width,
+                height: playerContainer.style.height,
+                maxWidth: playerContainer.style.maxWidth,
+                maxHeight: playerContainer.style.maxHeight,
+                position: playerContainer.style.position,
+                zIndex: playerContainer.style.zIndex,
+            };
+
+            // Force player to fill our wrapper
+            Object.assign(playerContainer.style, {
+                width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%',
+                position: 'relative', zIndex: '1'
+            });
+
+            wrapper.appendChild(playerContainer);
+            document.body.appendChild(wrapper);
+            
+            const fsPromise = wrapper.requestFullscreen();
             
             if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
                 fsPromise.then(() => {
@@ -259,48 +291,18 @@
         }
     }
     
-    // ** DEFINITIVE FIX: Active Stacking Repair with Pointer Events **
     function handleFullscreenChange() {
-        const fullscreenElement = document.fullscreenElement;
-        
-        if (!fullscreenElement) {
-            modifiedElements.forEach(({ element, originalZIndex, originalPointerEvents }) => {
-                element.style.zIndex = originalZIndex;
-                element.style.pointerEvents = originalPointerEvents;
-            });
-            modifiedElements = [];
-
+        if (!document.fullscreenElement) {
+            const wrapper = document.getElementById('vg-fullscreen-wrapper');
+            if (wrapper && originalParent && playerContainer) {
+                // Restore original styles
+                Object.assign(playerContainer.style, originalPlayerStyle);
+                // Move player container back to its original position
+                originalParent.insertBefore(playerContainer, originalNextSibling);
+                wrapper.remove();
+            }
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
-            }
-            return;
-        }
-
-        const video = fullscreenElement.querySelector('video') || (fullscreenElement.matches('video') ? fullscreenElement : null);
-        if (!video) return;
-
-        const playerContainer = video.parentElement;
-        if (!playerContainer) return;
-
-        const saveAndSetStyle = (element, zIndex, pointerEvents) => {
-            modifiedElements.push({ 
-                element, 
-                originalZIndex: element.style.zIndex,
-                originalPointerEvents: element.style.pointerEvents
-            });
-            element.style.zIndex = zIndex;
-            if (pointerEvents) {
-                element.style.pointerEvents = pointerEvents;
-            }
-        };
-
-        // Push the video back slightly and make it ignore clicks
-        saveAndSetStyle(video, '1', 'none');
-        
-        // Bring all sibling elements (the UI) to the front
-        for (const child of playerContainer.children) {
-            if (child !== video) {
-                saveAndSetStyle(child, '2', 'auto');
             }
         }
     }
