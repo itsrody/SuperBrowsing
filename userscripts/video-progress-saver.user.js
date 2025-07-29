@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Progress Saver (Background Version)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      2.0
+// @version      2.1
 // @description  Automatically saves and restores progress for HTML5 videos using a central background script.
 // @match        *://*/*
 // @grant        GM_setValue
@@ -27,22 +27,17 @@
 
 // --- 1. BACKGROUND SCRIPT ---
 
-// This code only runs in the background context.
 if (typeof window === 'undefined') {
-    // --- Configuration ---
     const CONFIG = {
-        // How long to keep progress data for a video that hasn't been watched (in days).
         DATA_EXPIRATION_DAYS: 90,
-        // Prefix for all storage keys to avoid conflicts.
         STORAGE_PREFIX: 'vps_progress_'
     };
 
     // --- Core API Functions ---
-    // These functions are exposed to be called by the content script.
-
-    // Saves progress for a given video key.
     const saveProgress = async ({ key, currentTime, duration }) => {
         if (!key || !currentTime || !duration) return;
+        // Don't save progress at the very beginning or end of the video
+        if (currentTime < 5 || currentTime > duration - 10) return;
         const data = {
             progress: currentTime,
             duration: duration,
@@ -51,20 +46,21 @@ if (typeof window === 'undefined') {
         await GM_setValue(key, data);
     };
 
-    // Retrieves progress for a given video key.
     const getProgress = async ({ key }) => {
         if (!key) return null;
         return await GM_getValue(key);
     };
 
-    // Deletes the progress for a specific video key.
-    const deleteProgress = async ({ key }) => {
-        if (!key) return;
-        await GM_deleteValue(key);
-        console.log(`[Background] Deleted progress for key: ${key}`);
+    // ** FIX: New function to delete multiple keys at once **
+    const deleteMultipleProgress = async ({ keys }) => {
+        if (!keys || !Array.isArray(keys)) return;
+        for (const key of keys) {
+            await GM_deleteValue(key);
+        }
+        console.log(`[Background] Deleted ${keys.length} progress entries for the page.`);
+        GM_notification(`Cleared saved progress for ${keys.length} video(s) on this page.`, 'Video Progress Saver');
     };
 
-    // Deletes all saved video progress.
     const deleteAllProgress = async () => {
         const allKeys = await GM_listValues();
         let deletedCount = 0;
@@ -74,13 +70,11 @@ if (typeof window === 'undefined') {
                 deletedCount++;
             }
         }
-        GM_notification(`Deleted ${deletedCount} saved video progress entries.`, 'Video Progress Saver');
-        console.log(`[Background] Deleted ${deletedCount} entries.`);
+        GM_notification(`Deleted all ${deletedCount} saved video progress entries.`, 'Video Progress Saver');
+        console.log(`[Background] Deleted all ${deletedCount} entries.`);
     };
 
     // --- Maintenance Functions ---
-
-    // Periodically cleans up old, expired video progress data.
     const cleanupOldData = async () => {
         console.log('[Background] Running cleanup of old video progress...');
         const allKeys = await GM_listValues();
@@ -103,16 +97,12 @@ if (typeof window === 'undefined') {
     };
 
     // --- Initialization ---
-
-    // Expose the API functions to be callable from content scripts.
     GM.script.api('saveProgress', saveProgress);
     GM.script.api('getProgress', getProgress);
-    GM.script.api('deleteProgress', deleteProgress);
+    GM.script.api('deleteMultipleProgress', deleteMultipleProgress); // Expose the new function
 
-    // Register menu commands for the user.
     GM_registerMenuCommand('Clear All Saved Progress', deleteAllProgress);
 
-    // Run the cleanup task once when the script starts, and then every day.
     cleanupOldData();
     setInterval(cleanupOldData, 1000 * 60 * 60 * 24); // 24 hours
 }
@@ -120,24 +110,20 @@ if (typeof window === 'undefined') {
 
 // --- 2. CONTENT SCRIPT ---
 
-// This code only runs on webpages.
 if (typeof window !== 'undefined') {
-    // --- Configuration ---
     const CONFIG = {
-        MIN_DURATION_TO_SAVE: 180, // 3 minutes
-        SAVE_INTERVAL: 2000, // 2 seconds
-        TOAST_TIMEOUT: 4000, // 4 seconds
-        STORAGE_PREFIX: 'vps_progress_' // Must match the background script's prefix
+        MIN_DURATION_TO_SAVE: 180,
+        SAVE_INTERVAL: 2000,
+        TOAST_TIMEOUT: 4000,
+        STORAGE_PREFIX: 'vps_progress_'
     };
 
     const processedVideos = new WeakMap();
 
-    // --- Core Functions ---
-
     /**
+     * ** FIX: More robust key generation **
      * Creates a highly reliable, unique key for storing video progress.
-     * Prefers the video's direct `src` URL. Falls back to a combination of
-     * page origin, pathname, and video duration for blob URLs.
+     * It ensures the video src is an absolute URL before creating the key.
      * @param {HTMLVideoElement} video - The video element.
      * @returns {string|null} A unique storage key or null if one cannot be created.
      */
@@ -145,24 +131,28 @@ if (typeof window !== 'undefined') {
         const duration = Math.round(video.duration);
         let identifier = video.currentSrc || video.src;
 
-        // If the src is a blob, it's not persistent. Use page URL as a fallback.
-        if (identifier && identifier.startsWith('blob:')) {
-            identifier = `${location.origin}${location.pathname}`;
+        if (!identifier) {
+            console.warn('[VPS] Video has no src attribute.', video);
+            return null;
         }
 
-        if (!identifier) return null;
+        if (identifier.startsWith('blob:')) {
+            identifier = `${location.origin}${location.pathname}`;
+        } else {
+            try {
+                // Resolve relative URLs to absolute ones
+                identifier = new URL(identifier, location.href).href;
+            } catch (e) {
+                console.warn('[VPS] Could not create absolute URL for video src:', identifier, e);
+                return null; // Don't proceed with an invalid identifier
+            }
+        }
 
-        // Create a clean key by removing query strings and hashes from URLs.
         const cleanIdentifier = identifier.split('?')[0].split('#')[0];
         return `${CONFIG.STORAGE_PREFIX}${cleanIdentifier}_${duration}`;
     };
 
-    /**
-     * Initializes a single video element.
-     * @param {HTMLVideoElement} video - The video element to handle.
-     */
     const handleVideo = (video) => {
-        // Wait for metadata to be loaded to ensure we have a duration.
         video.addEventListener('loadedmetadata', async () => {
             if (processedVideos.has(video) || video.duration < CONFIG.MIN_DURATION_TO_SAVE) {
                 return;
@@ -170,7 +160,11 @@ if (typeof window !== 'undefined') {
             processedVideos.set(video, true);
 
             const key = createStorageKey(video);
-            if (!key) return; // Cannot track this video.
+            if (!key) {
+                 console.warn('[VPS] Could not generate a valid key for video:', video);
+                 return;
+            }
+            console.log(`[VPS] Tracking video with key: ${key}`);
 
             // 1. Restore Progress
             const data = await GM.script.call('getProgress', { key });
@@ -179,6 +173,7 @@ if (typeof window !== 'undefined') {
                 const progressTime = new Date(data.progress * 1000).toISOString().substr(11, 8);
                 const totalTime = new Date(data.duration * 1000).toISOString().substr(11, 8);
                 createToast(`Restored to ${progressTime} / ${totalTime}`, video);
+                 console.log(`[VPS] Restored progress for ${key} to ${data.progress}`);
             }
 
             // 2. Save Progress periodically
@@ -192,17 +187,10 @@ if (typeof window !== 'undefined') {
 
             video.addEventListener('timeupdate', throttledSave);
 
-            // 3. Add a menu command to clear progress for this specific video
-            GM_registerMenuCommand('Clear Progress for This Video', () => {
-                GM.script.call('deleteProgress', { key });
-                createToast('Cleared saved progress for this video.', video);
-            });
-
         }, { once: true });
     };
 
     // --- UI & Utility Functions ---
-
     const createToast = (message, video) => {
         const toast = document.createElement('div');
         toast.className = 'vps-progress-toast';
@@ -227,36 +215,63 @@ if (typeof window !== 'undefined') {
     };
 
     // --- Initialization ---
+    const initialize = () => {
+        GM_addStyle(`
+            .vps-progress-toast {
+                position: absolute;
+                z-index: 2147483647;
+                background-color: rgba(30, 30, 30, 0.85);
+                color: white;
+                padding: 8px 16px;
+                border-radius: 20px;
+                font-family: 'Roboto', sans-serif;
+                font-size: 13px;
+                transition: opacity 0.5s;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            }
+        `);
 
-    GM_addStyle(`
-        .vps-progress-toast {
-            position: absolute;
-            z-index: 2147483647;
-            background-color: rgba(30, 30, 30, 0.85);
-            color: white;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-family: 'Roboto', sans-serif;
-            font-size: 13px;
-            transition: opacity 0.5s;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        }
-    `);
+        // ** FIX: New, reliable menu command **
+        GM_registerMenuCommand('Clear Progress on This Page', () => {
+            const keysToDelete = [];
+            document.querySelectorAll('video').forEach(video => {
+                if (video.duration >= CONFIG.MIN_DURATION_TO_SAVE) {
+                    const key = createStorageKey(video);
+                    if (key) {
+                        keysToDelete.push(key);
+                    }
+                }
+            });
+            if (keysToDelete.length > 0) {
+                GM.script.call('deleteMultipleProgress', { keys: keysToDelete });
+            } else {
+                alert('No tracked videos found on this page.');
+            }
+        });
 
-    const observer = new MutationObserver((mutations) => {
-        for (const mutation of mutations) {
-            for (const node of mutation.addedNodes) {
-                if (node.nodeType === Node.ELEMENT_NODE) {
-                    if (node.tagName === 'VIDEO') {
-                        handleVideo(node);
-                    } else {
-                        node.querySelectorAll('video').forEach(handleVideo);
+        const observer = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                for (const node of mutation.addedNodes) {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        if (node.tagName === 'VIDEO') {
+                            handleVideo(node);
+                        } else {
+                            node.querySelectorAll('video').forEach(handleVideo);
+                        }
                     }
                 }
             }
-        }
-    });
+        });
 
-    observer.observe(document.body, { childList: true, subtree: true });
-    document.querySelectorAll('video').forEach(handleVideo);
+        observer.observe(document.body, { childList: true, subtree: true });
+        document.querySelectorAll('video').forEach(handleVideo);
+        console.log('[VPS] Video Progress Saver is active.');
+    };
+
+    // ** FIX: Wait for the body to be ready before initializing **
+    if (document.body) {
+        initialize();
+    } else {
+        document.addEventListener('DOMContentLoaded', initialize, { once: true });
+    }
 }
