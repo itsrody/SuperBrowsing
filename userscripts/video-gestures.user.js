@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Video Touch Gestures (Pro)
 // @namespace    http://your-namespace.com
-// @version      6.3
+// @version      7.0
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos.
 // @author       Your Name
 // @match        *://*/*
@@ -136,9 +136,11 @@
                 const rect = currentVideo.getBoundingClientRect();
                 const tapZone = (touchStartX - rect.left) / rect.width;
 
+                // Fullscreen toggle is the only swipe gesture available outside of fullscreen
                 if (isVerticalSwipe && tapZone > 0.33 && tapZone < 0.66) {
                     gestureType = 'swipe-y-fullscreen';
                 } else if (document.fullscreenElement) {
+                    // All other swipes are fullscreen-only
                     gestureType = isVerticalSwipe ? 'swipe-y' : 'swipe-x';
                 }
             }
@@ -154,12 +156,14 @@
     function onTouchEnd(e) {
         if (!currentVideo) return;
 
+        // Handle fullscreen toggle gesture first, as it's always available
         if (gestureType === 'swipe-y-fullscreen') {
             const deltaY = e.changedTouches[0].clientY - touchStartY;
             if (deltaY > config.SWIPE_THRESHOLD) {
                 handleFullscreenToggle();
             }
         }
+        // Handle all other gestures, which are strictly fullscreen-only
         else if (document.fullscreenElement) {
             if (gestureType === 'tap' && tapCount >= 2) {
                 e.preventDefault();
@@ -248,7 +252,7 @@
         }
     }
     
-    // ** DEFINITIVE FIX: Active Stacking Repair with Forced Promotion **
+    // ** STABLE FIX: Active Stacking Repair **
     function handleFullscreenChange() {
         const fullscreenElement = document.fullscreenElement;
         
