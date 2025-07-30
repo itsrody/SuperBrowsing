@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Mobile Video Gesture Control (Class-based)
 // @namespace    http://tampermonkey.net/
-// @version      5.3.0 //rebuilt
-// @description  A robust, class-based implementation for mobile video gestures with a new contextual gesture model (vertical swipe for fullscreen).
+// @version      5.3.1
+// @description  A robust, class-based implementation for mobile video gestures with a new contextual gesture model and a definitive fullscreen overlay fix.
 // @author       사용자 (re-architected by Gemini)
 // @license      MIT
 // @match        *://*/*
@@ -35,8 +35,12 @@
 
         createOverlay() {
             const overlay = document.createElement('div');
+            
+            // --- FULLSCREEN FIX ---
+            // The overlay is now positioned relative to the entire screen (`fixed`)
+            // and has the highest possible z-index to ensure it's always on top.
             Object.assign(overlay.style, {
-                position: 'absolute',
+                position: 'fixed',
                 top: '50%',
                 left: '50%',
                 transform: 'translate(-50%, -50%)',
@@ -46,12 +50,14 @@
                 fontSize: '18px',
                 textAlign: 'center',
                 borderRadius: '8px',
-                zIndex: '99999',
+                zIndex: '2147483647', // Maximum possible z-index
                 display: 'none',
                 lineHeight: '1.5',
                 pointerEvents: 'none'
             });
-            this.video.parentElement.appendChild(overlay);
+
+            // It's appended to the main document body to exist outside the video's container.
+            document.body.appendChild(overlay);
             this.overlay = overlay;
         }
 
@@ -84,7 +90,6 @@
             this.initialTime = this.video.currentTime;
             this.touchStartTime = Date.now();
 
-            // Only set a timeout for long-press if we are in fullscreen mode.
             if (document.fullscreenElement) {
                 this.longPressTimeout = setTimeout(() => {
                     if (this.isGestureActive && !this.gestureType) {
@@ -110,7 +115,6 @@
                 }
             }
             
-            // Only show seeking UI if in fullscreen and doing a horizontal swipe
             if (document.fullscreenElement && this.gestureType === 'horizontal-swipe') {
                 const timeChange = deltaX * 0.05;
                 const newTime = this.initialTime + timeChange;
@@ -127,23 +131,17 @@
             const deltaY = e.changedTouches[0].clientY - this.startY;
             const touchDuration = Date.now() - this.touchStartTime;
 
-            // --- Final Gesture Decision Logic ---
-
-            // 1. Handle Vertical Swipes for Fullscreen Control
             if (this.gestureType === 'vertical-swipe') {
                 if (document.fullscreenElement) {
                     document.exitFullscreen().catch(err => console.error(err));
                 } else {
                     this.video.requestFullscreen().catch(err => console.error(err));
                 }
-            }
-            // 2. Handle Fullscreen-Only Gestures
-            else if (document.fullscreenElement) {
+            } else if (document.fullscreenElement) {
                 if (this.gestureType === 'long-press') {
                     e.preventDefault();
                     this.video.playbackRate = this.userPlaybackRate;
                 } else if (this.gestureType === 'horizontal-swipe') {
-                    // Differentiate between a "flick" and a "drag"
                     if (touchDuration < 250 && Math.abs(deltaX) < 100) {
                         const seekAmount = deltaX > 0 ? 5 : -5;
                         this.video.currentTime += seekAmount;
@@ -155,7 +153,6 @@
                 }
             }
 
-            // Hide overlay unless it's for a temporary message (like flick seek)
             if (!this.overlay.innerHTML.includes('s')) {
                  this.hideOverlay();
             }
