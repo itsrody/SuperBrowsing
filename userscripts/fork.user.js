@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile Video Gesture Control
 // @namespace    http://tampermonkey.net/
-// @version      4.5
+// @version      4.6
 // @description  Adds touch gestures to any HTML5 video on mobile: swipe to seek, long-press for 2x speed, double-tap to toggle landscape-fullscreen, and disables the context menu. Works with Shadow DOM.
 // @author       사용자 (updated by Gemini)
 // @license      MIT
@@ -43,8 +43,8 @@
         overlay.style.zIndex = '9999';
         overlay.style.display = 'none';
         overlay.style.lineHeight = '1.5';
+        // The overlay is added to the video's parent, but we no longer modify the parent's style.
         const container = video.parentElement || document.body;
-        container.style.position = 'relative';
         container.appendChild(overlay);
         video.overlay = overlay;
     }
@@ -97,7 +97,7 @@
     function onTouchEnd(e, video) {
         clearTimeout(longPressTimeout);
 
-        // --- REVISED: Double-Tap Logic on TouchEnd ---
+        // --- Double-Tap Logic on TouchEnd ---
         // A tap is a touch that hasn't moved and isn't a long-press.
         if (seeking && !movedEnoughForSeek && !isSpeedingUp) {
             const currentTime = new Date().getTime();
@@ -110,7 +110,7 @@
             }
         }
 
-        // --- Original Cleanup Logic ---
+        // --- Gesture Cleanup Logic ---
         if (isSpeedingUp) {
             video.playbackRate = userPlaybackRates.get(video) || 1.0;
         } else if (movedEnoughForSeek) {
@@ -195,9 +195,10 @@
             }
         });
 
-        // The 'passive: false' is important to allow preventDefault() in the touchend event.
+        // 'passive: false' is required to allow preventDefault() in the touchend event.
+        // We removed it from touchmove for better scrolling performance.
         video.addEventListener('touchstart', (e) => onTouchStart(e, video), { passive: false });
-        video.addEventListener('touchmove', (e) => onTouchMove(e, video), { passive: false });
+        video.addEventListener('touchmove', (e) => onTouchMove(e, video));
         video.addEventListener('touchend', (e) => onTouchEnd(e, video), { passive: false });
 
         video.addEventListener('contextmenu', (e) => {
