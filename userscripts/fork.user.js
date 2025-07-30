@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro (Enhanced)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      7.4
+// @version      7.5 // Version incremented to reflect fixes
 // @description  Adds powerful, zoned touch gestures (seek, volume, playback speed, fullscreen) with Material Design UI feedback to most web videos.
 // @author       Murtaza Salih & Gemini
 // @match        *://*/*
@@ -72,7 +72,7 @@
                 zIndex: '2147483647',
                 opacity: '0',
                 transition: 'opacity 0.3s ease, transform 0.3s ease',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                box-shadow: '0 4px 12px rgba(0,0,0,0.2)',
                 textAlign: 'center',
                 maxWidth: '80%',
                 wordBreak: 'break-word'
@@ -134,24 +134,32 @@
                 fill: #fff; 
                 flex-shrink: 0; /* Prevent icon from shrinking */
             }
-            /* Styling for the fullscreen wrapper to ensure video fills space */
-            #vg-fullscreen-wrapper {
-                position: fixed; 
-                top: 0; 
-                left: 0; 
-                width: 100%; 
-                height: 100%;
-                background-color: black; 
-                display: flex;
-                align-items: center; 
-                justify-content: center; 
-                z-index: 2147483646; /* Just below the indicator */
-            }
-            /* Ensure the video element itself takes full space within its container */
-            #vg-fullscreen-wrapper video {
+            /* Styles to apply to the video element when its container is in fullscreen */
+            .vg-fullscreen-active video {
                 width: 100%;
                 height: 100%;
                 object-fit: contain; /* Ensures video fits without cropping, showing black bars if aspect ratio differs */
+                background-color: black; /* Ensure black background for bars */
+            }
+            /* Ensure the fullscreen element itself takes full screen */
+            .vg-fullscreen-active {
+                width: 100% !important;
+                height: 100% !important;
+                max-width: 100% !important;
+                max-height: 100% !important;
+                position: fixed !important; /* Override potential relative/absolute positioning */
+                top: 0 !important;
+                left: 0 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background-color: black; /* Ensure background is black */
+                display: flex !important; /* Use flex to center video */
+                align-items: center !important;
+                justify-content: center !important;
+            }
+            /* Hide scrollbars during fullscreen */
+            html.vg-fullscreen-scroll-lock, body.vg-fullscreen-scroll-lock {
+                overflow: hidden !important;
             }
         `;
         document.head.appendChild(style);
@@ -163,9 +171,7 @@
     let gestureType = null;               // Current gesture being performed (e.g., 'tap', 'swipe-x')
     let tapTimeout = null;                // Timeout for double tap detection
     let tapCount = 0;                     // Counter for taps
-    let playerContainer = null;           // The immediate parent of the video element
-    let originalParent = null;            // The original parent of the playerContainer
-    let originalNextSibling = null;       // The sibling element after playerContainer, for re-insertion
+    let playerContainer = null;           // The immediate parent of the video element (or the video itself if it's the fullscreen element)
     let originalPlayerStyle = {};         // Stores original CSS styles of the playerContainer
 
     // --- UI & Feedback ---
@@ -205,7 +211,8 @@
         // Find the video element. If in fullscreen, find it within the fullscreen element.
         let video = e.target.closest('video');
         if (document.fullscreenElement) {
-             video = document.fullscreenElement.querySelector('video');
+            // If already in fullscreen, ensure we're targeting the video within the fullscreen element.
+            video = document.fullscreenElement.querySelector('video') || video; 
         }
 
         // Only proceed if a video is found and its duration is above the minimum threshold.
@@ -215,7 +222,14 @@
         }
         
         currentVideo = video;
-        
+        // Determine the player container. It's usually the direct parent, but some players might have complex structures.
+        // For fullscreen, we will request fullscreen on this container.
+        playerContainer = currentVideo.parentElement; 
+        // If the video itself is the fullscreen element, use it.
+        if (!playerContainer || playerContainer === document.body) {
+            playerContainer = currentVideo;
+        }
+
         // Record initial touch coordinates.
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
@@ -241,9 +255,8 @@
         if (Math.abs(deltaX) > config.SWIPE_THRESHOLD || Math.abs(deltaY) > config.SWIPE_THRESHOLD) {
             if (gestureType === 'tap') { // If it was initially a tap, now it's a swipe
                 const isVerticalSwipe = Math.abs(deltaY) > Math.abs(deltaX);
-                const rect = currentVideo.getBoundingClientRect();
-                const touchZoneX = (touchStartX - rect.left) / rect.width; // 0 to 1 across video width
-
+                // No need for rect or touchZoneX here, as we determine gesture type first
+                
                 if (!document.fullscreenElement && isVerticalSwipe && deltaY < -config.SWIPE_THRESHOLD) {
                     // Normal view: Swipe Up for Fullscreen
                     gestureType = 'swipe-up-fullscreen';
@@ -309,7 +322,7 @@
     // --- Gesture Logic ---
 
     // Handles toggling fullscreen mode.
-    function handleFullscreenToggle() {
+    async function handleFullscreenToggle() {
         const isFullscreen = document.fullscreenElement;
         // Material Design-like SVG icons for fullscreen toggle.
         const icon = isFullscreen 
@@ -323,59 +336,59 @@
             document.exitFullscreen();
         } else {
             // Enter fullscreen
-            const wrapper = document.createElement('div');
-            wrapper.id = 'vg-fullscreen-wrapper';
-            // Styles for the wrapper to ensure it covers the whole screen
-            Object.assign(wrapper.style, {
-                position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
-                backgroundColor: 'black', display: 'flex',
-                alignItems: 'center', justifyContent: 'center', zIndex: '2147483646'
-            });
+            if (!playerContainer) {
+                console.warn('Video Gestures Pro: playerContainer not found for fullscreen.');
+                return;
+            }
 
-            // Store original player container and its position in DOM
-            playerContainer = currentVideo.parentElement;
-            originalParent = playerContainer.parentElement;
-            originalNextSibling = playerContainer.nextElementSibling;
-            
-            // Store original styles to restore later
+            // Store original styles to restore later.
+            // We need to capture computed styles for properties that might be set by CSS rules.
+            const computedStyle = window.getComputedStyle(playerContainer);
             originalPlayerStyle = {
-                width: playerContainer.style.width,
-                height: playerContainer.style.height,
-                maxWidth: playerContainer.style.maxWidth,
-                maxHeight: playerContainer.style.maxHeight,
-                position: playerContainer.style.position,
-                zIndex: playerContainer.style.zIndex,
-                // Add any other styles that might be affected by fullscreen
-                transform: playerContainer.style.transform,
-                top: playerContainer.style.top,
-                left: playerContainer.style.left,
-                right: playerContainer.style.right,
-                bottom: playerContainer.style.bottom,
-                margin: playerContainer.style.margin,
-                padding: playerContainer.style.padding,
+                width: computedStyle.width,
+                height: computedStyle.height,
+                maxWidth: computedStyle.maxWidth,
+                maxHeight: computedStyle.maxHeight,
+                position: computedStyle.position,
+                zIndex: computedStyle.zIndex,
+                transform: computedStyle.transform,
+                top: computedStyle.top,
+                left: computedStyle.left,
+                right: computedStyle.right,
+                bottom: computedStyle.bottom,
+                margin: computedStyle.margin,
+                padding: computedStyle.padding,
+                backgroundColor: computedStyle.backgroundColor,
+                display: computedStyle.display,
+                alignItems: computedStyle.alignItems,
+                justifyContent: computedStyle.justifyContent,
+                overflow: computedStyle.overflow, // Capture overflow
             };
 
-            // Apply fullscreen-specific styles to the player container
-            Object.assign(playerContainer.style, {
-                width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%',
-                position: 'relative', zIndex: '1', // Ensure video is above wrapper background
-                transform: 'none', top: 'auto', left: 'auto', right: 'auto', bottom: 'auto',
-                margin: '0', padding: '0',
-            });
+            // Add a class to the playerContainer for fullscreen styling via CSS
+            playerContainer.classList.add('vg-fullscreen-active');
+            // Lock scroll on html/body to prevent accidental scrolling
+            document.documentElement.classList.add('vg-fullscreen-scroll-lock');
+            document.body.classList.add('vg-fullscreen-scroll-lock');
 
-            // Move player container into the new wrapper, then request fullscreen on wrapper.
-            wrapper.appendChild(playerContainer);
-            document.body.appendChild(wrapper);
-            
-            const fsPromise = wrapper.requestFullscreen();
-            
-            // Attempt to force landscape orientation if configured and video is wider than tall.
-            if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
-                fsPromise.then(() => {
+            try {
+                const fsPromise = playerContainer.requestFullscreen();
+                await fsPromise; // Wait for fullscreen to be active
+
+                // Attempt to force landscape orientation if configured and video is wider than tall.
+                if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
                     if (screen.orientation && typeof screen.orientation.lock === 'function') {
-                        screen.orientation.lock('landscape').catch(err => console.warn('Could not lock orientation:', err.message));
+                        screen.orientation.lock('landscape').catch(err => console.warn('Video Gestures Pro: Could not lock orientation:', err.message));
+                    } else {
+                        console.log('Video Gestures Pro: Screen orientation lock API not available.');
                     }
-                }).catch(err => console.warn('Fullscreen request failed:', err.message));
+                }
+            } catch (err) {
+                console.error('Video Gestures Pro: Fullscreen request failed:', err);
+                // Clean up classes if fullscreen fails
+                playerContainer.classList.remove('vg-fullscreen-active');
+                document.documentElement.classList.remove('vg-fullscreen-scroll-lock');
+                document.body.classList.remove('vg-fullscreen-scroll-lock');
             }
         }
     }
@@ -438,22 +451,20 @@
     function handleFullscreenChange() {
         if (!document.fullscreenElement) {
             // If exiting fullscreen, restore original player container position and styles.
-            const wrapper = document.getElementById('vg-fullscreen-wrapper');
-            if (wrapper && originalParent && playerContainer) {
-                // Restore original styles
-                Object.assign(playerContainer.style, originalPlayerStyle);
-                // Re-insert player container back into its original parent
-                if (originalNextSibling) {
-                    originalParent.insertBefore(playerContainer, originalNextSibling);
-                } else {
-                    originalParent.appendChild(playerContainer);
+            if (playerContainer) {
+                playerContainer.classList.remove('vg-fullscreen-active');
+                // Restore original styles using the captured object
+                for (const prop in originalPlayerStyle) {
+                    playerContainer.style[prop] = originalPlayerStyle[prop];
                 }
-                wrapper.remove(); // Remove the fullscreen wrapper
             }
             // Unlock screen orientation if it was locked.
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
             }
+            // Unlock scroll on html/body
+            document.documentElement.classList.remove('vg-fullscreen-scroll-lock');
+            document.body.classList.remove('vg-fullscreen-scroll-lock');
         }
     }
 
