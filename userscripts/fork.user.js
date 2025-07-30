@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      7.4 // Increased version number to reflect changes
+// @version      7.5 // Increased version number for this update
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos.
 // @author       Murtaza Salih
 // @match        *://*/*
@@ -39,53 +39,12 @@
                 const newConfig = JSON.parse(newConfigStr);
                 config = { ...DEFAULTS, ...newConfig }; 
                 GM_setValue('config', config);
-                // Replaced alert with a custom message box for better user experience
-                displayMessageBox('Settings saved! Please reload the page for changes to take effect.', 'Success');
+                alert('Settings saved! Please reload the page for changes to take effect.');
             } catch (e) {
-                // Replaced alert with a custom message box for better user experience
-                displayMessageBox('Error parsing settings. Please ensure it is valid JSON.\n\n' + e.message, 'Error');
+                alert('Error parsing settings. Please ensure it is valid JSON.\n\n' + e);
             }
         }
     });
-
-    // --- Custom Message Box (replaces alert) ---
-    function displayMessageBox(message, type = 'Info') {
-        const existingBox = document.getElementById('vg-message-box');
-        if (existingBox) existingBox.remove();
-
-        const box = document.createElement('div');
-        box.id = 'vg-message-box';
-        Object.assign(box.style, {
-            position: 'fixed',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            backgroundColor: type === 'Error' ? 'rgba(255, 50, 50, 0.9)' : 'rgba(30, 30, 30, 0.9)',
-            color: '#fff',
-            fontFamily: 'Roboto, sans-serif',
-            fontSize: '16px',
-            padding: '20px',
-            borderRadius: '10px',
-            boxShadow: '0 5px 15px rgba(0,0,0,0.5)',
-            zIndex: '2147483647',
-            textAlign: 'center',
-            maxWidth: '80%',
-            wordBreak: 'break-word',
-            opacity: '0',
-            transition: 'opacity 0.3s ease-in-out'
-        });
-        box.innerHTML = `<strong>${type}:</strong> ${message}`;
-        document.body.appendChild(box);
-
-        // Animate in
-        setTimeout(() => { box.style.opacity = '1'; }, 10);
-
-        // Animate out and remove
-        setTimeout(() => {
-            box.style.opacity = '0';
-            box.addEventListener('transitionend', () => box.remove(), { once: true });
-        }, 3000); // Display for 3 seconds
-    }
 
 
     // --- Styles ---
@@ -180,7 +139,7 @@
                 const tapZone = (touchStartX - rect.left) / rect.width;
 
                 // This logic correctly identifies a vertical swipe in the middle third
-                // It now applies regardless of fullscreen state, allowing swipe up to enter FS
+                // It now applies regardless of fullscreen state, allowing swipe up/down to toggle FS
                 if (isVerticalSwipe && tapZone > 0.33 && tapZone < 0.66) {
                     gestureType = 'swipe-y-fullscreen';
                 } else if (document.fullscreenElement) { // Other swipes (seek/volume/speed) only in fullscreen
@@ -193,6 +152,7 @@
             e.preventDefault();
             if (gestureType === 'swipe-x') handleHorizontalSwipe(deltaX);
             // Only handle general vertical swipes (volume/speed) if not the fullscreen toggle gesture
+            // This ensures the middle swipe doesn't interfere with volume/speed
             if (gestureType === 'swipe-y') handleVerticalSwipe(deltaY);
         }
     }
@@ -200,20 +160,14 @@
     function onTouchEnd(e) {
         if (!currentVideo) return;
 
-        const isFullscreen = document.fullscreenElement;
-        const deltaY = e.changedTouches[0].clientY - touchStartY;
-
+        // Universal fullscreen toggle for middle vertical swipe
         if (gestureType === 'swipe-y-fullscreen') {
-            // New logic: Swipe UP to enter fullscreen (if not already in fullscreen)
-            if (!isFullscreen && deltaY < -config.SWIPE_THRESHOLD) {
-                handleFullscreenToggle();
-            } 
-            // Existing logic: Swipe DOWN to exit fullscreen (if already in fullscreen)
-            else if (isFullscreen && deltaY > config.SWIPE_THRESHOLD) {
-                handleFullscreenToggle();
+            const deltaY = e.changedTouches[0].clientY - touchStartY;
+            if (Math.abs(deltaY) > config.SWIPE_THRESHOLD) { // Check if it was a significant swipe
+                handleFullscreenToggle(); // Let handleFullscreenToggle decide enter/exit
             }
         }
-        else if (isFullscreen) { // Other gestures (double tap, horizontal/vertical swipe for seek/volume/speed) only in fullscreen
+        else if (document.fullscreenElement) { // Other gestures (double tap, horizontal/vertical swipe for seek/volume/speed) only in fullscreen
             if (gestureType === 'tap' && tapCount >= 2) {
                 e.preventDefault();
                 handleDoubleTapSeek();
