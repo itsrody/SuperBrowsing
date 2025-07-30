@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      7.8 // Increased version number for this update
+// @version      7.9 // Increased version number for this update
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos.
 // @author       Murtaza Salih
 // @match        *://*/*
@@ -139,11 +139,9 @@
                 const rect = currentVideo.getBoundingClientRect();
                 const tapZone = (touchStartX - rect.left) / rect.width;
 
-                // Only detect swipe-y-fullscreen if already in fullscreen or if it's a specific middle zone vertical swipe
-                // Reverting to previous logic where it triggers fullscreen toggle primarily for exiting
                 if (isVerticalSwipe && tapZone > 0.33 && tapZone < 0.66) {
                     gestureType = 'swipe-y-fullscreen';
-                } else if (document.fullscreenElement) { // Other swipes (seek/volume/speed) only in fullscreen
+                } else if (document.fullscreenElement) {
                     gestureType = isVerticalSwipe ? 'swipe-y' : 'swipe-x';
                 }
             }
@@ -159,8 +157,6 @@
     function onTouchEnd(e) {
         if (!currentVideo) return;
 
-        // Reverting this logic to only trigger fullscreen toggle when already in fullscreen
-        // and a downward swipe occurs. This aligns with the MbGE observation for stability.
         if (gestureType === 'swipe-y-fullscreen') {
             const deltaY = e.changedTouches[0].clientY - touchStartY;
             if (document.fullscreenElement && deltaY > config.SWIPE_THRESHOLD) { // Downward swipe to exit fullscreen
@@ -199,16 +195,23 @@
         if (isFullscreen) {
             const wrapper = document.getElementById('vg-fullscreen-wrapper');
             if (wrapper && playerContainer && originalParent) { // Ensure all references exist
-                // Get the video element from the playerContainer within the wrapper
-                // This is safer than relying on the global 'currentVideo' which might be null
                 const videoElementToRestore = playerContainer.querySelector('video');
 
-                // Restore original player container styles
-                Object.assign(playerContainer.style, originalPlayerStyle);
+                // Explicitly clear styles set by the script on playerContainer
+                playerContainer.style.width = originalPlayerStyle.width || '';
+                playerContainer.style.height = originalPlayerStyle.height || '';
+                playerContainer.style.maxWidth = originalPlayerStyle.maxWidth || '';
+                playerContainer.style.maxHeight = originalPlayerStyle.maxHeight || '';
+                playerContainer.style.position = originalPlayerStyle.position || '';
+                playerContainer.style.zIndex = originalPlayerStyle.zIndex || '';
                 
-                // Restore original video element styles, if we have a reference to it and its original styles
-                if (videoElementToRestore && originalVideoStyle) {
-                    Object.assign(videoElementToRestore.style, originalVideoStyle); 
+                // Explicitly clear styles set by the script on videoElementToRestore
+                if (videoElementToRestore) {
+                    videoElementToRestore.style.width = originalVideoStyle.width || '';
+                    videoElementToRestore.style.height = originalVideoStyle.height || '';
+                    videoElementToRestore.style.objectFit = originalVideoStyle.objectFit || '';
+                    videoElementToRestore.style.maxWidth = originalVideoStyle.maxWidth || '';
+                    videoElementToRestore.style.maxHeight = originalVideoStyle.maxHeight || '';
                 }
 
                 originalParent.insertBefore(playerContainer, originalNextSibling);
@@ -327,16 +330,23 @@
         if (!document.fullscreenElement) {
             const wrapper = document.getElementById('vg-fullscreen-wrapper');
             if (wrapper && originalParent && playerContainer) {
-                // Get the video element from the playerContainer within the wrapper
-                // This is safer than relying on the global 'currentVideo' which might be null
                 const videoElementToRestore = playerContainer.querySelector('video');
 
-                // Restore original player container styles
-                Object.assign(playerContainer.style, originalPlayerStyle);
+                // Explicitly clear styles set by the script on playerContainer
+                playerContainer.style.width = originalPlayerStyle.width || '';
+                playerContainer.style.height = originalPlayerStyle.height || '';
+                playerContainer.style.maxWidth = originalPlayerStyle.maxWidth || '';
+                playerContainer.style.maxHeight = originalPlayerStyle.maxHeight || '';
+                playerContainer.style.position = originalPlayerStyle.position || '';
+                playerContainer.style.zIndex = originalPlayerStyle.zIndex || '';
                 
-                // Restore original video element styles, if we have a reference to it and its original styles
-                if (videoElementToRestore && originalVideoStyle) {
-                    Object.assign(videoElementToRestore.style, originalVideoStyle); 
+                // Explicitly clear styles set by the script on videoElementToRestore
+                if (videoElementToRestore) {
+                    videoElementToRestore.style.width = originalVideoStyle.width || '';
+                    videoElementToRestore.style.height = originalVideoStyle.height || '';
+                    videoElementToRestore.style.objectFit = originalVideoStyle.objectFit || '';
+                    videoElementToRestore.style.maxWidth = originalVideoStyle.maxWidth || '';
+                    videoElementToRestore.style.maxHeight = originalVideoStyle.maxHeight || '';
                 }
 
                 originalParent.insertBefore(playerContainer, originalNextSibling);
