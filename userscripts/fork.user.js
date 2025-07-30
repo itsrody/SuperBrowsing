@@ -1,130 +1,209 @@
 // ==UserScript==
-// @name          Video Gestures Pro Enhanced
-// @namespace     https://github.com/itsrody/SuperBrowsing
-// @version       8.0
-// @description   Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen, brightness) to most web videos with customizable settings.
-// @author        Murtaza Salih, Improved by ChatGPT
-// @match         *://*/*
-// @exclude       *://*.youtube.com/*
-// @exclude       *://*.dailymotion.com/*
-// @exclude       *://*.vimeo.com/*
-// @exclude       *://*.netflix.com/*
-// @grant         GM_getValue
-// @grant         GM_setValue
-// @grant         GM_registerMenuCommand
-// @run-at        document-idle
+// @name         Mobile Video Gestures – Material Edition
+// @namespace    https://github.com/itsrody
+// @version      1.0
+// @description  Adds YouTube-like touch gestures & Material UI feedback to any web video (except a few big sites).
+// @author       Rody
+// @match        *://*/*
+// @exclude      *://*.youtube.com/*
+// @exclude      *://*.dailymotion.com/*
+// @exclude      *://*.vimeo.com/*
+// @exclude      *://*.netflix.com/*
+// @grant        GM_registerMenuCommand
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @run-at       document-start
 // ==/UserScript==
 
-;(function() {
-    'use strict';
+(function () {
+  'use strict';
 
-    // --- Default Settings and Storage ---
-    const DEFAULTS = {
-        seekZone: { x: 0.6, y: 0.8, width: 0.4, height: 0.4 },
-        volumeZone: { x: 0.8, y: 0.2, width: 0.2, height: 0.6 },
-        speedZone: { x: 0.2, y: 0.2, width: 0.2, height: 0.6 },
-        brightnessZone: { x: 0.2, y: 0.8, width: 0.4, height: 0.4 },
-        gestureThreshold: 20,
-        feedbackDuration: 800
-    };
-    let settings = GM_getValue('vg-settings', DEFAULTS);
+  /* ----------  CONFIG  ---------- */
+  const CFG = {
+    MIN_DURATION: 45,             // sec
+    SEEK_STEP: 5,                 // sec
+    SWIPE_THRESHOLD: 25,          // px
+    SEEK_SENSITIVITY: 0.25,       // sec/px
+    HAPTIC: true,                 // boolean
+    HAPTIC_MS: 20,                // ms
+    LABEL_DURATION: 800,          // ms
+    LABEL_CLASS: 'mv-gesture-label'
+  };
 
-    GM_registerMenuCommand('Video Gestures Settings', openSettings);
+  /* ----------  MATERIAL CSS  ---------- */
+  function injectCSS() {
+    if (document.getElementById('mv-gesture-css')) return;
+    const css = document.createElement('style');
+    css.id = 'mv-gesture-css';
+    css.textContent = `
+      .${CFG.LABEL_CLASS} {
+        position: fixed;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0,0,0,.82);
+        color: #fff;
+        font-family: "Roboto", "Noto", sans-serif;
+        font-weight: 500;
+        font-size: 14px;
+        border-radius: 8px;
+        padding: 12px 16px;
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        opacity: 0;
+        transition: opacity .2s ease;
+        pointer-events: none;
+        box-shadow: 0 3px 5px -1px rgba(0,0,0,.2),
+                    0 6px 10px 0   rgba(0,0,0,.14),
+                    0 1px 18px 0   rgba(0,0,0,.12);
+      }
+      .${CFG.LABEL_CLASS}.show { opacity: 1; }
+      .${CFG.LABEL_CLASS} svg { width: 24px; height: 24px; fill: #fff; }
+    `;
+    document.head.appendChild(css);
+  }
 
-    function openSettings() {
-        const json = prompt('Customize Video Gestures Settings (in JSON)', JSON.stringify(settings, null, 2));
-        try {
-            const parsed = JSON.parse(json);
-            settings = Object.assign({}, DEFAULTS, parsed);
-            GM_setValue('vg-settings', settings);
-            alert('Settings saved! Reload page to apply.');
-        } catch (e) {
-            alert('Invalid JSON. No changes made.');
-        }
+  /* ----------  HELPERS  ---------- */
+  const $ = (sel, ctx = document) => ctx.querySelector(sel);
+  const haptic = () => CFG.HAPTIC && navigator.vibrate && navigator.vibrate(CFG.HAPTIC_MS);
+
+  function label(text, iconSvg = '') {
+    let div = document.querySelector(`.${CFG.LABEL_CLASS}`);
+    if (!div) {
+      div = document.createElement('div');
+      div.className = CFG.LABEL_CLASS;
+      document.body.appendChild(div);
+    }
+    div.innerHTML = iconSvg + text;
+    div.classList.add('show');
+    clearTimeout(div.hideTimer);
+    div.hideTimer = setTimeout(() => div.classList.remove('show'), CFG.LABEL_DURATION);
+  }
+
+  function zone(x, w) {
+    const ratio = x / w;
+    if (ratio < 0.33) return 'left';
+    if (ratio > 0.66) return 'right';
+    return 'middle';
+  }
+
+  function format(sec) {
+    const m = Math.floor(sec / 60).toString().padStart(2, '0');
+    const s = Math.floor(sec % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  /* ----------  STATE  ---------- */
+  let v = null, rect = null, tsX = 0, tsY = 0, gesture = null, tapCount = 0, tapTimer = 0;
+
+  /* ----------  GESTURE HANDLERS  ---------- */
+  function seek(delta) {
+    v.currentTime = Math.max(0, Math.min(v.duration, v.currentTime + delta));
+    label(`${delta > 0 ? '+' : ''}${delta}s`);
+    haptic();
+  }
+
+  function speed(rate) {
+    v.playbackRate = rate;
+    label(`${rate}x`, `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`);
+    haptic();
+  }
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+      label('Exit', `<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5zm3-8H5v2h5V5H8z"/></svg>`);
+    } else {
+      v.requestFullscreen?.() ?? v.parentElement.requestFullscreen?.();
+      label('Fullscreen', `<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7zm-2-4h2V7h3V5H5zm12 7h-3v2h5v-5h-2zm-2-6V5h-2v5h5V8z"/></svg>`);
+    }
+    haptic();
+  }
+
+  /* ----------  TOUCH EVENTS  ---------- */
+  function onStart(e) {
+    v = e.target.closest('video');
+    if (!v || v.duration < CFG.MIN_DURATION) return;
+    rect = v.getBoundingClientRect();
+    tsX = e.touches[0].clientX;
+    tsY = e.touches[0].clientY;
+    gesture = null;
+
+    /* double-tap timer */
+    tapCount++;
+    clearTimeout(tapTimer);
+    tapTimer = setTimeout(() => (tapCount = 0), 300);
+  }
+
+  function onMove(e) {
+    if (!v || e.touches.length > 1) return;
+    const dx = e.touches[0].clientX - tsX;
+    const dy = e.touches[0].clientY - tsY;
+
+    if (!gesture && Math.max(Math.abs(dx), Math.abs(dy)) > CFG.SWIPE_THRESHOLD) {
+      gesture = Math.abs(dx) > Math.abs(dy) ? 'seek' : 'vertical';
+      e.preventDefault(); // stop native scroll
     }
 
-    // --- Utility ---
-    function showIndicator(video, html) {
-        clearIndicator(video);
-        const el = document.createElement('div');
-        el.className = 'vg-indicator';
-        el.innerHTML = html;
-        Object.assign(el.style, {
-            position: 'absolute', top: '50%', left: '50%',
-            transform: 'translate(-50%,-50%)',
-            background: 'rgba(0,0,0,0.6)', padding: '10px',
-            'border-radius': '50%', 'z-index': 9999,
-            transition: 'opacity 0.3s'
-        });
-        video.parentElement.style.position = 'relative';
-        video.parentElement.appendChild(el);
-        setTimeout(() => el.remove(), settings.feedbackDuration);
+    if (gesture === 'seek' && document.fullscreenElement) {
+      e.preventDefault();
+      label(format(v.currentTime + dx * CFG.SEEK_SENSITIVITY));
     }
-    function clearIndicator(video) {
-        const old = video.parentElement.querySelector('.vg-indicator');
-        if (old) old.remove();
-    }
-    function triggerHapticFeedback() {
-        if (navigator.vibrate) navigator.vibrate(10);
+  }
+
+  function onEnd(e) {
+    if (!v) return;
+    const dx = e.changedTouches[0].clientX - tsX;
+    const dy = e.changedTouches[0].clientY - tsY;
+
+    /* --- normal view swipe-up -> fullscreen --- */
+    if (!document.fullscreenElement && !gesture && dy < -CFG.SWIPE_THRESHOLD) {
+      toggleFullscreen();
+      return;
     }
 
-    // --- Gesture Handling ---
-    function initGestures(video) {
-        let startX, startY, currentAction;
-        video.style.touchAction = 'none';
+    /* --- fullscreen gestures --- */
+    if (!document.fullscreenElement) return;
 
-        video.addEventListener('pointerdown', e => {
-            if (e.pointerType !== 'touch') return;
-            startX = e.clientX; startY = e.clientY;
-            currentAction = null;
-        });
+    const z = zone(tsX, rect.width);
 
-        video.addEventListener('pointermove', e => {
-            if (startX == null) return;
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            if (!currentAction && Math.hypot(dx,dy) > settings.gestureThreshold) {
-                currentAction = detectZone(video, startX, startY);
-            }
-            if (currentAction) performAction(video, currentAction, dx, dy);
-        });
-
-        video.addEventListener('pointerup', () => startX = startY = currentAction = null);
+    /* double-tap seek */
+    if (!gesture && tapCount >= 2) {
+      if (z === 'left') { seek(-CFG.SEEK_STEP); }
+      else if (z === 'right') { seek(CFG.SEEK_STEP); }
+      tapCount = 0;
+      return;
     }
 
-    function detectZone(video, x, y) {
-        const vw = video.clientWidth, vh = video.clientHeight;
-        const relX = (x - video.getBoundingClientRect().left) / vw;
-        const relY = (y - video.getBoundingClientRect().top) / vh;
-        if (inZone(relX, relY, settings.seekZone)) return 'seek';
-        if (inZone(relX, relY, settings.volumeZone)) return 'volume';
-        if (inZone(relX, relY, settings.speedZone)) return 'speed';
-        if (inZone(relX, relY, settings.brightnessZone)) return 'brightness';
-        return null;
-    }
-    function inZone(x,y,zone) {
-        return x>=zone.x && x<=zone.x+zone.width && y>=zone.y && y<=zone.y+zone.height;
+    /* vertical swipe zone actions */
+    if (gesture === 'vertical') {
+      if (z === 'middle' && dy > CFG.SWIPE_THRESHOLD) {
+        toggleFullscreen();            // swipe-down middle
+      } else if (z === 'left') {
+        if (dy < -CFG.SWIPE_THRESHOLD) speed(2);
+        else if (dy > CFG.SWIPE_THRESHOLD) speed(1);
+      }
     }
 
-    function performAction(video, action, dx, dy) {
-        switch(action) {
-            case 'seek': video.currentTime += dx/5; showIndicator(video, Math.round(video.currentTime)+'s'); break;
-            case 'volume': video.volume = Math.min(1, Math.max(0, video.volume - dy/200)); showIndicator(video, '🔊'+Math.round(video.volume*100)+'%'); break;
-            case 'speed': video.playbackRate = Math.min(4, Math.max(0.25, video.playbackRate + dy/200)); showIndicator(video, '⏩'+video.playbackRate.toFixed(2)+'x'); break;
-            case 'brightness': video.style.filter = `brightness(${Math.min(2, Math.max(0.5, 1 + dy/200))})`; showIndicator(video, '🌙'); break;
-        }
-        triggerHapticFeedback();
+    /* seek after drag */
+    if (gesture === 'seek') {
+      v.currentTime += dx * CFG.SEEK_SENSITIVITY;
+      haptic();
     }
+  }
 
-    // --- Initialization ---
-    function scanVideos() {
-        document.querySelectorAll('video').forEach(video => {
-            if (!video.dataset.vgInit) {
-                initGestures(video);
-                video.dataset.vgInit = true;
-            }
-        });
-    }
-    new MutationObserver(scanVideos).observe(document.body, { childList: true, subtree: true });
-    window.addEventListener('load', scanVideos);
+  /* ----------  INIT  ---------- */
+  function init() {
+    injectCSS();
+    document.addEventListener('touchstart', onStart, { passive: true });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd, { passive: true });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init, { once: true });
+  } else {
+    init();
+  }
 })();
