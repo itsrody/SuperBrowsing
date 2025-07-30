@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Mobile Video Gesture Control (Final Architecture)
+// @name         Mobile Video Gesture Control (Definitive Edition)
 // @namespace    http://tampermonkey.net/
-// @version      7.0.0
-// @description  Definitive version built on the principles of the reference script. Uses a temporary event shield to eliminate all conflicts while preserving all player functions.
+// @version      8.0.0
+// @description  Final version built on a proven architecture. Uses a temporary event shield to eliminate all gesture conflicts while preserving all player functions.
 // @author       사용자 (re-architected by Gemini)
 // @license      MIT
 // @match        *://*/*
@@ -19,7 +19,6 @@
             this.video = video;
             this.container = video.parentElement;
             this.feedbackOverlay = null;
-            this.eventShield = null; // The shield will be created and destroyed on each touch
 
             this.userPlaybackRate = video.playbackRate;
 
@@ -37,7 +36,6 @@
             this.bindEvents();
         }
 
-        // Creates the permanent feedback UI (the black box)
         createFeedbackOverlay() {
             const feedback = document.createElement('div');
             Object.assign(feedback.style, {
@@ -46,7 +44,7 @@
                 left: '50%',
                 transform: 'translate(-50%, -50%)',
                 padding: '10px 20px',
-                backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
                 color: '#fff',
                 fontSize: '18px',
                 textAlign: 'center',
@@ -57,14 +55,12 @@
                 pointerEvents: 'none'
             });
             this.feedbackOverlay = feedback;
-            // The overlay is appended to the container, which goes fullscreen with the video
             if (getComputedStyle(this.container).position === 'static') {
                 this.container.style.position = 'relative';
             }
             this.container.appendChild(this.feedbackOverlay);
         }
 
-        // Binds the initial touchstart listener to the video element
         bindEvents() {
             this.handleTouchStart = this.handleTouchStart.bind(this);
             this.video.addEventListener('touchstart', this.handleTouchStart, { passive: false });
@@ -75,9 +71,9 @@
             });
         }
 
-        // --- The Core Logic: Temporary Event Shield ---
         handleTouchStart(e) {
-            if (e.touches.length > 1 || videoControllers.has(e.target)) return;
+            // Do not start a new gesture if one is already active from another source
+            if (e.touches.length > 1 || document.querySelector('.gesture-shield')) return;
             e.preventDefault();
 
             this.gestureType = null;
@@ -86,19 +82,19 @@
             this.initialTime = this.video.currentTime;
             this.touchStartTime = Date.now();
 
-            // 1. Create the shield
+            // 1. Create the temporary shield
             const shield = document.createElement('div');
+            shield.className = 'gesture-shield'; // Add a class for identification
             shield.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2147483646;';
             document.body.appendChild(shield);
-            this.eventShield = shield;
 
-            // 2. Bind move and end listeners to the new shield
+            // 2. Define and bind event handlers for the shield
             const handleTouchMove = (moveEvent) => {
                 if (this.gestureType === 'long-press') return;
                 const deltaX = moveEvent.touches[0].clientX - this.startX;
                 const deltaY = moveEvent.touches[0].clientY - this.startY;
 
-                if (Math.abs(deltaX) > 10 || Math.abs(deltaY) > 10) {
+                if (Math.abs(deltaX) > 15 || Math.abs(deltaY) > 15) {
                     clearTimeout(this.longPressTimeout);
                     if (!this.gestureType) {
                         this.gestureType = Math.abs(deltaY) > Math.abs(deltaX) ? 'vertical-swipe' : 'horizontal-swipe';
@@ -148,7 +144,9 @@
                     this.hideOverlay();
                 }
 
-                // 3. Destroy the shield
+                // 3. Destroy the shield and its listeners
+                shield.removeEventListener('touchmove', handleTouchMove);
+                shield.removeEventListener('touchend', handleTouchEnd);
                 shield.remove();
             };
 
