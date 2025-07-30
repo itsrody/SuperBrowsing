@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      7.6 // Increased version number for this update
+// @version      7.8 // Increased version number for this update
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos.
 // @author       Murtaza Salih
 // @match        *://*/*
@@ -81,7 +81,7 @@
     let originalParent = null;
     let originalNextSibling = null;
     let originalPlayerStyle = {};
-    let originalVideoStyle = {}; // New: To store original video element styles
+    let originalVideoStyle = {}; // To store original video element styles
 
     // --- UI & Feedback ---
     function showIndicator(video, html) {
@@ -139,9 +139,11 @@
                 const rect = currentVideo.getBoundingClientRect();
                 const tapZone = (touchStartX - rect.left) / rect.width;
 
+                // Only detect swipe-y-fullscreen if already in fullscreen or if it's a specific middle zone vertical swipe
+                // Reverting to previous logic where it triggers fullscreen toggle primarily for exiting
                 if (isVerticalSwipe && tapZone > 0.33 && tapZone < 0.66) {
                     gestureType = 'swipe-y-fullscreen';
-                } else if (document.fullscreenElement) {
+                } else if (document.fullscreenElement) { // Other swipes (seek/volume/speed) only in fullscreen
                     gestureType = isVerticalSwipe ? 'swipe-y' : 'swipe-x';
                 }
             }
@@ -157,9 +159,11 @@
     function onTouchEnd(e) {
         if (!currentVideo) return;
 
+        // Reverting this logic to only trigger fullscreen toggle when already in fullscreen
+        // and a downward swipe occurs. This aligns with the MbGE observation for stability.
         if (gestureType === 'swipe-y-fullscreen') {
             const deltaY = e.changedTouches[0].clientY - touchStartY;
-            if (Math.abs(deltaY) > config.SWIPE_THRESHOLD) {
+            if (document.fullscreenElement && deltaY > config.SWIPE_THRESHOLD) { // Downward swipe to exit fullscreen
                 handleFullscreenToggle();
             }
         }
@@ -193,9 +197,26 @@
         triggerHapticFeedback();
 
         if (isFullscreen) {
-            // Restore original video element styles
-            Object.assign(currentVideo.style, originalVideoStyle);
-            document.exitFullscreen();
+            const wrapper = document.getElementById('vg-fullscreen-wrapper');
+            if (wrapper && playerContainer && originalParent) { // Ensure all references exist
+                // Get the video element from the playerContainer within the wrapper
+                // This is safer than relying on the global 'currentVideo' which might be null
+                const videoElementToRestore = playerContainer.querySelector('video');
+
+                // Restore original player container styles
+                Object.assign(playerContainer.style, originalPlayerStyle);
+                
+                // Restore original video element styles, if we have a reference to it and its original styles
+                if (videoElementToRestore && originalVideoStyle) {
+                    Object.assign(videoElementToRestore.style, originalVideoStyle); 
+                }
+
+                originalParent.insertBefore(playerContainer, originalNextSibling);
+                wrapper.remove();
+            }
+            if (screen.orientation && typeof screen.orientation.unlock === 'function') {
+                screen.orientation.unlock();
+            }
         } else {
             const wrapper = document.createElement('div');
             wrapper.id = 'vg-fullscreen-wrapper';
@@ -224,7 +245,7 @@
                 width: currentVideo.style.width,
                 height: currentVideo.style.height,
                 objectFit: currentVideo.style.objectFit,
-                maxWidth: currentVideo.style.maxWidth, // Include max-width/height for video
+                maxWidth: currentVideo.style.maxWidth, 
                 maxHeight: currentVideo.style.maxHeight,
             };
 
@@ -238,7 +259,7 @@
             Object.assign(currentVideo.style, {
                 width: '100%',
                 height: '100%',
-                objectFit: 'contain', // Ensures the video fits without cropping, preventing "zoom"
+                objectFit: 'contain', 
                 maxWidth: '100%',
                 maxHeight: '100%',
             });
@@ -306,10 +327,18 @@
         if (!document.fullscreenElement) {
             const wrapper = document.getElementById('vg-fullscreen-wrapper');
             if (wrapper && originalParent && playerContainer) {
+                // Get the video element from the playerContainer within the wrapper
+                // This is safer than relying on the global 'currentVideo' which might be null
+                const videoElementToRestore = playerContainer.querySelector('video');
+
                 // Restore original player container styles
                 Object.assign(playerContainer.style, originalPlayerStyle);
-                // Restore original video element styles
-                Object.assign(currentVideo.style, originalVideoStyle); // New: Restore video styles
+                
+                // Restore original video element styles, if we have a reference to it and its original styles
+                if (videoElementToRestore && originalVideoStyle) {
+                    Object.assign(videoElementToRestore.style, originalVideoStyle); 
+                }
+
                 originalParent.insertBefore(playerContainer, originalNextSibling);
                 wrapper.remove();
             }
