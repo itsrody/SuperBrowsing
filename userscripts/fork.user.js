@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Mobile Video Gesture Control (Event Shield)
 // @namespace    http://tampermonkey.net/
-// @version      6.0.0
-// @description  Definitive Edition: Uses an event shield to eliminate all gesture conflicts and guarantee UI visibility in fullscreen.
+// @version      6.1.0
+// @description  Definitive Edition: Uses an intelligent event shield to allow play/pause taps while eliminating all other gesture conflicts.
 // @author       사용자 (re-architected by Gemini)
 // @license      MIT
 // @match        *://*/*
@@ -19,7 +19,7 @@
             this.video = video;
             this.container = video.parentElement;
             this.feedbackOverlay = null;
-            this.eventShield = null; // The element that will capture all touches
+            this.eventShield = null;
 
             this.userPlaybackRate = video.playbackRate;
 
@@ -32,7 +32,6 @@
             this.longPressTimeout = null;
             this.touchStartTime = 0;
 
-            // A check to ensure we have a valid container to work with.
             if (!this.container) {
                 console.error("Video Gesture Script: Video element has no parent container.", video);
                 return;
@@ -43,13 +42,10 @@
         }
 
         createOverlays() {
-            // Ensure the container can hold absolutely positioned children.
-            // This is critical for the shield and overlay to be positioned correctly.
             if (getComputedStyle(this.container).position === 'static') {
                 this.container.style.position = 'relative';
             }
 
-            // --- The Event Shield ---
             const shield = document.createElement('div');
             Object.assign(shield.style, {
                 position: 'absolute',
@@ -57,13 +53,12 @@
                 left: '0',
                 width: '100%',
                 height: '100%',
-                zIndex: '99998', // High enough to be on top of the video.
-                userSelect: 'none', // Prevents text selection during gestures.
-                '-webkit-touch-callout': 'none' // Disables the callout menu on iOS.
+                zIndex: '99998',
+                userSelect: 'none',
+                '-webkit-touch-callout': 'none'
             });
             this.eventShield = shield;
 
-            // --- The Feedback Overlay ---
             const feedback = document.createElement('div');
             Object.assign(feedback.style, {
                 position: 'absolute',
@@ -76,7 +71,7 @@
                 fontSize: '18px',
                 textAlign: 'center',
                 borderRadius: '8px',
-                zIndex: '99999', // Higher than the shield.
+                zIndex: '99999',
                 display: 'none',
                 lineHeight: '1.5',
                 pointerEvents: 'none'
@@ -93,7 +88,6 @@
             this.handleTouchEnd = this.handleTouchEnd.bind(this);
             this.handleRateChange = this.handleRateChange.bind(this);
 
-            // --- All touch events are now bound to the shield ---
             this.eventShield.addEventListener('touchstart', this.handleTouchStart, { passive: false });
             this.eventShield.addEventListener('touchmove', this.handleTouchMove, { passive: false });
             this.eventShield.addEventListener('touchend', this.handleTouchEnd, { passive: false });
@@ -104,8 +98,7 @@
 
         handleTouchStart(e) {
             if (e.touches.length > 1) return;
-            e.preventDefault(); // Prevent default actions like scrolling the page.
-
+            
             this.isGestureActive = true;
             this.gestureType = null;
             this.startX = e.touches[0].clientX;
@@ -116,6 +109,7 @@
             if (document.fullscreenElement) {
                 this.longPressTimeout = setTimeout(() => {
                     if (this.isGestureActive && !this.gestureType) {
+                        e.preventDefault(); // Prevent any further action once long-press is confirmed
                         this.gestureType = 'long-press';
                         this.video.playbackRate = 2.0;
                         this.showOverlay('2x Speed');
@@ -126,12 +120,12 @@
 
         handleTouchMove(e) {
             if (!this.isGestureActive || this.gestureType === 'long-press') return;
-            e.preventDefault();
-
+            
             const deltaX = e.touches[0].clientX - this.startX;
             const deltaY = e.touches[0].clientY - this.startY;
 
             if (Math.abs(deltaX) > 10 || Math.abs(deltaY) > 10) {
+                e.preventDefault(); // A swipe is happening, prevent page scroll.
                 clearTimeout(this.longPressTimeout);
                 if (!this.gestureType) {
                     this.gestureType = Math.abs(deltaY) > Math.abs(deltaX) ? 'vertical-swipe' : 'horizontal-swipe';
@@ -148,20 +142,34 @@
 
         handleTouchEnd(e) {
             if (!this.isGestureActive) return;
-            e.preventDefault();
             clearTimeout(this.longPressTimeout);
 
             const deltaX = e.changedTouches[0].clientX - this.startX;
+            const deltaY = e.changedTouches[0].clientY - this.startY;
             const touchDuration = Date.now() - this.touchStartTime;
 
-            if (this.gestureType === 'vertical-swipe') {
+            // --- THE FIX: Intelligent Event Handling ---
+
+            // If it was a gesture, prevent default to stop the tap from firing.
+            if (this.gestureType) {
+                e.preventDefault();
+            }
+
+            // 1. Check for a simple Tap (no gesture type was set)
+            if (this.gestureType === null && touchDuration < 200) {
+                // This was a clean tap. Forward it to the video to allow play/pause.
+                this.video.click();
+            }
+            // 2. Handle Vertical Swipes for Fullscreen
+            else if (this.gestureType === 'vertical-swipe') {
                 if (document.fullscreenElement) {
                     document.exitFullscreen().catch(err => console.error(err));
                 } else {
-                    // Request fullscreen on the container, not the video.
                     this.container.requestFullscreen().catch(err => console.error(err));
                 }
-            } else if (document.fullscreenElement) {
+            } 
+            // 3. Handle Fullscreen-Only Gestures
+            else if (document.fullscreenElement) {
                 if (this.gestureType === 'long-press') {
                     this.video.playbackRate = this.userPlaybackRate;
                 } else if (this.gestureType === 'horizontal-swipe') {
@@ -217,8 +225,6 @@
         destroy() {
             this.eventShield.remove();
             this.feedbackOverlay.remove();
-            // We no longer need to remove individual listeners from the shield
-            // as the shield itself is destroyed.
         }
     }
 
@@ -233,7 +239,7 @@
     }
 
     function initializeController(video) {
-        if (!videoControllers.has(video)) {
+        if (!videoControllers.has(video) && video.parentElement) {
             const controller = new GestureController(video);
             videoControllers.set(video, controller);
         }
