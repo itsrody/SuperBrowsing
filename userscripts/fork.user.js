@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Mobile Video Seek & Fullscreen Gesture
+// @name         Mobile Video Gesture Control
 // @namespace    http://tampermonkey.net/
-// @version      4.2.1
-// @description  Adds touch gestures to any HTML5 video on mobile: swipe to seek, long-press for 2x speed, auto-landscape-fullscreen, and disables the context menu. Works with Shadow DOM and Firefox.
+// @version      4.3.0
+// @description  Adds touch gestures to any HTML5 video: short swipe to skip 5s, long swipe to seek, long-press for 2x speed, and disables the context menu. Works with Shadow DOM and Firefox.
 // @author       사용자 (updated by Gemini)
 // @license      MIT
 // @match        *://*/*
@@ -23,7 +23,7 @@
     let isSpeedingUp = false;
     let movedEnoughForSeek = false;
     let userPlaybackRates = new Map();
-    let isLongPress = false; // NEW: Flag to track if a long press occurred
+    let isLongPress = false;
 
     // --- Gesture UI & Logic ---
 
@@ -48,8 +48,7 @@
     }
 
     function onTouchStart(e, video) {
-        if (!video) return;
-        if (e.touches.length > 1) {
+        if (!video || e.touches.length > 1) {
             seeking = false;
             return;
         }
@@ -57,11 +56,11 @@
         initialTime = video.currentTime;
         seeking = true;
         movedEnoughForSeek = false;
-        isLongPress = false; // Reset long press flag
+        isLongPress = false;
 
         longPressTimeout = setTimeout(() => {
             if (!movedEnoughForSeek) {
-                isLongPress = true; // It's officially a long press
+                isLongPress = true;
                 userPlaybackRates.set(video, video.playbackRate);
                 video.playbackRate = 2.0;
                 video.overlay.style.display = 'block';
@@ -94,29 +93,54 @@
         }
     }
 
-    function onTouchEnd(e, video) { // Now accepts the event 'e'
-        seeking = false;
+    function onTouchEnd(e, video) {
         clearTimeout(longPressTimeout);
-        longPressTimeout = null;
+        let hideOverlay = true; // By default, we hide the overlay after the gesture.
 
-        // NEW: Firefox context menu fix
-        // If a long press was detected, prevent the default action (context menu).
         if (isLongPress) {
             e.preventDefault();
         }
 
         if (isSpeedingUp) {
             video.playbackRate = userPlaybackRates.get(video) || 1.0;
-            isSpeedingUp = false;
         } else if (movedEnoughForSeek) {
-            let newTime = initialTime + timeChange;
-            newTime = Math.max(0, Math.min(newTime, video.duration));
-            video.currentTime = newTime;
+            // --- NEW: Differentiate between short and long swipes ---
+            const finalX = e.changedTouches[0].clientX;
+            const deltaX = finalX - startX;
+            const shortSwipeThreshold = 80; // A swipe less than 80px is a "short" one.
+
+            if (Math.abs(deltaX) < shortSwipeThreshold) {
+                // It's a short swipe. Apply a fixed 5-second seek.
+                const seekAmount = deltaX > 0 ? 5 : -5;
+                let newTime = video.currentTime + seekAmount;
+                video.currentTime = Math.max(0, Math.min(newTime, video.duration));
+
+                // Show temporary feedback for the short swipe.
+                video.overlay.innerHTML = `<div>${seekAmount > 0 ? '+' : ''}${seekAmount}s</div>`;
+                video.overlay.style.display = 'block';
+                setTimeout(() => { video.overlay.style.display = 'none'; }, 600);
+                hideOverlay = false; // The timeout will hide the overlay, so don't hide it now.
+
+            } else {
+                // It's a long swipe. Apply the variable seek time.
+                let newTime = initialTime + timeChange;
+                video.currentTime = Math.max(0, Math.min(newTime, video.duration));
+            }
         }
-        video.overlay.style.display = 'none';
-        video.overlay.innerHTML = '';
-        isLongPress = false; // Reset for the next touch
+
+        // Reset state variables
+        seeking = false;
+        isSpeedingUp = false;
+        isLongPress = false;
+        longPressTimeout = null;
+
+        // Hide the overlay unless we are showing temporary feedback
+        if (hideOverlay) {
+            video.overlay.style.display = 'none';
+            video.overlay.innerHTML = '';
+        }
     }
+
 
     // --- Time Formatting Utilities ---
 
@@ -198,13 +222,10 @@
             enterLandscapeFullscreen(video);
         });
 
-        // We need to pass the event `e` to onTouchEnd now.
-        // `passive: false` is important for allowing preventDefault.
         video.addEventListener('touchstart', (e) => onTouchStart(e, video), { passive: false });
         video.addEventListener('touchmove', (e) => onTouchMove(e, video));
         video.addEventListener('touchend', (e) => onTouchEnd(e, video), { passive: false });
 
-        // Keep the original contextmenu listener as a fallback for other browsers.
         video.addEventListener('contextmenu', (e) => {
             e.preventDefault();
         });
