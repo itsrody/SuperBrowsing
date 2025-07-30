@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      7.5 // Increased version number for this update
+// @version      7.6 // Increased version number for this update
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos.
 // @author       Murtaza Salih
 // @match        *://*/*
@@ -81,6 +81,7 @@
     let originalParent = null;
     let originalNextSibling = null;
     let originalPlayerStyle = {};
+    let originalVideoStyle = {}; // New: To store original video element styles
 
     // --- UI & Feedback ---
     function showIndicator(video, html) {
@@ -138,11 +139,9 @@
                 const rect = currentVideo.getBoundingClientRect();
                 const tapZone = (touchStartX - rect.left) / rect.width;
 
-                // This logic correctly identifies a vertical swipe in the middle third
-                // It now applies regardless of fullscreen state, allowing swipe up/down to toggle FS
                 if (isVerticalSwipe && tapZone > 0.33 && tapZone < 0.66) {
                     gestureType = 'swipe-y-fullscreen';
-                } else if (document.fullscreenElement) { // Other swipes (seek/volume/speed) only in fullscreen
+                } else if (document.fullscreenElement) {
                     gestureType = isVerticalSwipe ? 'swipe-y' : 'swipe-x';
                 }
             }
@@ -151,8 +150,6 @@
         if (gestureType && gestureType.startsWith('swipe')) {
             e.preventDefault();
             if (gestureType === 'swipe-x') handleHorizontalSwipe(deltaX);
-            // Only handle general vertical swipes (volume/speed) if not the fullscreen toggle gesture
-            // This ensures the middle swipe doesn't interfere with volume/speed
             if (gestureType === 'swipe-y') handleVerticalSwipe(deltaY);
         }
     }
@@ -160,14 +157,13 @@
     function onTouchEnd(e) {
         if (!currentVideo) return;
 
-        // Universal fullscreen toggle for middle vertical swipe
         if (gestureType === 'swipe-y-fullscreen') {
             const deltaY = e.changedTouches[0].clientY - touchStartY;
-            if (Math.abs(deltaY) > config.SWIPE_THRESHOLD) { // Check if it was a significant swipe
-                handleFullscreenToggle(); // Let handleFullscreenToggle decide enter/exit
+            if (Math.abs(deltaY) > config.SWIPE_THRESHOLD) {
+                handleFullscreenToggle();
             }
         }
-        else if (document.fullscreenElement) { // Other gestures (double tap, horizontal/vertical swipe for seek/volume/speed) only in fullscreen
+        else if (document.fullscreenElement) {
             if (gestureType === 'tap' && tapCount >= 2) {
                 e.preventDefault();
                 handleDoubleTapSeek();
@@ -197,6 +193,8 @@
         triggerHapticFeedback();
 
         if (isFullscreen) {
+            // Restore original video element styles
+            Object.assign(currentVideo.style, originalVideoStyle);
             document.exitFullscreen();
         } else {
             const wrapper = document.createElement('div');
@@ -211,6 +209,7 @@
             originalParent = playerContainer.parentElement;
             originalNextSibling = playerContainer.nextElementSibling;
             
+            // Store original styles of player container
             originalPlayerStyle = {
                 width: playerContainer.style.width,
                 height: playerContainer.style.height,
@@ -220,10 +219,30 @@
                 zIndex: playerContainer.style.zIndex,
             };
 
+            // Store original styles of the video element itself
+            originalVideoStyle = {
+                width: currentVideo.style.width,
+                height: currentVideo.style.height,
+                objectFit: currentVideo.style.objectFit,
+                maxWidth: currentVideo.style.maxWidth, // Include max-width/height for video
+                maxHeight: currentVideo.style.maxHeight,
+            };
+
+            // Apply fullscreen styles to player container
             Object.assign(playerContainer.style, {
                 width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%',
                 position: 'relative', zIndex: '1'
             });
+
+            // Apply fullscreen styles to the video element itself
+            Object.assign(currentVideo.style, {
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain', // Ensures the video fits without cropping, preventing "zoom"
+                maxWidth: '100%',
+                maxHeight: '100%',
+            });
+
 
             wrapper.appendChild(playerContainer);
             document.body.appendChild(wrapper);
@@ -287,7 +306,10 @@
         if (!document.fullscreenElement) {
             const wrapper = document.getElementById('vg-fullscreen-wrapper');
             if (wrapper && originalParent && playerContainer) {
+                // Restore original player container styles
                 Object.assign(playerContainer.style, originalPlayerStyle);
+                // Restore original video element styles
+                Object.assign(currentVideo.style, originalVideoStyle); // New: Restore video styles
                 originalParent.insertBefore(playerContainer, originalNextSibling);
                 wrapper.remove();
             }
