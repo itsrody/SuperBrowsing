@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Mobile Video Gesture Control
+// @name         Mobile Video Seek & Fullscreen Gesture
 // @namespace    http://tampermonkey.net/
-// @version      4.6
-// @description  Adds touch gestures to any HTML5 video on mobile: swipe to seek, long-press for 2x speed, double-tap to toggle landscape-fullscreen, and disables the context menu. Works with Shadow DOM.
+// @version      4.2
+// @description  Adds touch gestures to any HTML5 video on mobile: swipe to seek, long-press for 2x speed, auto-landscape-fullscreen, and disables the context menu. Works with Shadow DOM.
 // @author       사용자 (updated by Gemini)
 // @license      MIT
 // @match        *://*/*
@@ -23,7 +23,6 @@
     let isSpeedingUp = false;
     let movedEnoughForSeek = false;
     let userPlaybackRates = new Map();
-    let lastTapTime = 0; // For detecting double-taps
 
     // --- Gesture UI & Logic ---
 
@@ -43,14 +42,14 @@
         overlay.style.zIndex = '9999';
         overlay.style.display = 'none';
         overlay.style.lineHeight = '1.5';
-        // The overlay is added to the video's parent, but we no longer modify the parent's style.
-        const container = video.parentElement || document.body;
-        container.appendChild(overlay);
+        video.parentElement.appendChild(overlay);
         video.overlay = overlay;
     }
 
     function onTouchStart(e, video) {
-        if (!video || e.touches.length > 1) {
+        if (!video) return;
+        // Prevent gesture if multiple touches (e.g., pinch zoom)
+        if (e.touches.length > 1) {
             seeking = false;
             return;
         }
@@ -58,11 +57,10 @@
         initialTime = video.currentTime;
         seeking = true;
         movedEnoughForSeek = false;
+        video.overlay.style.display = 'block';
 
-        // Set up the long-press timer
         longPressTimeout = setTimeout(() => {
             if (!movedEnoughForSeek) {
-                video.overlay.style.display = 'block';
                 userPlaybackRates.set(video, video.playbackRate);
                 video.playbackRate = 2.0;
                 video.overlay.innerHTML = `<div>2x Speed</div>`;
@@ -77,56 +75,38 @@
 
         if (Math.abs(deltaX) > 10) {
             movedEnoughForSeek = true;
-            clearTimeout(longPressTimeout); // It's a swipe, not a long-press
-            video.overlay.style.display = 'block'; // Show feedback now
+            clearTimeout(longPressTimeout);
         }
 
-        if (movedEnoughForSeek) {
-            timeChange = deltaX * 0.05;
-            let newTime = initialTime + timeChange;
-            newTime = Math.max(0, Math.min(newTime, video.duration));
+        timeChange = deltaX * 0.05;
+        let newTime = initialTime + timeChange;
+        newTime = Math.max(0, Math.min(newTime, video.duration));
 
-            let timeChangeFormatted = formatTimeChange(timeChange);
-            video.overlay.innerHTML = `
-                <div>${formatCurrentTime(newTime)}</div>
-                <div>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})</div>
-            `;
-        }
+        let timeChangeFormatted = formatTimeChange(timeChange);
+        video.overlay.innerHTML = `
+            <div>${formatCurrentTime(newTime)}</div>
+            <div>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})</div>
+        `;
     }
 
-    function onTouchEnd(e, video) {
+    function onTouchEnd(video) {
+        seeking = false;
         clearTimeout(longPressTimeout);
-
-        // --- Double-Tap Logic on TouchEnd ---
-        // A tap is a touch that hasn't moved and isn't a long-press.
-        if (seeking && !movedEnoughForSeek && !isSpeedingUp) {
-            const currentTime = new Date().getTime();
-            if (currentTime - lastTapTime < 300) {
-                e.preventDefault(); // Stop video from playing/pausing
-                toggleLandscapeFullscreen(video);
-                lastTapTime = 0; // Reset after double-tap
-            } else {
-                lastTapTime = currentTime;
-            }
-        }
-
-        // --- Gesture Cleanup Logic ---
+        longPressTimeout = null;
         if (isSpeedingUp) {
             video.playbackRate = userPlaybackRates.get(video) || 1.0;
+            isSpeedingUp = false;
         } else if (movedEnoughForSeek) {
             let newTime = initialTime + timeChange;
             newTime = Math.max(0, Math.min(newTime, video.duration));
             video.currentTime = newTime;
         }
-
-        // Reset all state
-        seeking = false;
-        isSpeedingUp = false;
         video.overlay.style.display = 'none';
         video.overlay.innerHTML = '';
     }
 
     // --- Time Formatting Utilities ---
+
     function formatCurrentTime(seconds) {
         let absSeconds = Math.abs(seconds);
         let hours = Math.floor(absSeconds / 3600);
@@ -151,20 +131,19 @@
         }
     }
 
-    // --- Fullscreen and Orientation Logic (Toggle) ---
-    async function toggleLandscapeFullscreen(video) {
-        if (document.fullscreenElement) {
-            try {
-                await document.exitFullscreen();
-            } catch (err) {
-                console.error("Userscript Error: Failed to exit fullscreen.", err);
-            }
+    // --- Fullscreen and Orientation Logic ---
+
+    async function enterLandscapeFullscreen(video) {
+        if (!/Mobi|Android/i.test(navigator.userAgent)) {
             return;
         }
-
-        if (!/Mobi|Android/i.test(navigator.userAgent)) return;
-        if (video.videoWidth <= video.videoHeight) return;
-
+        if (!video.videoWidth || video.videoWidth <= video.videoHeight) {
+            return;
+        }
+        const isAlreadyFullscreen = document.fullscreenElement && document.fullscreenElement.contains(video);
+        if (isAlreadyFullscreen) {
+            return;
+        }
         try {
             const fullscreenTarget = video.parentElement || video;
             await fullscreenTarget.requestFullscreen();
@@ -178,16 +157,23 @@
         if (!document.fullscreenElement) {
             try {
                 screen.orientation.unlock();
-            } catch (err) { /* Ignore errors */ }
+            } catch (err) {
+                // This might fail if orientation wasn't locked by this script, which is fine.
+            }
         }
     }
 
+
     // --- Video Discovery and Initialization ---
+
     function addGestureControls(video) {
         if (!video || video._gestureAdded) return;
         video._gestureAdded = true;
 
         createOverlay(video);
+
+        let userRate = userPlaybackRates.get(video) || 1.0;
+        video.playbackRate = userRate;
 
         video.addEventListener('ratechange', () => {
             if (!isSpeedingUp) {
@@ -195,12 +181,15 @@
             }
         });
 
-        // 'passive: false' is required to allow preventDefault() in the touchend event.
-        // We removed it from touchmove for better scrolling performance.
-        video.addEventListener('touchstart', (e) => onTouchStart(e, video), { passive: false });
-        video.addEventListener('touchmove', (e) => onTouchMove(e, video));
-        video.addEventListener('touchend', (e) => onTouchEnd(e, video), { passive: false });
+        video.addEventListener('play', () => {
+            enterLandscapeFullscreen(video);
+        });
 
+        video.addEventListener('touchstart', (e) => onTouchStart(e, video));
+        video.addEventListener('touchmove', (e) => onTouchMove(e, video));
+        video.addEventListener('touchend', () => onTouchEnd(video));
+
+        // This successfully prevents the context menu from appearing on long-press.
         video.addEventListener('contextmenu', (e) => {
             e.preventDefault();
         });
@@ -220,6 +209,7 @@
     }
 
     // --- Script Execution Start ---
+
     document.addEventListener('fullscreenchange', handleFullscreenChange);
 
     const observer = new MutationObserver(scanForVideos);
