@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile Video Gesture Control (Class-based)
 // @namespace    http://tampermonkey.net/
-// @version      5.0.0
+// @version      5.0.1
 // @description  A robust, class-based implementation for mobile video gestures: short swipe to skip, long swipe to seek, long-press for 2x speed. Stable, clean, and maintainable.
 // @author       사용자 (re-architected by Gemini)
 // @license      MIT
@@ -70,12 +70,23 @@
             this.handleTouchMove = this.handleTouchMove.bind(this);
             this.handleTouchEnd = this.handleTouchEnd.bind(this);
             this.handleRateChange = this.handleRateChange.bind(this);
+            this.handleContextMenu = this.handleContextMenu.bind(this); // Bind the new context menu handler
 
             this.video.addEventListener('touchstart', this.handleTouchStart, { passive: false });
             this.video.addEventListener('touchmove', this.handleTouchMove, { passive: false });
             this.video.addEventListener('touchend', this.handleTouchEnd, { passive: false });
-            this.video.addEventListener('contextmenu', e => e.preventDefault());
             this.video.addEventListener('ratechange', this.handleRateChange);
+            
+            // --- CONTEXT MENU FIX ---
+            // We listen during the "capture" phase (the `true` at the end).
+            // This lets our listener run before most others on the page, ensuring we can cancel the event first.
+            this.video.addEventListener('contextmenu', this.handleContextMenu, true);
+        }
+        
+        // New dedicated handler for the context menu
+        handleContextMenu(e) {
+            e.preventDefault();
+            e.stopPropagation();
         }
 
         handleTouchStart(e) {
@@ -124,7 +135,8 @@
 
             // --- Final Gesture Decision Logic ---
             if (this.gestureType === 'long-press') {
-                e.preventDefault(); // Context menu fix
+                // The primary fix is now the 'contextmenu' listener, but this is a good fallback.
+                e.preventDefault();
                 this.video.playbackRate = this.userPlaybackRate;
                 this.hideOverlay();
             } else if (Math.abs(deltaX) > 20) { // A swipe must move a minimum distance
@@ -186,10 +198,12 @@
          * Cleans up all event listeners and elements.
          */
         destroy() {
-            this.video.removeEventListener('touchstart', this.handleTouchStart);
-            this.video.removeEventListener('touchmove', this.handleTouchMove);
-            this.video.removeEventListener('touchend', this.handleTouchEnd);
+            this.video.removeEventListener('touchstart', this.handleTouchStart, { passive: false });
+            this.video.removeEventListener('touchmove', this.handleTouchMove, { passive: false });
+            this.video.removeEventListener('touchend', this.handleTouchEnd, { passive: false });
             this.video.removeEventListener('ratechange', this.handleRateChange);
+            // Make sure to remove the new listener with the same capture option.
+            this.video.removeEventListener('contextmenu', this.handleContextMenu, true);
             this.overlay.remove();
         }
     }
