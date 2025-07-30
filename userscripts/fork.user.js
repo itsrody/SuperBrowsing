@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro (Enhanced)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      7.5 // Version incremented to reflect fixes
+// @version      7.6 // Version incremented to reflect major fullscreen fixes
 // @description  Adds powerful, zoned touch gestures (seek, volume, playback speed, fullscreen) with Material Design UI feedback to most web videos.
 // @author       Murtaza Salih & Gemini
 // @match        *://*/*
@@ -72,7 +72,7 @@
                 zIndex: '2147483647',
                 opacity: '0',
                 transition: 'opacity 0.3s ease, transform 0.3s ease',
-                box-shadow: '0 4px 12px rgba(0,0,0,0.2)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
                 textAlign: 'center',
                 maxWidth: '80%',
                 wordBreak: 'break-word'
@@ -134,30 +134,29 @@
                 fill: #fff; 
                 flex-shrink: 0; /* Prevent icon from shrinking */
             }
-            /* Styles to apply to the video element when its container is in fullscreen */
-            .vg-fullscreen-active video {
+            /* Styles for the element that goes fullscreen */
+            /* These styles are applied when an element is in native fullscreen mode. */
+            /* They ensure the fullscreen element covers the entire viewport and has a black background. */
+            /* We avoid !important here as much as possible to let native player CSS take precedence. */
+            :fullscreen {
+                width: 100vw;
+                height: 100vh;
+                max-width: 100vw;
+                max-height: 100vh;
+                background-color: black; /* Ensure black background for bars */
+                display: flex; /* Use flex to center video */
+                align-items: center;
+                justify-content: center;
+                overflow: hidden; /* Hide scrollbars within the fullscreen element */
+            }
+            /* Styles for the video element *inside* the fullscreen element */
+            /* This ensures the video itself scales correctly within the fullscreen container. */
+            :fullscreen video {
                 width: 100%;
                 height: 100%;
                 object-fit: contain; /* Ensures video fits without cropping, showing black bars if aspect ratio differs */
-                background-color: black; /* Ensure black background for bars */
             }
-            /* Ensure the fullscreen element itself takes full screen */
-            .vg-fullscreen-active {
-                width: 100% !important;
-                height: 100% !important;
-                max-width: 100% !important;
-                max-height: 100% !important;
-                position: fixed !important; /* Override potential relative/absolute positioning */
-                top: 0 !important;
-                left: 0 !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                background-color: black; /* Ensure background is black */
-                display: flex !important; /* Use flex to center video */
-                align-items: center !important;
-                justify-content: center !important;
-            }
-            /* Hide scrollbars during fullscreen */
+            /* Hide scrollbars on html/body during fullscreen to prevent accidental scrolling */
             html.vg-fullscreen-scroll-lock, body.vg-fullscreen-scroll-lock {
                 overflow: hidden !important;
             }
@@ -171,8 +170,8 @@
     let gestureType = null;               // Current gesture being performed (e.g., 'tap', 'swipe-x')
     let tapTimeout = null;                // Timeout for double tap detection
     let tapCount = 0;                     // Counter for taps
-    let playerContainer = null;           // The immediate parent of the video element (or the video itself if it's the fullscreen element)
-    let originalPlayerStyle = {};         // Stores original CSS styles of the playerContainer
+    let targetFullscreenElement = null;   // The element that will actually go fullscreen (video or its parent)
+    let originalTargetStyle = {};         // Stores original CSS styles of the targetFullscreenElement
 
     // --- UI & Feedback ---
     // Displays a Material Design-inspired overlay indicator for gestures.
@@ -208,26 +207,40 @@
     // --- Event Handlers ---
     // Handles the start of a touch event.
     function onTouchStart(e) {
-        // Find the video element. If in fullscreen, find it within the fullscreen element.
+        // Find the video element.
         let video = e.target.closest('video');
+        
+        // If already in fullscreen, ensure we're targeting the video within the fullscreen element.
+        // This is important if the fullscreen element is not the video itself.
         if (document.fullscreenElement) {
-            // If already in fullscreen, ensure we're targeting the video within the fullscreen element.
             video = document.fullscreenElement.querySelector('video') || video; 
         }
 
         // Only proceed if a video is found and its duration is above the minimum threshold.
         if (!video || video.duration < config.MIN_VIDEO_DURATION_SECONDS) {
             currentVideo = null; // Reset current video if conditions not met
+            targetFullscreenElement = null;
             return;
         }
         
         currentVideo = video;
-        // Determine the player container. It's usually the direct parent, but some players might have complex structures.
-        // For fullscreen, we will request fullscreen on this container.
-        playerContainer = currentVideo.parentElement; 
-        // If the video itself is the fullscreen element, use it.
-        if (!playerContainer || playerContainer === document.body) {
-            playerContainer = currentVideo;
+        
+        // Determine the element that should go fullscreen.
+        // Prioritize the video element itself as it's the most direct.
+        targetFullscreenElement = currentVideo;
+        
+        // If the video element itself doesn't support requestFullscreen (unlikely for modern browsers,
+        // but some custom players might wrap it in a way that prevents it), try its immediate parent.
+        // This helps in cases where a player's UI is a sibling or child of the video within a wrapper.
+        if (!targetFullscreenElement.requestFullscreen) {
+            const parent = currentVideo.parentElement;
+            // Only consider the parent if it's not the body and seems like a reasonable container.
+            if (parent && parent !== document.body) {
+                targetFullscreenElement = parent;
+            } else {
+                // If parent is body or null, stick with video (even if it fails, it's the most direct)
+                targetFullscreenElement = currentVideo;
+            }
         }
 
         // Record initial touch coordinates.
@@ -255,7 +268,6 @@
         if (Math.abs(deltaX) > config.SWIPE_THRESHOLD || Math.abs(deltaY) > config.SWIPE_THRESHOLD) {
             if (gestureType === 'tap') { // If it was initially a tap, now it's a swipe
                 const isVerticalSwipe = Math.abs(deltaY) > Math.abs(deltaX);
-                // No need for rect or touchZoneX here, as we determine gesture type first
                 
                 if (!document.fullscreenElement && isVerticalSwipe && deltaY < -config.SWIPE_THRESHOLD) {
                     // Normal view: Swipe Up for Fullscreen
@@ -317,6 +329,7 @@
         gestureType = null;
         clearTimeout(tapTimeout);
         tapCount = 0;
+        targetFullscreenElement = null; // Reset target element
     }
 
     // --- Gesture Logic ---
@@ -332,48 +345,29 @@
         triggerHapticFeedback();
 
         if (isFullscreen) {
-            // Exit fullscreen
             document.exitFullscreen();
         } else {
-            // Enter fullscreen
-            if (!playerContainer) {
-                console.warn('Video Gestures Pro: playerContainer not found for fullscreen.');
+            if (!targetFullscreenElement || !targetFullscreenElement.requestFullscreen) {
+                console.warn('Video Gestures Pro: No suitable element found for fullscreen request.');
+                showMessageBox('Could not enter fullscreen. Player not supported.', 2000, true);
                 return;
             }
 
-            // Store original styles to restore later.
+            // Store original styles of the element that will go fullscreen.
             // We need to capture computed styles for properties that might be set by CSS rules.
-            const computedStyle = window.getComputedStyle(playerContainer);
-            originalPlayerStyle = {
-                width: computedStyle.width,
-                height: computedStyle.height,
-                maxWidth: computedStyle.maxWidth,
-                maxHeight: computedStyle.maxHeight,
-                position: computedStyle.position,
-                zIndex: computedStyle.zIndex,
-                transform: computedStyle.transform,
-                top: computedStyle.top,
-                left: computedStyle.left,
-                right: computedStyle.right,
-                bottom: computedStyle.bottom,
-                margin: computedStyle.margin,
-                padding: computedStyle.padding,
-                backgroundColor: computedStyle.backgroundColor,
-                display: computedStyle.display,
-                alignItems: computedStyle.alignItems,
-                justifyContent: computedStyle.justifyContent,
-                overflow: computedStyle.overflow, // Capture overflow
-            };
-
-            // Add a class to the playerContainer for fullscreen styling via CSS
-            playerContainer.classList.add('vg-fullscreen-active');
+            const computedStyle = window.getComputedStyle(targetFullscreenElement);
+            originalTargetStyle = {}; // Reset to ensure clean capture
+            for (const prop of ['width', 'height', 'maxWidth', 'maxHeight', 'position', 'zIndex', 'transform', 'top', 'left', 'right', 'bottom', 'margin', 'padding', 'backgroundColor', 'display', 'alignItems', 'justifyContent', 'overflow']) {
+                originalTargetStyle[prop] = computedStyle[prop];
+            }
+            
             // Lock scroll on html/body to prevent accidental scrolling
             document.documentElement.classList.add('vg-fullscreen-scroll-lock');
             document.body.classList.add('vg-fullscreen-scroll-lock');
 
             try {
-                const fsPromise = playerContainer.requestFullscreen();
-                await fsPromise; // Wait for fullscreen to be active
+                await targetFullscreenElement.requestFullscreen();
+                console.log('Video Gestures Pro: Fullscreen entered successfully.');
 
                 // Attempt to force landscape orientation if configured and video is wider than tall.
                 if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
@@ -385,8 +379,8 @@
                 }
             } catch (err) {
                 console.error('Video Gestures Pro: Fullscreen request failed:', err);
+                showMessageBox('Failed to enter fullscreen. Error: ' + err.message, 3000, true);
                 // Clean up classes if fullscreen fails
-                playerContainer.classList.remove('vg-fullscreen-active');
                 document.documentElement.classList.remove('vg-fullscreen-scroll-lock');
                 document.body.classList.remove('vg-fullscreen-scroll-lock');
             }
@@ -450,12 +444,10 @@
     // Handles fullscreen change events (e.g., user exits fullscreen via system controls).
     function handleFullscreenChange() {
         if (!document.fullscreenElement) {
-            // If exiting fullscreen, restore original player container position and styles.
-            if (playerContainer) {
-                playerContainer.classList.remove('vg-fullscreen-active');
-                // Restore original styles using the captured object
-                for (const prop in originalPlayerStyle) {
-                    playerContainer.style[prop] = originalPlayerStyle[prop];
+            // If exiting fullscreen, restore original styles to the target element.
+            if (targetFullscreenElement) {
+                for (const prop in originalTargetStyle) {
+                    targetFullscreenElement.style[prop] = originalTargetStyle[prop];
                 }
             }
             // Unlock screen orientation if it was locked.
