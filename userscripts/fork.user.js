@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile Video Gesture Control
 // @namespace    http://tampermonkey.net/
-// @version      4.3.0
+// @version      4.4.0
 // @description  Adds touch gestures to any HTML5 video: short swipe to skip 5s, long swipe to seek, long-press for 2x speed, and disables the context menu. Works with Shadow DOM and Firefox.
 // @author       사용자 (updated by Gemini)
 // @license      MIT
@@ -13,6 +13,9 @@
 
 (function() {
     'use strict';
+
+    // --- Constants ---
+    const SHORT_SWIPE_THRESHOLD = 80; // A swipe less than 80px is a "short" one.
 
     // --- State Management Variables ---
     let startX = 0;
@@ -72,31 +75,40 @@
 
     function onTouchMove(e, video) {
         if (!seeking || !video || isSpeedingUp) return;
-        let deltaX = e.touches[0].clientX - startX;
+        const deltaX = e.touches[0].clientX - startX;
+        const absDeltaX = Math.abs(deltaX);
 
-        if (Math.abs(deltaX) > 10) {
+        if (absDeltaX > 10) {
             movedEnoughForSeek = true;
             clearTimeout(longPressTimeout);
-            video.overlay.style.display = 'block';
         }
 
         if (movedEnoughForSeek) {
+            // Always calculate the potential time change
             timeChange = deltaX * 0.05;
-            let newTime = initialTime + timeChange;
-            newTime = Math.max(0, Math.min(newTime, video.duration));
 
-            let timeChangeFormatted = formatTimeChange(timeChange);
-            video.overlay.innerHTML = `
-                <div>${formatCurrentTime(newTime)}</div>
-                <div>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})</div>
-            `;
+            // --- FIXED: Only show the drag UI for a long swipe ---
+            if (absDeltaX > SHORT_SWIPE_THRESHOLD) {
+                video.overlay.style.display = 'block';
+                let newTime = initialTime + timeChange;
+                newTime = Math.max(0, Math.min(newTime, video.duration));
+                const timeChangeFormatted = formatTimeChange(timeChange);
+                video.overlay.innerHTML = `
+                    <div>${formatCurrentTime(newTime)}</div>
+                    <div>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})</div>
+                `;
+            } else {
+                // For potential short swipes, keep the UI hidden during the move.
+                video.overlay.style.display = 'none';
+            }
         }
     }
 
     function onTouchEnd(e, video) {
         clearTimeout(longPressTimeout);
-        let hideOverlay = true; // By default, we hide the overlay after the gesture.
+        let hideOverlay = true;
 
+        // --- FIXED: The context menu fix is preserved and now works correctly ---
         if (isLongPress) {
             e.preventDefault();
         }
@@ -104,22 +116,19 @@
         if (isSpeedingUp) {
             video.playbackRate = userPlaybackRates.get(video) || 1.0;
         } else if (movedEnoughForSeek) {
-            // --- NEW: Differentiate between short and long swipes ---
             const finalX = e.changedTouches[0].clientX;
             const deltaX = finalX - startX;
-            const shortSwipeThreshold = 80; // A swipe less than 80px is a "short" one.
 
-            if (Math.abs(deltaX) < shortSwipeThreshold) {
+            if (Math.abs(deltaX) < SHORT_SWIPE_THRESHOLD) {
                 // It's a short swipe. Apply a fixed 5-second seek.
                 const seekAmount = deltaX > 0 ? 5 : -5;
-                let newTime = video.currentTime + seekAmount;
-                video.currentTime = Math.max(0, Math.min(newTime, video.duration));
+                video.currentTime += seekAmount;
 
                 // Show temporary feedback for the short swipe.
                 video.overlay.innerHTML = `<div>${seekAmount > 0 ? '+' : ''}${seekAmount}s</div>`;
                 video.overlay.style.display = 'block';
                 setTimeout(() => { video.overlay.style.display = 'none'; }, 600);
-                hideOverlay = false; // The timeout will hide the overlay, so don't hide it now.
+                hideOverlay = false;
 
             } else {
                 // It's a long swipe. Apply the variable seek time.
@@ -134,7 +143,6 @@
         isLongPress = false;
         longPressTimeout = null;
 
-        // Hide the overlay unless we are showing temporary feedback
         if (hideOverlay) {
             video.overlay.style.display = 'none';
             video.overlay.innerHTML = '';
