@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile Video Gesture Control (Class-based)
 // @namespace    http://tampermonkey.net/
-// @version      5.0.1
+// @version      5.0.2
 // @description  A robust, class-based implementation for mobile video gestures: short swipe to skip, long swipe to seek, long-press for 2x speed. Stable, clean, and maintainable.
 // @author       사용자 (re-architected by Gemini)
 // @license      MIT
@@ -139,12 +139,13 @@
                 e.preventDefault();
                 this.video.playbackRate = this.userPlaybackRate;
                 this.hideOverlay();
-            } else if (Math.abs(deltaX) > 20) { // A swipe must move a minimum distance
-                if (touchDuration < 250 && Math.abs(deltaX) < 100) { // A fast, short "flick"
+            } else if (Math.abs(deltaX) > 30) { // ADJUSTED: A swipe must now move at least 30px
+                // A "flick" is a fast swipe over a short distance.
+                if (touchDuration < 250 && Math.abs(deltaX) < 80) { // ADJUSTED: Flick distance is now less than 80px
                     const seekAmount = deltaX > 0 ? 5 : -5;
                     this.video.currentTime += seekAmount;
                     this.showOverlay(`${seekAmount > 0 ? '+' : ''}${seekAmount}s`, 600);
-                } else { // A longer "drag"
+                } else { // A longer or slower swipe is a "drag"
                     const timeChange = deltaX * 0.05;
                     this.video.currentTime = Math.max(0, Math.min(this.initialTime + timeChange, this.video.duration));
                     this.hideOverlay();
