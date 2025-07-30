@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile Video Gesture Control
 // @namespace    http://tampermonkey.net/
-// @version      4.4
+// @version      4.5
 // @description  Adds touch gestures to any HTML5 video on mobile: swipe to seek, long-press for 2x speed, double-tap to toggle landscape-fullscreen, and disables the context menu. Works with Shadow DOM.
 // @author       사용자 (updated by Gemini)
 // @license      MIT
@@ -23,7 +23,7 @@
     let isSpeedingUp = false;
     let movedEnoughForSeek = false;
     let userPlaybackRates = new Map();
-    let lastTapTime = 0; // NEW: For detecting double-taps
+    let lastTapTime = 0; // For detecting double-taps
 
     // --- Gesture UI & Logic ---
 
@@ -44,32 +44,13 @@
         overlay.style.display = 'none';
         overlay.style.lineHeight = '1.5';
         const container = video.parentElement || document.body;
-        container.style.position = 'relative'; // Ensure parent can contain the absolute overlay
+        container.style.position = 'relative';
         container.appendChild(overlay);
         video.overlay = overlay;
     }
 
     function onTouchStart(e, video) {
-        if (!video) return;
-
-        // --- NEW: Double-Tap Logic ---
-        const currentTime = new Date().getTime();
-        const timeSinceLastTap = currentTime - lastTapTime;
-
-        if (timeSinceLastTap < 300) { // 300ms threshold for a double-tap
-            e.preventDefault(); // Prevent zoom or other default double-tap actions
-            toggleLandscapeFullscreen(video);
-            // Reset tap time to prevent triple-tap from re-triggering
-            lastTapTime = 0;
-            // Cancel any pending long-press
-            clearTimeout(longPressTimeout);
-            return; // Exit here to not interfere with seek/speed gestures
-        }
-        lastTapTime = currentTime;
-        // --- End of Double-Tap Logic ---
-
-
-        if (e.touches.length > 1) {
+        if (!video || e.touches.length > 1) {
             seeking = false;
             return;
         }
@@ -77,10 +58,11 @@
         initialTime = video.currentTime;
         seeking = true;
         movedEnoughForSeek = false;
-        video.overlay.style.display = 'block';
 
+        // Set up the long-press timer
         longPressTimeout = setTimeout(() => {
             if (!movedEnoughForSeek) {
+                video.overlay.style.display = 'block';
                 userPlaybackRates.set(video, video.playbackRate);
                 video.playbackRate = 2.0;
                 video.overlay.innerHTML = `<div>2x Speed</div>`;
@@ -91,39 +73,55 @@
 
     function onTouchMove(e, video) {
         if (!seeking || !video || isSpeedingUp) return;
-        // If finger moves, it's not a tap, so reset tap time
-        lastTapTime = 0;
         let deltaX = e.touches[0].clientX - startX;
 
         if (Math.abs(deltaX) > 10) {
             movedEnoughForSeek = true;
-            clearTimeout(longPressTimeout);
+            clearTimeout(longPressTimeout); // It's a swipe, not a long-press
+            video.overlay.style.display = 'block'; // Show feedback now
         }
 
-        timeChange = deltaX * 0.05;
-        let newTime = initialTime + timeChange;
-        newTime = Math.max(0, Math.min(newTime, video.duration));
+        if (movedEnoughForSeek) {
+            timeChange = deltaX * 0.05;
+            let newTime = initialTime + timeChange;
+            newTime = Math.max(0, Math.min(newTime, video.duration));
 
-        let timeChangeFormatted = formatTimeChange(timeChange);
-        video.overlay.innerHTML = `
-            <div>${formatCurrentTime(newTime)}</div>
-            <div>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})</div>
-        `;
+            let timeChangeFormatted = formatTimeChange(timeChange);
+            video.overlay.innerHTML = `
+                <div>${formatCurrentTime(newTime)}</div>
+                <div>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})</div>
+            `;
+        }
     }
 
-    function onTouchEnd(video) {
-        seeking = false;
-        // Do not clear the longPressTimeout here if it's already fired
-        if(longPressTimeout) clearTimeout(longPressTimeout);
+    function onTouchEnd(e, video) {
+        clearTimeout(longPressTimeout);
 
+        // --- REVISED: Double-Tap Logic on TouchEnd ---
+        // A tap is a touch that hasn't moved and isn't a long-press.
+        if (seeking && !movedEnoughForSeek && !isSpeedingUp) {
+            const currentTime = new Date().getTime();
+            if (currentTime - lastTapTime < 300) {
+                e.preventDefault(); // Stop video from playing/pausing
+                toggleLandscapeFullscreen(video);
+                lastTapTime = 0; // Reset after double-tap
+            } else {
+                lastTapTime = currentTime;
+            }
+        }
+
+        // --- Original Cleanup Logic ---
         if (isSpeedingUp) {
             video.playbackRate = userPlaybackRates.get(video) || 1.0;
-            isSpeedingUp = false;
         } else if (movedEnoughForSeek) {
             let newTime = initialTime + timeChange;
             newTime = Math.max(0, Math.min(newTime, video.duration));
             video.currentTime = newTime;
         }
+
+        // Reset all state
+        seeking = false;
+        isSpeedingUp = false;
         video.overlay.style.display = 'none';
         video.overlay.innerHTML = '';
     }
@@ -153,22 +151,19 @@
         }
     }
 
-    // --- Fullscreen and Orientation Logic (Now a Toggle) ---
+    // --- Fullscreen and Orientation Logic (Toggle) ---
     async function toggleLandscapeFullscreen(video) {
-        // If we are already in fullscreen, exit.
         if (document.fullscreenElement) {
             try {
                 await document.exitFullscreen();
-                // The 'fullscreenchange' event listener will handle unlocking orientation.
             } catch (err) {
                 console.error("Userscript Error: Failed to exit fullscreen.", err);
             }
             return;
         }
 
-        // If not in fullscreen, enter.
         if (!/Mobi|Android/i.test(navigator.userAgent)) return;
-        if (video.videoWidth <= video.videoHeight) return; // Only for landscape videos
+        if (video.videoWidth <= video.videoHeight) return;
 
         try {
             const fullscreenTarget = video.parentElement || video;
@@ -183,9 +178,7 @@
         if (!document.fullscreenElement) {
             try {
                 screen.orientation.unlock();
-            } catch (err) {
-                // Ignore errors.
-            }
+            } catch (err) { /* Ignore errors */ }
         }
     }
 
@@ -202,10 +195,10 @@
             }
         });
 
-        // All gesture logic is now handled in the touch events.
+        // The 'passive: false' is important to allow preventDefault() in the touchend event.
         video.addEventListener('touchstart', (e) => onTouchStart(e, video), { passive: false });
-        video.addEventListener('touchmove', (e) => onTouchMove(e, video));
-        video.addEventListener('touchend', () => onTouchEnd(video));
+        video.addEventListener('touchmove', (e) => onTouchMove(e, video), { passive: false });
+        video.addEventListener('touchend', (e) => onTouchEnd(e, video), { passive: false });
 
         video.addEventListener('contextmenu', (e) => {
             e.preventDefault();
