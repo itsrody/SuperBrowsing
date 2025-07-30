@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Mobile Video Gesture Control (Class-based)
 // @namespace    http://tampermonkey.net/
-// @version      5.2.1
-// @description  A robust, class-based implementation for mobile video gestures with contextual controls and double-tap conflict resolution.
+// @version      5.3.0
+// @description  A robust, class-based implementation for mobile video gestures with contextual controls and a definitive double-tap conflict fix.
 // @author       사용자 (re-architected by Gemini)
 // @license      MIT
 // @match        *://*/*
@@ -17,7 +17,10 @@
     class GestureController {
         constructor(video) {
             this.video = video;
-            this.overlay = null;
+            this.container = video.parentElement;
+            this.feedbackOverlay = null;
+            this.eventShield = null; // NEW: The element that will capture all touches
+
             this.userPlaybackRate = video.playbackRate;
 
             // Gesture state
@@ -30,13 +33,27 @@
             this.longPressTimeout = null;
             this.lastTapTime = 0;
 
-            this.createOverlay();
+            this.createOverlays();
             this.bindEvents();
         }
 
-        createOverlay() {
-            const overlay = document.createElement('div');
-            Object.assign(overlay.style, {
+        createOverlays() {
+            // --- NEW: Event Shield ---
+            // This invisible shield sits on top of the video to intercept all touch events.
+            const shield = document.createElement('div');
+            Object.assign(shield.style, {
+                position: 'absolute',
+                top: '0',
+                left: '0',
+                width: '100%',
+                height: '100%',
+                zIndex: '99998' // Just below the feedback overlay
+            });
+            this.eventShield = shield;
+
+            // Feedback Overlay (the black box with text)
+            const feedback = document.createElement('div');
+            Object.assign(feedback.style, {
                 position: 'absolute',
                 top: '50%',
                 left: '50%',
@@ -52,8 +69,14 @@
                 lineHeight: '1.5',
                 pointerEvents: 'none'
             });
-            this.video.parentElement.appendChild(overlay);
-            this.overlay = overlay;
+            this.feedbackOverlay = feedback;
+
+            // Ensure the container can hold absolutely positioned elements
+            if (getComputedStyle(this.container).position === 'static') {
+                this.container.style.position = 'relative';
+            }
+            this.container.appendChild(this.eventShield);
+            this.container.appendChild(this.feedbackOverlay);
         }
 
         bindEvents() {
@@ -61,29 +84,15 @@
             this.handleTouchMove = this.handleTouchMove.bind(this);
             this.handleTouchEnd = this.handleTouchEnd.bind(this);
             this.handleRateChange = this.handleRateChange.bind(this);
-            this.handleContextMenu = this.handleContextMenu.bind(this);
-            this.handleNativeDoubleClick = this.handleNativeDoubleClick.bind(this); // Bind the new handler
 
-            this.video.addEventListener('touchstart', this.handleTouchStart, { passive: false });
-            this.video.addEventListener('touchmove', this.handleTouchMove, { passive: false });
-            this.video.addEventListener('touchend', this.handleTouchEnd, { passive: false });
-            this.video.addEventListener('ratechange', this.handleRateChange);
-            this.video.addEventListener('contextmenu', this.handleContextMenu, true);
+            // --- IMPORTANT: All touch events are now bound to the shield ---
+            this.eventShield.addEventListener('touchstart', this.handleTouchStart, { passive: false });
+            this.eventShield.addEventListener('touchmove', this.handleTouchMove, { passive: false });
+            this.eventShield.addEventListener('touchend', this.handleTouchEnd, { passive: false });
             
-            // --- NEW: Double-Tap Conflict Fix ---
-            // This listener captures the native `dblclick` event before the player can, and stops it.
-            this.video.addEventListener('dblclick', this.handleNativeDoubleClick, true);
-        }
-
-        handleContextMenu(e) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
-
-        // New handler to block native double-click behavior
-        handleNativeDoubleClick(e) {
-            e.preventDefault();
-            e.stopPropagation();
+            // These can remain on the video element itself
+            this.video.addEventListener('ratechange', this.handleRateChange);
+            this.eventShield.addEventListener('contextmenu', e => e.preventDefault());
         }
 
         handleTouchStart(e) {
@@ -166,7 +175,8 @@
             if (document.fullscreenElement) {
                 document.exitFullscreen().catch(err => console.error(err));
             } else {
-                this.video.requestFullscreen().catch(err => console.error(err));
+                // Use the container for a more stable fullscreen experience
+                this.container.requestFullscreen().catch(err => console.error(err));
             }
         }
         
@@ -177,12 +187,12 @@
         }
 
         showOverlay(htmlContent) {
-            this.overlay.innerHTML = `<div>${htmlContent}</div>`;
-            this.overlay.style.display = 'block';
+            this.feedbackOverlay.innerHTML = `<div>${htmlContent}</div>`;
+            this.feedbackOverlay.style.display = 'block';
         }
 
         hideOverlay() {
-            this.overlay.style.display = 'none';
+            this.feedbackOverlay.style.display = 'none';
         }
 
         formatTimeChange(seconds) {
@@ -200,13 +210,12 @@
         }
 
         destroy() {
-            this.video.removeEventListener('touchstart', this.handleTouchStart);
-            this.video.removeEventListener('touchmove', this.handleTouchMove);
-            this.video.removeEventListener('touchend', this.handleTouchEnd);
+            this.eventShield.removeEventListener('touchstart', this.handleTouchStart);
+            this.eventShield.removeEventListener('touchmove', this.handleTouchMove);
+            this.eventShield.removeEventListener('touchend', this.handleTouchEnd);
             this.video.removeEventListener('ratechange', this.handleRateChange);
-            this.video.removeEventListener('contextmenu', this.handleContextMenu, true);
-            this.video.removeEventListener('dblclick', this.handleNativeDoubleClick, true); // Remove the new listener
-            if (this.overlay) this.overlay.remove();
+            if (this.feedbackOverlay) this.feedbackOverlay.remove();
+            if (this.eventShield) this.eventShield.remove();
         }
     }
 
@@ -221,7 +230,7 @@
     }
 
     function initializeController(video) {
-        if (!videoControllers.has(video)) {
+        if (!videoControllers.has(video) && video.parentElement) {
             const controller = new GestureController(video);
             videoControllers.set(video, controller);
         }
