@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Mobile Video Gesture Control (Class-based)
 // @namespace    http://tampermonkey.net/
-// @version      5.2.0
-// @description  A robust, class-based implementation for mobile video gestures with contextual controls for fullscreen mode (volume, seek, speed).
+// @version      5.2.1
+// @description  A robust, class-based implementation for mobile video gestures with contextual controls and double-tap conflict resolution.
 // @author       사용자 (re-architected by Gemini)
 // @license      MIT
 // @match        *://*/*
@@ -62,15 +62,26 @@
             this.handleTouchEnd = this.handleTouchEnd.bind(this);
             this.handleRateChange = this.handleRateChange.bind(this);
             this.handleContextMenu = this.handleContextMenu.bind(this);
+            this.handleNativeDoubleClick = this.handleNativeDoubleClick.bind(this); // Bind the new handler
 
             this.video.addEventListener('touchstart', this.handleTouchStart, { passive: false });
             this.video.addEventListener('touchmove', this.handleTouchMove, { passive: false });
             this.video.addEventListener('touchend', this.handleTouchEnd, { passive: false });
             this.video.addEventListener('ratechange', this.handleRateChange);
             this.video.addEventListener('contextmenu', this.handleContextMenu, true);
+            
+            // --- NEW: Double-Tap Conflict Fix ---
+            // This listener captures the native `dblclick` event before the player can, and stops it.
+            this.video.addEventListener('dblclick', this.handleNativeDoubleClick, true);
         }
 
         handleContextMenu(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        // New handler to block native double-click behavior
+        handleNativeDoubleClick(e) {
             e.preventDefault();
             e.stopPropagation();
         }
@@ -85,7 +96,6 @@
             this.initialTime = this.video.currentTime;
             this.initialVolume = this.video.volume;
 
-            // Only set a timeout for long-press if we are in fullscreen mode.
             if (document.fullscreenElement) {
                 this.longPressTimeout = setTimeout(() => {
                     if (this.isGestureActive && !this.gestureType) {
@@ -98,17 +108,13 @@
         }
 
         handleTouchMove(e) {
-            if (!this.isGestureActive || this.gestureType === 'long-press') return;
-
-            // Gestures are only active in fullscreen mode (except for double-tap).
-            if (!document.fullscreenElement) return;
+            if (!this.isGestureActive || this.gestureType === 'long-press' || !document.fullscreenElement) return;
 
             const deltaX = e.touches[0].clientX - this.startX;
             const deltaY = e.touches[0].clientY - this.startY;
 
             if (Math.abs(deltaX) > 10 || Math.abs(deltaY) > 10) {
                 clearTimeout(this.longPressTimeout);
-
                 if (!this.gestureType) {
                     this.gestureType = Math.abs(deltaY) > Math.abs(deltaX) ? 'vertical-swipe' : 'horizontal-swipe';
                 }
@@ -120,7 +126,7 @@
                 const timeChangeFormatted = this.formatTimeChange(timeChange);
                 this.showOverlay(`${this.formatCurrentTime(newTime)}<br>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})`);
             } else if (this.gestureType === 'vertical-swipe') {
-                const volumeChange = -deltaY / 200; // Invert Y-axis and scale down
+                const volumeChange = -deltaY / 200;
                 const newVolume = Math.max(0, Math.min(1, this.initialVolume + volumeChange));
                 this.video.volume = newVolume;
                 this.showOverlay(`Volume: ${Math.round(newVolume * 100)}%`);
@@ -134,20 +140,15 @@
             const deltaX = e.changedTouches[0].clientX - this.startX;
             const deltaY = e.changedTouches[0].clientY - this.startY;
 
-            // --- Final Gesture Decision Logic ---
-
-            // 1. Check for Taps (for Double-Tap) - This works in both modes.
             if (this.gestureType === null && Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {
                 const now = Date.now();
                 if (now - this.lastTapTime < 300) {
                     this.handleDoubleClick();
-                    this.lastTapTime = 0; // Reset after double tap
+                    this.lastTapTime = 0;
                 } else {
                     this.lastTapTime = now;
                 }
-            }
-            // 2. Handle Fullscreen-Only Gestures
-            else if (document.fullscreenElement) {
+            } else if (document.fullscreenElement) {
                 if (this.gestureType === 'long-press') {
                     e.preventDefault();
                     this.video.playbackRate = this.userPlaybackRate;
@@ -155,7 +156,6 @@
                     const timeChange = deltaX * 0.05;
                     this.video.currentTime = Math.max(0, Math.min(this.initialTime + timeChange, this.video.duration));
                 }
-                // Vertical swipe is handled in touchmove, no action needed here.
             }
 
             this.hideOverlay();
@@ -205,6 +205,7 @@
             this.video.removeEventListener('touchend', this.handleTouchEnd);
             this.video.removeEventListener('ratechange', this.handleRateChange);
             this.video.removeEventListener('contextmenu', this.handleContextMenu, true);
+            this.video.removeEventListener('dblclick', this.handleNativeDoubleClick, true); // Remove the new listener
             if (this.overlay) this.overlay.remove();
         }
     }
@@ -216,7 +217,6 @@
                 videos.push(...el.shadowRoot.querySelectorAll('video'));
             }
         });
-        
         new Set(videos).forEach(initializeController);
     }
 
