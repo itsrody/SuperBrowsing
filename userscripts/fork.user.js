@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Mobile Video Seek & Fullscreen Gesture
 // @namespace    http://tampermonkey.net/
-// @version      4.2
-// @description  Adds touch gestures to any HTML5 video on mobile: swipe to seek, long-press for 2x speed, auto-landscape-fullscreen, and disables the context menu. Works with Shadow DOM.
+// @version      4.2.1
+// @description  Adds touch gestures to any HTML5 video on mobile: swipe to seek, long-press for 2x speed, auto-landscape-fullscreen, and disables the context menu. Works with Shadow DOM and Firefox.
 // @author       사용자 (updated by Gemini)
 // @license      MIT
 // @match        *://*/*
@@ -23,6 +23,7 @@
     let isSpeedingUp = false;
     let movedEnoughForSeek = false;
     let userPlaybackRates = new Map();
+    let isLongPress = false; // NEW: Flag to track if a long press occurred
 
     // --- Gesture UI & Logic ---
 
@@ -48,7 +49,6 @@
 
     function onTouchStart(e, video) {
         if (!video) return;
-        // Prevent gesture if multiple touches (e.g., pinch zoom)
         if (e.touches.length > 1) {
             seeking = false;
             return;
@@ -57,12 +57,14 @@
         initialTime = video.currentTime;
         seeking = true;
         movedEnoughForSeek = false;
-        video.overlay.style.display = 'block';
+        isLongPress = false; // Reset long press flag
 
         longPressTimeout = setTimeout(() => {
             if (!movedEnoughForSeek) {
+                isLongPress = true; // It's officially a long press
                 userPlaybackRates.set(video, video.playbackRate);
                 video.playbackRate = 2.0;
+                video.overlay.style.display = 'block';
                 video.overlay.innerHTML = `<div>2x Speed</div>`;
                 isSpeedingUp = true;
             }
@@ -76,23 +78,33 @@
         if (Math.abs(deltaX) > 10) {
             movedEnoughForSeek = true;
             clearTimeout(longPressTimeout);
+            video.overlay.style.display = 'block';
         }
 
-        timeChange = deltaX * 0.05;
-        let newTime = initialTime + timeChange;
-        newTime = Math.max(0, Math.min(newTime, video.duration));
+        if (movedEnoughForSeek) {
+            timeChange = deltaX * 0.05;
+            let newTime = initialTime + timeChange;
+            newTime = Math.max(0, Math.min(newTime, video.duration));
 
-        let timeChangeFormatted = formatTimeChange(timeChange);
-        video.overlay.innerHTML = `
-            <div>${formatCurrentTime(newTime)}</div>
-            <div>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})</div>
-        `;
+            let timeChangeFormatted = formatTimeChange(timeChange);
+            video.overlay.innerHTML = `
+                <div>${formatCurrentTime(newTime)}</div>
+                <div>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})</div>
+            `;
+        }
     }
 
-    function onTouchEnd(video) {
+    function onTouchEnd(e, video) { // Now accepts the event 'e'
         seeking = false;
         clearTimeout(longPressTimeout);
         longPressTimeout = null;
+
+        // NEW: Firefox context menu fix
+        // If a long press was detected, prevent the default action (context menu).
+        if (isLongPress) {
+            e.preventDefault();
+        }
+
         if (isSpeedingUp) {
             video.playbackRate = userPlaybackRates.get(video) || 1.0;
             isSpeedingUp = false;
@@ -103,6 +115,7 @@
         }
         video.overlay.style.display = 'none';
         video.overlay.innerHTML = '';
+        isLongPress = false; // Reset for the next touch
     }
 
     // --- Time Formatting Utilities ---
@@ -185,11 +198,13 @@
             enterLandscapeFullscreen(video);
         });
 
-        video.addEventListener('touchstart', (e) => onTouchStart(e, video));
+        // We need to pass the event `e` to onTouchEnd now.
+        // `passive: false` is important for allowing preventDefault.
+        video.addEventListener('touchstart', (e) => onTouchStart(e, video), { passive: false });
         video.addEventListener('touchmove', (e) => onTouchMove(e, video));
-        video.addEventListener('touchend', () => onTouchEnd(video));
+        video.addEventListener('touchend', (e) => onTouchEnd(e, video), { passive: false });
 
-        // This successfully prevents the context menu from appearing on long-press.
+        // Keep the original contextmenu listener as a fallback for other browsers.
         video.addEventListener('contextmenu', (e) => {
             e.preventDefault();
         });
