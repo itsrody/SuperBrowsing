@@ -1,18 +1,20 @@
 // ==UserScript==
-// @name         Improved Mobile Video Seek Gesture
+// @name         Mobile Video Seek & Fullscreen Gesture
 // @namespace    http://tampermonkey.net/
-// @version      4.6
-// @description  Adds touch gestures to any HTML5 video player on mobile browsers. Swipe to seek, long-press for 2x speed. Automatically locks landscape orientation in fullscreen for landscape videos. Prevents context menu interference.
-// @author       Your Name
+// @version      4.2
+// @description  Adds touch gestures to any HTML5 video on mobile: swipe to seek, long-press for 2x speed, auto-landscape-fullscreen, and disables the context menu. Works with Shadow DOM.
+// @author       사용자 (updated by Gemini)
 // @license      MIT
 // @match        *://*/*
 // @grant        none
+// @downloadURL https://update.greasyfork.org/scripts/524654/Mobile%20Video%20Seek%20Gesture.user.js
+// @updateURL https://update.greasyfork.org/scripts/524654/Mobile%20Video%20Seek%20Gesture.meta.js
 // ==/UserScript==
 
 (function() {
     'use strict';
 
-    // --- State and Configuration Variables ---
+    // --- State Management Variables ---
     let startX = 0;
     let initialTime = 0;
     let seeking = false;
@@ -20,18 +22,13 @@
     let longPressTimeout = null;
     let isSpeedingUp = false;
     let movedEnoughForSeek = false;
-    const userPlaybackRates = new Map(); // Stores the user's original playback speed for each video.
+    let userPlaybackRates = new Map();
 
-    // --- UI and Formatting Functions ---
+    // --- Gesture UI & Logic ---
 
-    /**
-     * Creates and attaches a feedback overlay to a video element.
-     * @param {HTMLVideoElement} video The video element to attach the overlay to.
-     */
     function createOverlay(video) {
-        if (video.overlay) video.overlay.remove(); // Remove existing overlay if any
-
-        const overlay = document.createElement('div');
+        if (video.overlay) video.overlay.remove();
+        let overlay = document.createElement('div');
         overlay.style.position = 'absolute';
         overlay.style.top = '50%';
         overlay.style.left = '50%';
@@ -42,259 +39,183 @@
         overlay.style.fontSize = '18px';
         overlay.style.textAlign = 'center';
         overlay.style.borderRadius = '8px';
-        overlay.style.zIndex = '99999'; // High z-index to appear on top
+        overlay.style.zIndex = '9999';
         overlay.style.display = 'none';
         overlay.style.lineHeight = '1.5';
-        overlay.style.pointerEvents = 'none'; // Prevent overlay from capturing touch events
-
-        // Append to the video's parent to be positioned correctly
-        if (video.parentElement) {
-            video.parentElement.style.position = 'relative'; // Ensure parent is a positioning context
-            video.parentElement.appendChild(overlay);
-        }
-        video.overlay = overlay; // Store a reference to the overlay on the video object
+        video.parentElement.appendChild(overlay);
+        video.overlay = overlay;
     }
-
-    /**
-     * Formats seconds into a HH:MM:SS or MM:SS string.
-     * @param {number} seconds The total seconds to format.
-     * @returns {string} The formatted time string.
-     */
-    function formatCurrentTime(seconds) {
-        const absSeconds = Math.abs(seconds);
-        const hours = Math.floor(absSeconds / 3600);
-        const minutes = Math.floor((absSeconds % 3600) / 60);
-        const secs = Math.floor(absSeconds % 60);
-        const pad = (num) => (num < 10 ? '0' : '') + num;
-
-        if (hours > 0) {
-            return `${pad(hours)}:${pad(minutes)}:${pad(secs)}`;
-        }
-        return `${pad(minutes)}:${pad(secs)}`;
-    }
-
-    /**
-     * Formats the change in time for display in the overlay.
-     * @param {number} seconds The change in seconds.
-     * @returns {string} The formatted time change string (e.g., "+15.20s").
-     */
-    function formatTimeChange(seconds) {
-        const sign = seconds < 0 ? '-' : '+';
-        const absSeconds = Math.abs(seconds);
-        return `${sign}${absSeconds.toFixed(1)}s`;
-    }
-
-    // --- Gesture Event Handlers ---
-
-    /**
-     * NEW: A more robust function to prevent the context menu.
-     * It stops the event from propagating further.
-     */
-    const preventContextMenu = (e) => {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-    };
 
     function onTouchStart(e, video) {
         if (!video) return;
+        // Prevent gesture if multiple touches (e.g., pinch zoom)
+        if (e.touches.length > 1) {
+            seeking = false;
+            return;
+        }
         startX = e.touches[0].clientX;
         initialTime = video.currentTime;
         seeking = true;
         movedEnoughForSeek = false;
-        if (video.overlay) video.overlay.style.display = 'block';
+        video.overlay.style.display = 'block';
 
-        // NEW: Immediately add a capture-phase listener to the window to block the context menu.
-        // This is more reliable than listening on the video element itself.
-        window.addEventListener('contextmenu', preventContextMenu, { capture: true });
-
-        // Start a timer for long-press detection
         longPressTimeout = setTimeout(() => {
-            if (!movedEnoughForSeek) { // Only speed up if not already swiping
+            if (!movedEnoughForSeek) {
                 userPlaybackRates.set(video, video.playbackRate);
                 video.playbackRate = 2.0;
-                if(video.overlay) video.overlay.innerHTML = `<div>2x Speed</div>`;
+                video.overlay.innerHTML = `<div>2x Speed</div>`;
                 isSpeedingUp = true;
             }
-        }, 500); // 500ms for long press
+        }, 500);
     }
 
     function onTouchMove(e, video) {
         if (!seeking || !video || isSpeedingUp) return;
-        const deltaX = e.touches[0].clientX - startX;
+        let deltaX = e.touches[0].clientX - startX;
 
-        // If movement exceeds a threshold, cancel the long-press and start seeking
         if (Math.abs(deltaX) > 10) {
-            if (!movedEnoughForSeek) {
-                movedEnoughForSeek = true;
-                clearTimeout(longPressTimeout);
-                // NEW: Since this is a swipe, the long-press is cancelled. We can remove the blocker.
-                window.removeEventListener('contextmenu', preventContextMenu, { capture: true });
-            }
+            movedEnoughForSeek = true;
+            clearTimeout(longPressTimeout);
         }
 
-        if (!movedEnoughForSeek) return;
-
-        timeChange = deltaX * 0.1; // Sensitivity for seeking
+        timeChange = deltaX * 0.05;
         let newTime = initialTime + timeChange;
-        newTime = Math.max(0, Math.min(newTime, video.duration)); // Clamp time within video bounds
+        newTime = Math.max(0, Math.min(newTime, video.duration));
 
-        // Update overlay with seek information
-        if(video.overlay) {
-            video.overlay.innerHTML = `
-                <div>${formatCurrentTime(newTime)}</div>
-                <div>(${formatTimeChange(timeChange)})</div>
-            `;
-        }
+        let timeChangeFormatted = formatTimeChange(timeChange);
+        video.overlay.innerHTML = `
+            <div>${formatCurrentTime(newTime)}</div>
+            <div>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})</div>
+        `;
     }
 
     function onTouchEnd(video) {
         seeking = false;
         clearTimeout(longPressTimeout);
         longPressTimeout = null;
-
-        // NEW: Always clean up the context menu listener when the touch interaction ends.
-        window.removeEventListener('contextmenu', preventContextMenu, { capture: true });
-
         if (isSpeedingUp) {
-            // Restore original playback speed after long-press
             video.playbackRate = userPlaybackRates.get(video) || 1.0;
             isSpeedingUp = false;
         } else if (movedEnoughForSeek) {
-            // Apply the seek time
             let newTime = initialTime + timeChange;
-            video.currentTime = Math.max(0, Math.min(newTime, video.duration));
+            newTime = Math.max(0, Math.min(newTime, video.duration));
+            video.currentTime = newTime;
         }
-
-        // Hide and clear the overlay
-        if(video.overlay) {
-            video.overlay.style.display = 'none';
-            video.overlay.innerHTML = '';
-        }
+        video.overlay.style.display = 'none';
+        video.overlay.innerHTML = '';
     }
 
+    // --- Time Formatting Utilities ---
 
-    // --- Core Logic for Attaching Gestures ---
-
-    /**
-     * Checks video properties and adds gesture controls if criteria are met.
-     * @param {HTMLVideoElement} video The video element to potentially add controls to.
-     */
-    function addGestureControls(video) {
-        // Use a flag to ensure we don't try to initialize controls more than once.
-        if (!video || video._gestureInitStarted) return;
-        video._gestureInitStarted = true;
-
-        const setupGestures = () => {
-            // --- Condition Checks ---
-            // 1. Video has a landscape aspect ratio (width > height)
-            // 2. Video is longer than 3 minutes (180 seconds)
-            const hasLandscapeAspectRatio = video.videoWidth > video.videoHeight;
-            const isLongEnough = video.duration > 180;
-
-            // If the video has a landscape aspect ratio, add the fullscreen orientation lock.
-            if (hasLandscapeAspectRatio) {
-                video.addEventListener('fullscreenchange', () => {
-                    const isFullscreen = document.fullscreenElement === video;
-                    try {
-                        if (isFullscreen) {
-                            // When entering fullscreen, try to lock orientation to landscape.
-                            screen.orientation.lock('landscape').catch(() => {});
-                        } else {
-                            // When exiting fullscreen, unlock the orientation.
-                            screen.orientation.unlock();
-                        }
-                    } catch (err) {
-                        console.log("Userscript: Screen Orientation API not supported.", err);
-                    }
-                });
-            }
-
-            // If gesture conditions are not met, stop here.
-            if (!hasLandscapeAspectRatio || !isLongEnough) {
-                return;
-            }
-
-            // Mark that gestures have been successfully added.
-            video._gestureAdded = true;
-
-            createOverlay(video);
-
-            // Store the user's current playback rate
-            userPlaybackRates.set(video, video.playbackRate);
-            video.addEventListener('ratechange', () => {
-                if (!isSpeedingUp) {
-                    userPlaybackRates.set(video, video.playbackRate);
-                }
-            });
-
-            // Attach touch event listeners
-            video.addEventListener('touchstart', (e) => onTouchStart(e, video));
-            video.addEventListener('touchmove', (e) => onTouchMove(e, video));
-            video.addEventListener('touchend', () => onTouchEnd(video));
-        };
-
-        // Video metadata (like duration and dimensions) may not be loaded immediately.
-        // We must wait for the 'loadedmetadata' event.
-        if (video.readyState >= 1) { // HAVE_METADATA
-            // If metadata is already available, run the setup.
-            setupGestures();
+    function formatCurrentTime(seconds) {
+        let absSeconds = Math.abs(seconds);
+        let hours = Math.floor(absSeconds / 3600);
+        let minutes = Math.floor((absSeconds % 3600) / 60);
+        let secs = Math.floor(absSeconds % 60);
+        if (hours > 0) {
+            return `${hours < 10 ? '0' : ''}${hours}:${minutes < 10 ? '0' : ''}${minutes}:${secs < 10 ? '0' : ''}${secs}`;
         } else {
-            // Otherwise, add a one-time event listener to run the setup when it's ready.
-            video.addEventListener('loadedmetadata', setupGestures, { once: true });
+            return `${minutes < 10 ? '0' : ''}${minutes}:${secs < 10 ? '0' : ''}${secs}`;
         }
     }
 
-
-    // --- Improved Video Discovery ---
-
-    /**
-     * Efficiently finds and processes video elements within a given node,
-     * including those inside Shadow DOM.
-     * @param {Node} node The root node to start the search from.
-     */
-    function findAndProcessVideos(node) {
-        if (!node || node.nodeType !== Node.ELEMENT_NODE) {
-            return; // Process only element nodes
+    function formatTimeChange(seconds) {
+        let sign = seconds < 0 ? '-' : '';
+        let absSeconds = Math.abs(seconds);
+        if (absSeconds >= 60) {
+            return `${sign}${formatCurrentTime(absSeconds)}`;
+        } else {
+            let secs = Math.floor(absSeconds);
+            let fraction = Math.round((absSeconds % 1) * 10);
+            return `${sign}${secs < 10 ? '0' : ''}${secs}.${fraction}`;
         }
+    }
 
-        // Case 1: The node itself is a video
-        if (node.tagName === 'VIDEO') {
-            addGestureControls(node);
+    // --- Fullscreen and Orientation Logic ---
+
+    async function enterLandscapeFullscreen(video) {
+        if (!/Mobi|Android/i.test(navigator.userAgent)) {
+            return;
         }
+        if (!video.videoWidth || video.videoWidth <= video.videoHeight) {
+            return;
+        }
+        const isAlreadyFullscreen = document.fullscreenElement && document.fullscreenElement.contains(video);
+        if (isAlreadyFullscreen) {
+            return;
+        }
+        try {
+            const fullscreenTarget = video.parentElement || video;
+            await fullscreenTarget.requestFullscreen();
+            await screen.orientation.lock('landscape');
+        } catch (err) {
+            console.error("Userscript Error: Failed to enter landscape fullscreen.", err);
+        }
+    }
 
-        // Case 2: The node contains video elements in its light DOM
-        node.querySelectorAll('video').forEach(addGestureControls);
-
-        // Case 3: The node or its children have a Shadow DOM
-        // We need to check all descendants for shadow roots.
-        const elements = node.querySelectorAll('*');
-        for (const el of elements) {
-            if (el.shadowRoot) {
-                // If a shadow root is found, recursively search within it
-                findAndProcessVideos(el.shadowRoot);
+    function handleFullscreenChange() {
+        if (!document.fullscreenElement) {
+            try {
+                screen.orientation.unlock();
+            } catch (err) {
+                // This might fail if orientation wasn't locked by this script, which is fine.
             }
         }
     }
 
-    // Use a MutationObserver to detect when new nodes are added to the page.
-    const observer = new MutationObserver((mutationsList) => {
-        for (const mutation of mutationsList) {
-            if (mutation.type === 'childList') {
-                // For each added node, check if it is or contains a video.
-                mutation.addedNodes.forEach(node => {
-                    findAndProcessVideos(node);
-                });
+
+    // --- Video Discovery and Initialization ---
+
+    function addGestureControls(video) {
+        if (!video || video._gestureAdded) return;
+        video._gestureAdded = true;
+
+        createOverlay(video);
+
+        let userRate = userPlaybackRates.get(video) || 1.0;
+        video.playbackRate = userRate;
+
+        video.addEventListener('ratechange', () => {
+            if (!isSpeedingUp) {
+                userPlaybackRates.set(video, video.playbackRate);
             }
-        }
-    });
+        });
 
-    // Start observing the entire document for added nodes.
-    observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true
-    });
+        video.addEventListener('play', () => {
+            enterLandscapeFullscreen(video);
+        });
 
-    // Perform an initial scan for videos that are already on the page when the script runs.
-    findAndProcessVideos(document.body);
+        video.addEventListener('touchstart', (e) => onTouchStart(e, video));
+        video.addEventListener('touchmove', (e) => onTouchMove(e, video));
+        video.addEventListener('touchend', () => onTouchEnd(video));
+
+        // NEW: Prevent the context menu from appearing on long-press.
+        // This stops the annoying menu from showing up when you use the 2x speed gesture.
+        video.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+    }
+
+    function findVideosInShadow(root) {
+        if (!root) return;
+        root.querySelectorAll('video').forEach(addGestureControls);
+        root.querySelectorAll('*').forEach(el => {
+            if (el.shadowRoot) findVideosInShadow(el.shadowRoot);
+        });
+    }
+
+    function scanForVideos() {
+        document.querySelectorAll('video').forEach(addGestureControls);
+        findVideosInShadow(document.body);
+    }
+
+    // --- Script Execution Start ---
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+    const observer = new MutationObserver(scanForVideos);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    window.addEventListener('load', scanForVideos);
 
 })();
