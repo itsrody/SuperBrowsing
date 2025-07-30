@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Improved Mobile Video Seek Gesture
 // @namespace    http://tampermonkey.net/
-// @version      4.5
+// @version      4.6
 // @description  Adds touch gestures to any HTML5 video player on mobile browsers. Swipe to seek, long-press for 2x speed. Automatically locks landscape orientation in fullscreen for landscape videos. Prevents context menu interference.
 // @author       Your Name
 // @license      MIT
@@ -86,7 +86,14 @@
 
     // --- Gesture Event Handlers ---
 
-    const preventContextMenu = (e) => e.preventDefault();
+    /**
+     * NEW: A more robust function to prevent the context menu.
+     * It stops the event from propagating further.
+     */
+    const preventContextMenu = (e) => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+    };
 
     function onTouchStart(e, video) {
         if (!video) return;
@@ -94,17 +101,18 @@
         initialTime = video.currentTime;
         seeking = true;
         movedEnoughForSeek = false;
-        video.overlay.style.display = 'block';
+        if (video.overlay) video.overlay.style.display = 'block';
 
-        // NEW: Add a listener to prevent the context menu from appearing on long press.
-        video.addEventListener('contextmenu', preventContextMenu);
+        // NEW: Immediately add a capture-phase listener to the window to block the context menu.
+        // This is more reliable than listening on the video element itself.
+        window.addEventListener('contextmenu', preventContextMenu, { capture: true });
 
         // Start a timer for long-press detection
         longPressTimeout = setTimeout(() => {
             if (!movedEnoughForSeek) { // Only speed up if not already swiping
                 userPlaybackRates.set(video, video.playbackRate);
                 video.playbackRate = 2.0;
-                video.overlay.innerHTML = `<div>2x Speed</div>`;
+                if(video.overlay) video.overlay.innerHTML = `<div>2x Speed</div>`;
                 isSpeedingUp = true;
             }
         }, 500); // 500ms for long press
@@ -119,8 +127,8 @@
             if (!movedEnoughForSeek) {
                 movedEnoughForSeek = true;
                 clearTimeout(longPressTimeout);
-                // NEW: Since this is a swipe, not a long press, we can allow the context menu again.
-                video.removeEventListener('contextmenu', preventContextMenu);
+                // NEW: Since this is a swipe, the long-press is cancelled. We can remove the blocker.
+                window.removeEventListener('contextmenu', preventContextMenu, { capture: true });
             }
         }
 
@@ -131,10 +139,12 @@
         newTime = Math.max(0, Math.min(newTime, video.duration)); // Clamp time within video bounds
 
         // Update overlay with seek information
-        video.overlay.innerHTML = `
-            <div>${formatCurrentTime(newTime)}</div>
-            <div>(${formatTimeChange(timeChange)})</div>
-        `;
+        if(video.overlay) {
+            video.overlay.innerHTML = `
+                <div>${formatCurrentTime(newTime)}</div>
+                <div>(${formatTimeChange(timeChange)})</div>
+            `;
+        }
     }
 
     function onTouchEnd(video) {
@@ -142,8 +152,8 @@
         clearTimeout(longPressTimeout);
         longPressTimeout = null;
 
-        // NEW: Always clean up the context menu listener when the touch ends.
-        video.removeEventListener('contextmenu', preventContextMenu);
+        // NEW: Always clean up the context menu listener when the touch interaction ends.
+        window.removeEventListener('contextmenu', preventContextMenu, { capture: true });
 
         if (isSpeedingUp) {
             // Restore original playback speed after long-press
@@ -156,8 +166,10 @@
         }
 
         // Hide and clear the overlay
-        video.overlay.style.display = 'none';
-        video.overlay.innerHTML = '';
+        if(video.overlay) {
+            video.overlay.style.display = 'none';
+            video.overlay.innerHTML = '';
+        }
     }
 
 
