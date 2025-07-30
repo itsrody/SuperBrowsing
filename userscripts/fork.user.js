@@ -1,264 +1,226 @@
 // ==UserScript==
-// @name         Mobile Video Gesture Control
+// @name         Mobile Video Gesture Control (Class-based)
 // @namespace    http://tampermonkey.net/
-// @version      4.4.0
-// @description  Adds touch gestures to any HTML5 video: short swipe to skip 5s, long swipe to seek, long-press for 2x speed, and disables the context menu. Works with Shadow DOM and Firefox.
-// @author       사용자 (updated by Gemini)
+// @version      5.0.0
+// @description  A robust, class-based implementation for mobile video gestures: short swipe to skip, long swipe to seek, long-press for 2x speed. Stable, clean, and maintainable.
+// @author       사용자 (re-architected by Gemini)
 // @license      MIT
 // @match        *://*/*
 // @grant        none
-// @downloadURL https://update.greasyfork.org/scripts/524654/Mobile%20Video%20Seek%20Gesture.user.js
-// @updateURL https://update.greasyfork.org/scripts/524654/Mobile%20Video%20Seek%20Gesture.meta.js
 // ==/UserScript==
 
 (function() {
     'use strict';
 
-    // --- Constants ---
-    const SHORT_SWIPE_THRESHOLD = 80; // A swipe less than 80px is a "short" one.
+    /**
+     * A map to keep track of which video elements already have a controller.
+     * WeakMap allows for garbage collection if the video element is removed from the DOM.
+     */
+    const videoControllers = new WeakMap();
 
-    // --- State Management Variables ---
-    let startX = 0;
-    let initialTime = 0;
-    let seeking = false;
-    let timeChange = 0;
-    let longPressTimeout = null;
-    let isSpeedingUp = false;
-    let movedEnoughForSeek = false;
-    let userPlaybackRates = new Map();
-    let isLongPress = false;
+    class GestureController {
+        constructor(video) {
+            this.video = video;
+            this.overlay = null;
+            this.userPlaybackRate = video.playbackRate;
 
-    // --- Gesture UI & Logic ---
+            // Gesture state
+            this.startX = 0;
+            this.initialTime = 0;
+            this.touchStartTime = 0;
+            this.isGestureActive = false;
+            this.gestureType = null;
+            this.longPressTimeout = null;
 
-    function createOverlay(video) {
-        if (video.overlay) video.overlay.remove();
-        let overlay = document.createElement('div');
-        overlay.style.position = 'absolute';
-        overlay.style.top = '50%';
-        overlay.style.left = '50%';
-        overlay.style.transform = 'translate(-50%, -50%)';
-        overlay.style.padding = '10px 20px';
-        overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-        overlay.style.color = '#fff';
-        overlay.style.fontSize = '18px';
-        overlay.style.textAlign = 'center';
-        overlay.style.borderRadius = '8px';
-        overlay.style.zIndex = '9999';
-        overlay.style.display = 'none';
-        overlay.style.lineHeight = '1.5';
-        video.parentElement.appendChild(overlay);
-        video.overlay = overlay;
-    }
-
-    function onTouchStart(e, video) {
-        if (!video || e.touches.length > 1) {
-            seeking = false;
-            return;
+            this.createOverlay();
+            this.bindEvents();
         }
-        startX = e.touches[0].clientX;
-        initialTime = video.currentTime;
-        seeking = true;
-        movedEnoughForSeek = false;
-        isLongPress = false;
 
-        longPressTimeout = setTimeout(() => {
-            if (!movedEnoughForSeek) {
-                isLongPress = true;
-                userPlaybackRates.set(video, video.playbackRate);
-                video.playbackRate = 2.0;
-                video.overlay.style.display = 'block';
-                video.overlay.innerHTML = `<div>2x Speed</div>`;
-                isSpeedingUp = true;
+        /**
+         * Creates the UI overlay for feedback.
+         */
+        createOverlay() {
+            const overlay = document.createElement('div');
+            Object.assign(overlay.style, {
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                padding: '10px 20px',
+                backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                color: '#fff',
+                fontSize: '18px',
+                textAlign: 'center',
+                borderRadius: '8px',
+                zIndex: '99999',
+                display: 'none',
+                lineHeight: '1.5',
+                pointerEvents: 'none' // Ensures the overlay doesn't block touch events
+            });
+            this.video.parentElement.appendChild(overlay);
+            this.overlay = overlay;
+        }
+
+        /**
+         * Binds all necessary event listeners to the video element.
+         */
+        bindEvents() {
+            // Bind 'this' to ensure methods have the correct context when called by event listeners
+            this.handleTouchStart = this.handleTouchStart.bind(this);
+            this.handleTouchMove = this.handleTouchMove.bind(this);
+            this.handleTouchEnd = this.handleTouchEnd.bind(this);
+            this.handleRateChange = this.handleRateChange.bind(this);
+
+            this.video.addEventListener('touchstart', this.handleTouchStart, { passive: false });
+            this.video.addEventListener('touchmove', this.handleTouchMove, { passive: false });
+            this.video.addEventListener('touchend', this.handleTouchEnd, { passive: false });
+            this.video.addEventListener('contextmenu', e => e.preventDefault());
+            this.video.addEventListener('ratechange', this.handleRateChange);
+        }
+
+        handleTouchStart(e) {
+            if (e.touches.length > 1) return;
+
+            this.isGestureActive = true;
+            this.gestureType = null;
+            this.startX = e.touches[0].clientX;
+            this.initialTime = this.video.currentTime;
+            this.touchStartTime = Date.now();
+
+            this.longPressTimeout = setTimeout(() => {
+                if (this.isGestureActive && !this.gestureType) {
+                    this.gestureType = 'long-press';
+                    this.video.playbackRate = 2.0;
+                    this.showOverlay('2x Speed');
+                }
+            }, 500);
+        }
+
+        handleTouchMove(e) {
+            if (!this.isGestureActive || this.gestureType === 'long-press') return;
+
+            const deltaX = e.touches[0].clientX - this.startX;
+
+            if (Math.abs(deltaX) > 10) {
+                clearTimeout(this.longPressTimeout); // It's a swipe, not a long-press.
+                
+                // Only show UI for a definitive long swipe
+                if (Math.abs(deltaX) > 80) {
+                    this.gestureType = 'long-swipe';
+                    const timeChange = deltaX * 0.05;
+                    const newTime = this.initialTime + timeChange;
+                    const timeChangeFormatted = this.formatTimeChange(timeChange);
+                    this.showOverlay(`${this.formatCurrentTime(newTime)}<br>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})`);
+                }
             }
-        }, 500);
-    }
-
-    function onTouchMove(e, video) {
-        if (!seeking || !video || isSpeedingUp) return;
-        const deltaX = e.touches[0].clientX - startX;
-        const absDeltaX = Math.abs(deltaX);
-
-        if (absDeltaX > 10) {
-            movedEnoughForSeek = true;
-            clearTimeout(longPressTimeout);
         }
 
-        if (movedEnoughForSeek) {
-            // Always calculate the potential time change
-            timeChange = deltaX * 0.05;
+        handleTouchEnd(e) {
+            if (!this.isGestureActive) return;
+            clearTimeout(this.longPressTimeout);
 
-            // --- FIXED: Only show the drag UI for a long swipe ---
-            if (absDeltaX > SHORT_SWIPE_THRESHOLD) {
-                video.overlay.style.display = 'block';
-                let newTime = initialTime + timeChange;
-                newTime = Math.max(0, Math.min(newTime, video.duration));
-                const timeChangeFormatted = formatTimeChange(timeChange);
-                video.overlay.innerHTML = `
-                    <div>${formatCurrentTime(newTime)}</div>
-                    <div>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})</div>
-                `;
+            const touchDuration = Date.now() - this.touchStartTime;
+            const deltaX = e.changedTouches[0].clientX - this.startX;
+
+            // --- Final Gesture Decision Logic ---
+            if (this.gestureType === 'long-press') {
+                e.preventDefault(); // Context menu fix
+                this.video.playbackRate = this.userPlaybackRate;
+                this.hideOverlay();
+            } else if (Math.abs(deltaX) > 20) { // A swipe must move a minimum distance
+                if (touchDuration < 250 && Math.abs(deltaX) < 100) { // A fast, short "flick"
+                    const seekAmount = deltaX > 0 ? 5 : -5;
+                    this.video.currentTime += seekAmount;
+                    this.showOverlay(`${seekAmount > 0 ? '+' : ''}${seekAmount}s`, 600);
+                } else { // A longer "drag"
+                    const timeChange = deltaX * 0.05;
+                    this.video.currentTime = Math.max(0, Math.min(this.initialTime + timeChange, this.video.duration));
+                    this.hideOverlay();
+                }
             } else {
-                // For potential short swipes, keep the UI hidden during the move.
-                video.overlay.style.display = 'none';
+                this.hideOverlay();
             }
+            
+            this.isGestureActive = false;
         }
-    }
-
-    function onTouchEnd(e, video) {
-        clearTimeout(longPressTimeout);
-        let hideOverlay = true;
-
-        // --- FIXED: The context menu fix is preserved and now works correctly ---
-        if (isLongPress) {
-            e.preventDefault();
-        }
-
-        if (isSpeedingUp) {
-            video.playbackRate = userPlaybackRates.get(video) || 1.0;
-        } else if (movedEnoughForSeek) {
-            const finalX = e.changedTouches[0].clientX;
-            const deltaX = finalX - startX;
-
-            if (Math.abs(deltaX) < SHORT_SWIPE_THRESHOLD) {
-                // It's a short swipe. Apply a fixed 5-second seek.
-                const seekAmount = deltaX > 0 ? 5 : -5;
-                video.currentTime += seekAmount;
-
-                // Show temporary feedback for the short swipe.
-                video.overlay.innerHTML = `<div>${seekAmount > 0 ? '+' : ''}${seekAmount}s</div>`;
-                video.overlay.style.display = 'block';
-                setTimeout(() => { video.overlay.style.display = 'none'; }, 600);
-                hideOverlay = false;
-
-            } else {
-                // It's a long swipe. Apply the variable seek time.
-                let newTime = initialTime + timeChange;
-                video.currentTime = Math.max(0, Math.min(newTime, video.duration));
+        
+        handleRateChange() {
+            // Store user-initiated playback rate changes, but not our own.
+            if (this.gestureType !== 'long-press') {
+                this.userPlaybackRate = this.video.playbackRate;
             }
         }
 
-        // Reset state variables
-        seeking = false;
-        isSpeedingUp = false;
-        isLongPress = false;
-        longPressTimeout = null;
-
-        if (hideOverlay) {
-            video.overlay.style.display = 'none';
-            video.overlay.innerHTML = '';
-        }
-    }
-
-
-    // --- Time Formatting Utilities ---
-
-    function formatCurrentTime(seconds) {
-        let absSeconds = Math.abs(seconds);
-        let hours = Math.floor(absSeconds / 3600);
-        let minutes = Math.floor((absSeconds % 3600) / 60);
-        let secs = Math.floor(absSeconds % 60);
-        if (hours > 0) {
-            return `${hours < 10 ? '0' : ''}${hours}:${minutes < 10 ? '0' : ''}${minutes}:${secs < 10 ? '0' : ''}${secs}`;
-        } else {
-            return `${minutes < 10 ? '0' : ''}${minutes}:${secs < 10 ? '0' : ''}${secs}`;
-        }
-    }
-
-    function formatTimeChange(seconds) {
-        let sign = seconds < 0 ? '-' : '';
-        let absSeconds = Math.abs(seconds);
-        if (absSeconds >= 60) {
-            return `${sign}${formatCurrentTime(absSeconds)}`;
-        } else {
-            let secs = Math.floor(absSeconds);
-            let fraction = Math.round((absSeconds % 1) * 10);
-            return `${sign}${secs < 10 ? '0' : ''}${secs}.${fraction}`;
-        }
-    }
-
-    // --- Fullscreen and Orientation Logic ---
-
-    async function enterLandscapeFullscreen(video) {
-        if (!/Mobi|Android/i.test(navigator.userAgent)) {
-            return;
-        }
-        if (!video.videoWidth || video.videoWidth <= video.videoHeight) {
-            return;
-        }
-        const isAlreadyFullscreen = document.fullscreenElement && document.fullscreenElement.contains(video);
-        if (isAlreadyFullscreen) {
-            return;
-        }
-        try {
-            const fullscreenTarget = video.parentElement || video;
-            await fullscreenTarget.requestFullscreen();
-            await screen.orientation.lock('landscape');
-        } catch (err) {
-            console.error("Userscript Error: Failed to enter landscape fullscreen.", err);
-        }
-    }
-
-    function handleFullscreenChange() {
-        if (!document.fullscreenElement) {
-            try {
-                screen.orientation.unlock();
-            } catch (err) {
-                // This might fail if orientation wasn't locked by this script, which is fine.
+        /**
+         * Shows the overlay with specific content. Can hide automatically after a duration.
+         */
+        showOverlay(htmlContent, duration = 0) {
+            this.overlay.innerHTML = `<div>${htmlContent}</div>`;
+            this.overlay.style.display = 'block';
+            if (duration > 0) {
+                setTimeout(() => this.hideOverlay(), duration);
             }
         }
+
+        hideOverlay() {
+            this.overlay.style.display = 'none';
+        }
+
+        // --- Formatting Utilities ---
+        formatTimeChange(seconds) {
+            const sign = seconds < 0 ? '-' : '';
+            return `${sign}${this.formatCurrentTime(Math.abs(seconds))}`;
+        }
+
+        formatCurrentTime(seconds) {
+            seconds = Math.max(0, seconds);
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            const pad = (n) => (n < 10 ? '0' + n : n);
+
+            return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+        }
+
+        /**
+         * Cleans up all event listeners and elements.
+         */
+        destroy() {
+            this.video.removeEventListener('touchstart', this.handleTouchStart);
+            this.video.removeEventListener('touchmove', this.handleTouchMove);
+            this.video.removeEventListener('touchend', this.handleTouchEnd);
+            this.video.removeEventListener('ratechange', this.handleRateChange);
+            this.overlay.remove();
+        }
     }
 
-
-    // --- Video Discovery and Initialization ---
-
-    function addGestureControls(video) {
-        if (!video || video._gestureAdded) return;
-        video._gestureAdded = true;
-
-        createOverlay(video);
-
-        let userRate = userPlaybackRates.get(video) || 1.0;
-        video.playbackRate = userRate;
-
-        video.addEventListener('ratechange', () => {
-            if (!isSpeedingUp) {
-                userPlaybackRates.set(video, video.playbackRate);
-            }
-        });
-
-        video.addEventListener('play', () => {
-            enterLandscapeFullscreen(video);
-        });
-
-        video.addEventListener('touchstart', (e) => onTouchStart(e, video), { passive: false });
-        video.addEventListener('touchmove', (e) => onTouchMove(e, video));
-        video.addEventListener('touchend', (e) => onTouchEnd(e, video), { passive: false });
-
-        video.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-        });
-    }
-
-    function findVideosInShadow(root) {
-        if (!root) return;
-        root.querySelectorAll('video').forEach(addGestureControls);
-        root.querySelectorAll('*').forEach(el => {
-            if (el.shadowRoot) findVideosInShadow(el.shadowRoot);
-        });
-    }
-
+    /**
+     * Scans the DOM for new video elements and initializes controllers.
+     */
     function scanForVideos() {
-        document.querySelectorAll('video').forEach(addGestureControls);
-        findVideosInShadow(document.body);
+        // Find all videos, including those in Shadow DOMs
+        const videos = document.querySelectorAll('video');
+        const allElements = document.querySelectorAll('*');
+
+        videos.forEach(initializeController);
+        allElements.forEach(el => {
+            if (el.shadowRoot) {
+                el.shadowRoot.querySelectorAll('video').forEach(initializeController);
+            }
+        });
+    }
+
+    function initializeController(video) {
+        // Only add a controller if one doesn't already exist
+        if (!videoControllers.has(video)) {
+            const controller = new GestureController(video);
+            videoControllers.set(video, controller);
+        }
     }
 
     // --- Script Execution Start ---
-
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-
     const observer = new MutationObserver(scanForVideos);
     observer.observe(document.body, { childList: true, subtree: true });
-
     window.addEventListener('load', scanForVideos);
 
 })();
