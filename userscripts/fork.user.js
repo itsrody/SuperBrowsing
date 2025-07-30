@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Mobile Video Seek Gesture (Enhanced Gestures)
+// @name         Mobile Video Seek Gesture (Fixed Double Tap)
 // @namespace    http://tampermonkey.net/
-// @version      5.1
+// @version      5.2
 // @description  모바일 브라우저에서 좌우 더블 탭으로 동영상 5초 탐색, 중앙 상하 스와이프로 풀스크린, 길게 눌러 2배속 재생 (Shadow DOM 포함)
 // @author       사용자
 // @license      MIT
@@ -74,6 +74,12 @@
     function onTouchStart(e, video) {
         if (!video) return;
 
+        // Prevent default browser behavior (like zooming) for potential gestures
+        // This is crucial for preventing blackouts on double-tap and general scrolling
+        if (e.touches.length === 1) { // Only prevent if single touch for gesture detection
+            e.preventDefault();
+        }
+
         startX = e.touches[0].clientX;
         startY = e.touches[0].clientY;
         initialTime = video.currentTime;
@@ -86,7 +92,13 @@
         // Double-tap detection logic
         const currentTime = new Date().getTime();
         const timeDiff = currentTime - lastTapTime;
-        const distance = Math.sqrt(Math.pow(startX - (e.touches[0].lastX || startX), 2) + Math.pow(startY - (e.touches[0].lastY || startY), 2));
+        // Calculate distance from the *first* touch of the current tap sequence
+        // to the *last* touch of the previous tap sequence.
+        // For the first tap, lastX/lastY will be undefined, so use current startX/startY
+        const distance = Math.sqrt(
+            Math.pow(startX - (e.touches[0].lastX || startX), 2) +
+            Math.pow(startY - (e.touches[0].lastY || startY), 2)
+        );
 
         if (timeDiff < DOUBLE_TAP_TIME_THRESHOLD && distance < DOUBLE_TAP_DISTANCE_THRESHOLD) {
             tapCount++;
@@ -96,7 +108,8 @@
         }
 
         lastTapTime = currentTime;
-        e.touches[0].lastX = startX; // Store for next tap distance check
+        // Store the *current* touch position for the *next* tap's distance calculation
+        e.touches[0].lastX = startX;
         e.touches[0].lastY = startY;
 
         // Set a timeout to reset tapCount if no second tap within the threshold
@@ -112,20 +125,20 @@
             // After handling, reset tapCount and clear timeout for next interaction
             tapCount = 0;
             clearTimeout(tapTimeout);
-            return; // Exit to prevent long press or swipe detection
+            // No return here, as preventDefault is already at the top.
+        } else {
+            // Start long press timeout for 2x speed if no double tap
+            longPressTimeout = setTimeout(() => {
+                if (!gestureDetected) { // Only activate if no other gesture was detected
+                    userPlaybackRates.set(video, video.playbackRate); // Save current rate
+                    video.playbackRate = 2.0; // Set to 2x speed
+                    video.overlay.innerHTML = `<div>2x Speed</div>`;
+                    video.overlay.style.display = 'block';
+                    isSpeedingUp = true;
+                    gestureDetected = true; // Mark as gesture detected
+                }
+            }, 500); // 0.5 seconds for long press
         }
-
-        // Start long press timeout for 2x speed if no double tap
-        longPressTimeout = setTimeout(() => {
-            if (!gestureDetected) { // Only activate if no other gesture was detected
-                userPlaybackRates.set(video, video.playbackRate); // Save current rate
-                video.playbackRate = 2.0; // Set to 2x speed
-                video.overlay.innerHTML = `<div>2x Speed</div>`;
-                video.overlay.style.display = 'block';
-                isSpeedingUp = true;
-                gestureDetected = true; // Mark as gesture detected
-            }
-        }, 500); // 0.5 seconds for long press
     }
 
     // Handle touch move event
@@ -143,6 +156,7 @@
             gestureDetected = true; // Mark as gesture detected
             clearTimeout(tapTimeout); // Cancel any pending double-tap
             tapCount = 0; // Reset tap count
+            e.preventDefault(); // Prevent default scrolling/panning when a swipe is detected
         }
 
         // Only process if not currently speeding up from long press
@@ -150,7 +164,7 @@
             // Check for fullscreen swipe in the middle region
             if (startX > video.clientWidth * MIDDLE_REGION_START && startX < video.clientWidth * MIDDLE_REGION_END) {
                 if (Math.abs(deltaY) > SWIPE_THRESHOLD) {
-                    e.preventDefault(); // Prevent default scrolling
+                    // e.preventDefault() is already called above if a swipe is detected
                     if (deltaY < 0) { // Swipe up
                         video.overlay.innerHTML = `<div>Fullscreen</div>`;
                         video.overlay.style.display = 'block';
