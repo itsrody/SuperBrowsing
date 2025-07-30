@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Mobile Video Seek Gesture (Enhanced)
+// @name         Mobile Video Seek Gesture (Enhanced Gestures)
 // @namespace    http://tampermonkey.net/
-// @version      5.0
-// @description  모바일 브라우저에서 좌우 스와이프 제스처로 동영상 5초 탐색, 좌측 상하 스와이프 제스처로 2배속/1배속 재생 (Shadow DOM 포함)
+// @version      5.1
+// @description  모바일 브라우저에서 좌우 더블 탭으로 동영상 5초 탐색, 중앙 상하 스와이프로 풀스크린, 길게 눌러 2배속 재생 (Shadow DOM 포함)
 // @author       사용자
 // @license      MIT
 // @match        *://*/*
@@ -15,15 +15,29 @@
     'use strict';
 
     let startX = 0;
-    let startY = 0; // New: Y-coordinate for vertical gestures
+    let startY = 0;
     let initialTime = 0;
-    let gestureType = null; // 'horizontal' for seek, 'vertical-up' for 2x, 'vertical-down' for 1x
+    let longPressTimeout = null; // For 2x speed
+    let isSpeedingUp = false; // Current 2x speed state
+    let gestureDetected = false; // Flag to indicate if any gesture (swipe, double-tap) has started
     let userPlaybackRates = new Map(); // Stores user's last set playback rate
 
+    // Double-tap specific variables
+    let lastTapTime = 0;
+    let tapCount = 0;
+    let tapTimeout = null;
+
     // Constants for gesture detection
-    const SWIPE_THRESHOLD = 10; // Minimum pixels to consider it a swipe
-    const LEFT_SCREEN_PERCENTAGE = 0.3; // Left 30% of the screen for vertical gestures
-    const SEEK_AMOUNT = 5; // Seconds to seek forward/backward
+    const SWIPE_THRESHOLD = 15; // Minimum pixels for a swipe to be recognized
+    const DOUBLE_TAP_TIME_THRESHOLD = 300; // Max milliseconds between taps for double-tap
+    const DOUBLE_TAP_DISTANCE_THRESHOLD = 30; // Max pixels distance between taps for double-tap
+    const SEEK_AMOUNT = 5; // Seconds to seek forward/backward on double-tap
+
+    // Screen regions for gestures (percentages of video width)
+    const LEFT_REGION_END = 0.3; // Left 30% for double-tap backward
+    const RIGHT_REGION_START = 0.7; // Right 30% for double-tap forward
+    const MIDDLE_REGION_START = 0.3; // Middle 40% for fullscreen swipe
+    const MIDDLE_REGION_END = 0.7;
 
     // Create or update the video overlay for visual feedback
     function createOverlay(video) {
@@ -47,7 +61,6 @@
         overlay.style.pointerEvents = 'none'; // Allow clicks to pass through to video
 
         // Append overlay to the video's parent element
-        // This ensures it stays within the video's bounds and z-index context
         if (video.parentElement) {
             video.parentElement.appendChild(overlay);
         } else {
@@ -61,15 +74,58 @@
     function onTouchStart(e, video) {
         if (!video) return;
 
-        // Reset gesture state
         startX = e.touches[0].clientX;
         startY = e.touches[0].clientY;
         initialTime = video.currentTime;
-        gestureType = null; // No gesture detected yet
+        gestureDetected = false; // Reset gesture detection flag
 
-        // Show overlay immediately
-        video.overlay.style.display = 'block';
-        video.overlay.innerHTML = ''; // Clear previous content
+        // Clear any pending long press timeout
+        clearTimeout(longPressTimeout);
+        longPressTimeout = null;
+
+        // Double-tap detection logic
+        const currentTime = new Date().getTime();
+        const timeDiff = currentTime - lastTapTime;
+        const distance = Math.sqrt(Math.pow(startX - (e.touches[0].lastX || startX), 2) + Math.pow(startY - (e.touches[0].lastY || startY), 2));
+
+        if (timeDiff < DOUBLE_TAP_TIME_THRESHOLD && distance < DOUBLE_TAP_DISTANCE_THRESHOLD) {
+            tapCount++;
+            clearTimeout(tapTimeout); // Clear previous single-tap timeout
+        } else {
+            tapCount = 1;
+        }
+
+        lastTapTime = currentTime;
+        e.touches[0].lastX = startX; // Store for next tap distance check
+        e.touches[0].lastY = startY;
+
+        // Set a timeout to reset tapCount if no second tap within the threshold
+        tapTimeout = setTimeout(() => {
+            tapCount = 0;
+        }, DOUBLE_TAP_TIME_THRESHOLD);
+
+        // If a double-tap is detected, we prevent long press and other gestures
+        if (tapCount === 2) {
+            gestureDetected = true; // Mark as gesture detected to prevent long press
+            // Handle double-tap immediately
+            handleDoubleTap(video, startX);
+            // After handling, reset tapCount and clear timeout for next interaction
+            tapCount = 0;
+            clearTimeout(tapTimeout);
+            return; // Exit to prevent long press or swipe detection
+        }
+
+        // Start long press timeout for 2x speed if no double tap
+        longPressTimeout = setTimeout(() => {
+            if (!gestureDetected) { // Only activate if no other gesture was detected
+                userPlaybackRates.set(video, video.playbackRate); // Save current rate
+                video.playbackRate = 2.0; // Set to 2x speed
+                video.overlay.innerHTML = `<div>2x Speed</div>`;
+                video.overlay.style.display = 'block';
+                isSpeedingUp = true;
+                gestureDetected = true; // Mark as gesture detected
+            }
+        }, 500); // 0.5 seconds for long press
     }
 
     // Handle touch move event
@@ -81,47 +137,31 @@
         let deltaX = currentX - startX;
         let deltaY = currentY - startY;
 
-        // If a gesture type hasn't been determined yet
-        if (gestureType === null) {
-            // Determine if it's a horizontal or vertical swipe
-            if (Math.abs(deltaX) > SWIPE_THRESHOLD || Math.abs(deltaY) > SWIPE_THRESHOLD) {
-                if (Math.abs(deltaX) > Math.abs(deltaY)) {
-                    gestureType = 'horizontal'; // Horizontal swipe for seeking
-                } else {
-                    // Check if vertical swipe is on the left side of the video
-                    if (startX < video.clientWidth * LEFT_SCREEN_PERCENTAGE) {
-                        if (deltaY < -SWIPE_THRESHOLD) {
-                            gestureType = 'vertical-up'; // Swipe up on left for 2x
-                        } else if (deltaY > SWIPE_THRESHOLD) {
-                            gestureType = 'vertical-down'; // Swipe down on left for 1x
-                        }
-                    } else {
-                        // Vertical swipe not on the left side, ignore for now
-                        gestureType = 'none';
+        // If a significant movement occurs, it's a swipe, not a long press or tap
+        if (Math.abs(deltaX) > SWIPE_THRESHOLD || Math.abs(deltaY) > SWIPE_THRESHOLD) {
+            clearTimeout(longPressTimeout); // Cancel long press
+            gestureDetected = true; // Mark as gesture detected
+            clearTimeout(tapTimeout); // Cancel any pending double-tap
+            tapCount = 0; // Reset tap count
+        }
+
+        // Only process if not currently speeding up from long press
+        if (!isSpeedingUp) {
+            // Check for fullscreen swipe in the middle region
+            if (startX > video.clientWidth * MIDDLE_REGION_START && startX < video.clientWidth * MIDDLE_REGION_END) {
+                if (Math.abs(deltaY) > SWIPE_THRESHOLD) {
+                    e.preventDefault(); // Prevent default scrolling
+                    if (deltaY < 0) { // Swipe up
+                        video.overlay.innerHTML = `<div>Fullscreen</div>`;
+                        video.overlay.style.display = 'block';
+                        video._fullscreenAction = 'enter'; // Store action for touchend
+                    } else { // Swipe down
+                        video.overlay.innerHTML = `<div>Exit Fullscreen</div>`;
+                        video.overlay.style.display = 'block';
+                        video._fullscreenAction = 'exit'; // Store action for touchend
                     }
                 }
             }
-        }
-
-        // Update overlay based on detected gesture type
-        if (gestureType === 'horizontal') {
-            let seekDirection = deltaX > 0 ? '+' : '-';
-            let newTimePreview = initialTime + (deltaX > 0 ? SEEK_AMOUNT : -SEEK_AMOUNT);
-            // Clamp preview time to video duration
-            newTimePreview = Math.max(0, Math.min(newTimePreview, video.duration));
-
-            video.overlay.innerHTML = `
-                <div>${formatCurrentTime(newTimePreview)}</div>
-                <div>(${seekDirection}${formatTimeChange(SEEK_AMOUNT)})</div>
-            `;
-        } else if (gestureType === 'vertical-up') {
-            video.overlay.innerHTML = `<div>2x Speed</div>`;
-        } else if (gestureType === 'vertical-down') {
-            video.overlay.innerHTML = `<div>1x Speed</div>`;
-        }
-        // Prevent default scrolling behavior for active gestures
-        if (gestureType !== null && gestureType !== 'none') {
-            e.preventDefault();
         }
     }
 
@@ -129,30 +169,83 @@
     function onTouchEnd(video) {
         if (!video) return;
 
-        // Apply action based on detected gesture type
-        if (gestureType === 'horizontal') {
-            let deltaX = e.changedTouches[0].clientX - startX;
-            let newTime = video.currentTime;
-            if (deltaX > SWIPE_THRESHOLD) { // Swipe right
-                newTime = video.currentTime + SEEK_AMOUNT;
-            } else if (deltaX < -SWIPE_THRESHOLD) { // Swipe left
-                newTime = video.currentTime - SEEK_AMOUNT;
-            }
-            // Clamp new time to video duration
-            video.currentTime = Math.max(0, Math.min(newTime, video.duration));
-        } else if (gestureType === 'vertical-up') {
-            // Store current rate before changing to 2x
-            userPlaybackRates.set(video, video.playbackRate);
-            video.playbackRate = 2.0;
-        } else if (gestureType === 'vertical-down') {
-            // Restore original rate or default to 1x
-            video.playbackRate = userPlaybackRates.get(video) || 1.0;
+        // Clear long press and tap timeouts
+        clearTimeout(longPressTimeout);
+        longPressTimeout = null;
+        clearTimeout(tapTimeout); // Ensure tap timeout is cleared
+
+        // If currently in 2x speed mode, revert
+        if (isSpeedingUp) {
+            video.playbackRate = userPlaybackRates.get(video) || 1.0; // Revert to original speed
+            isSpeedingUp = false;
         }
 
-        // Hide and clear overlay after gesture completion
-        video.overlay.style.display = 'none';
-        video.overlay.innerHTML = '';
-        gestureType = null; // Reset gesture type for next interaction
+        // Handle fullscreen action if a fullscreen swipe was detected
+        if (video._fullscreenAction) {
+            if (video._fullscreenAction === 'enter') {
+                if (video.requestFullscreen) {
+                    video.requestFullscreen();
+                } else if (video.webkitRequestFullscreen) { /* Safari */
+                    video.webkitRequestFullscreen();
+                } else if (video.msRequestFullscreen) { /* IE11 */
+                    video.msRequestFullscreen();
+                }
+                video.overlay.innerHTML = `<div>Entering Fullscreen</div>`;
+            } else if (video._fullscreenAction === 'exit') {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) { /* Safari */
+                    document.webkitExitFullscreen();
+                } else if (document.msExitFullscreen) { /* IE11 */
+                    document.msExitFullscreen();
+                }
+                video.overlay.innerHTML = `<div>Exiting Fullscreen</div>`;
+            }
+            video.overlay.style.display = 'block'; // Keep overlay visible briefly
+            setTimeout(() => {
+                video.overlay.style.display = 'none';
+                video.overlay.innerHTML = '';
+            }, 500); // Hide after 0.5 seconds
+            video._fullscreenAction = null; // Reset action
+        } else {
+            // Hide and clear overlay if no other action keeps it visible
+            video.overlay.style.display = 'none';
+            video.overlay.innerHTML = '';
+        }
+
+        // Reset gesture detection flag for the next interaction
+        gestureDetected = false;
+    }
+
+    // Handle double tap action
+    function handleDoubleTap(video, xPosition) {
+        let newTime = video.currentTime;
+        let seekDirection = '';
+        let seekText = '';
+
+        if (xPosition < video.clientWidth * LEFT_REGION_END) { // Double tap on left side
+            newTime = Math.max(0, video.currentTime - SEEK_AMOUNT);
+            seekDirection = '-';
+            seekText = `-${formatTimeChange(SEEK_AMOUNT)}`;
+        } else if (xPosition > video.clientWidth * RIGHT_REGION_START) { // Double tap on right side
+            newTime = Math.min(video.duration, video.currentTime + SEEK_AMOUNT);
+            seekDirection = '+';
+            seekText = `+${formatTimeChange(SEEK_AMOUNT)}`;
+        } else {
+            // Double tap in the middle, do nothing for now or add a default action
+            return;
+        }
+
+        video.currentTime = newTime;
+        video.overlay.innerHTML = `
+            <div>${formatCurrentTime(newTime)}</div>
+            <div>(${seekText})</div>
+        `;
+        video.overlay.style.display = 'block';
+        setTimeout(() => {
+            video.overlay.style.display = 'none';
+            video.overlay.innerHTML = '';
+        }, 500); // Hide after 0.5 seconds
     }
 
     // Format time into HH:MM:SS or MM:SS
@@ -190,7 +283,7 @@
     // Add gesture controls to a video element
     function addGestureControls(video) {
         // Prevent adding controls multiple times
-        if (video._gestureAdded) return;
+        if (!video || video._gestureAdded) return;
         video._gestureAdded = true;
 
         createOverlay(video);
@@ -201,16 +294,12 @@
 
         // Save user-initiated playback rate changes
         video.addEventListener('ratechange', () => {
-            // Only save if not a script-initiated speed change (e.g., from vertical swipe)
-            // This is a bit tricky with the new logic, but generally, if the user manually
-            // changes the speed via the video player controls, we want to remember it.
-            // For now, we'll assume direct user interaction on controls should override.
-            // A more robust solution might involve checking if the change was from our script.
-            // For this version, we'll simplify and always store the rate if it changes.
-            userPlaybackRates.set(video, video.playbackRate);
+            if (!isSpeedingUp) { // Only save if not our script-initiated 2x speed
+                userPlaybackRates.set(video, video.playbackRate);
+            }
         });
 
-        // Attach touch event listeners
+        // Attach touch event listeners with passive: false to allow preventDefault
         video.addEventListener('touchstart', (e) => onTouchStart(e, video), { passive: false });
         video.addEventListener('touchmove', (e) => onTouchMove(e, video), { passive: false });
         video.addEventListener('touchend', (e) => onTouchEnd(video), { passive: false });
@@ -238,8 +327,7 @@
     const observer = new MutationObserver(scanForVideos);
     observer.observe(document.body, { childList: true, subtree: true });
 
-    // Initial scan when the page loads
+    // Initial scan when the page loads and when DOM content is ready
     window.addEventListener('load', scanForVideos);
-    // Also run on DOMContentLoaded to catch videos available earlier
     document.addEventListener('DOMContentLoaded', scanForVideos);
 })();
