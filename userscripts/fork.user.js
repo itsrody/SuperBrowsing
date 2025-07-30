@@ -1,221 +1,337 @@
 // ==UserScript==
-// @name         Mobile Video Gesture Control (Definitive Final Version)
-// @namespace    http://tampermonkey.net/
-// @version      11.0.0
-// @description  Final version built on a proven architecture. Uses a temporary event shield to eliminate all conflicts while preserving all player functions.
-// @author       사용자 (re-architected by Gemini)
-// @license      MIT
+// @name          Video Gestures Pro
+// @namespace    https://github.com/itsrody/SuperBrowsing
+// @version      7.4
+// @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos.
+// @author       Murtaza Salih & Gemini
 // @match        *://*/*
-// @grant        none
+// @exclude      *://*.youtube.com/*
+// @exclude      *://*.dailymotion.com/*
+// @exclude      *://*.vimeo.com/*
+// @exclude      *://*.netflix.com/*
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_registerMenuCommand
+// @run-at       document-start
 // ==/UserScript==
 
-(function() {
+(async function() {
     'use strict';
 
-    const videoControllers = new WeakMap();
+    // --- Central Configuration Panel ---
+    const DEFAULTS = {
+        MIN_VIDEO_DURATION_SECONDS: 90,
+        DOUBLE_TAP_SEEK_SECONDS: 5,
+        SWIPE_THRESHOLD: 20, // Minimum pixels to move to register a swipe
+        SEEK_SENSITIVITY: 0.3,
+        ENABLE_HAPTIC_FEEDBACK: true,
+        HAPTIC_FEEDBACK_DURATION_MS: 20,
+        FORCE_LANDSCAPE: true
+    };
 
-    class GestureController {
-        constructor(video) {
-            this.video = video;
-            this.container = video.parentElement;
-            this.feedbackOverlay = null;
+    let config = await GM_getValue('config', DEFAULTS);
 
-            this.userPlaybackRate = video.playbackRate;
+    GM_registerMenuCommand('Configure Gestures', () => {
+        const currentConfig = JSON.stringify(config, null, 2);
+        const newConfigStr = prompt('Edit Gesture Settings:', currentConfig);
+        if (newConfigStr) {
+            try {
+                const newConfig = JSON.parse(newConfigStr);
+                config = { ...DEFAULTS, ...newConfig };
+                GM_setValue('config', config);
+                alert('Settings saved! Please reload the page for changes to take effect.');
+            } catch (e) {
+                alert('Error parsing settings. Please ensure it is valid JSON.\n\n' + e);
+            }
+        }
+    });
 
-            // Gesture state
-            this.startX = 0;
-            this.startY = 0;
-            this.initialTime = 0;
-            this.gestureType = null;
-            this.longPressTimeout = null;
-            this.touchStartTime = 0;
 
-            if (!this.container) return;
+    // --- Styles ---
+    function injectStyles() {
+        if (document.getElementById('video-gesture-pro-styles')) return;
+        const style = document.createElement('style');
+        style.id = 'video-gesture-pro-styles';
+        style.innerHTML = `
+            @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap');
+            .vg-indicator {
+                position: absolute; top: 50%; left: 50%;
+                transform: translate(-50%, -50%);
+                padding: 10px 16px; background-color: rgba(30, 30, 30, 0.9);
+                color: #fff; font-family: 'Roboto', sans-serif; font-size: 16px;
+                border-radius: 20px;
+                z-index: 2147483647;
+                display: flex;
+                align-items: center; gap: 8px; opacity: 0; pointer-events: none;
+                transition: opacity 0.2s ease, transform 0.2s ease;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            }
+            .vg-indicator.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            .vg-indicator svg { width: 24px; height: 24px; fill: #fff; }
+        `;
+        document.head.appendChild(style);
+    }
 
-            this.createFeedbackOverlay();
-            this.bindEvents();
+    // --- Global State ---
+    let touchStartX = 0, touchStartY = 0;
+    let currentVideo = null;
+    let gestureType = null;
+    let tapTimeout = null;
+    let tapCount = 0;
+    let playerContainer = null;
+    let originalParent = null;
+    let originalNextSibling = null;
+    let originalPlayerStyle = {};
+
+    // --- UI & Feedback ---
+    function showIndicator(video, html) {
+        const parent = document.fullscreenElement || video.parentElement;
+        if (!parent) return;
+        if (!parent.gestureIndicator) {
+             const indicator = document.createElement('div');
+             indicator.className = 'vg-indicator';
+             parent.appendChild(indicator);
+             parent.gestureIndicator = indicator;
+        }
+        const { gestureIndicator } = parent;
+        gestureIndicator.innerHTML = html;
+        gestureIndicator.classList.add('visible');
+        setTimeout(() => { if (gestureIndicator) gestureIndicator.classList.remove('visible'); }, 800);
+    }
+
+    function triggerHapticFeedback() {
+        if (config.ENABLE_HAPTIC_FEEDBACK && navigator.vibrate) {
+            navigator.vibrate(config.HAPTIC_FEEDBACK_DURATION_MS);
+        }
+    }
+
+    // --- Event Handlers ---
+    function onTouchStart(e) {
+        let video = e.target.closest('video');
+        if (document.fullscreenElement) {
+             video = document.fullscreenElement.querySelector('video');
         }
 
-        createFeedbackOverlay() {
-            const feedback = document.createElement('div');
-            Object.assign(feedback.style, {
-                position: 'absolute',
-                top: '50%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                padding: '10px 20px',
-                backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                color: '#fff',
-                fontSize: '18px',
-                textAlign: 'center',
-                borderRadius: '8px',
-                zIndex: '2147483647',
-                display: 'none',
-                lineHeight: '1.5',
-                pointerEvents: 'none'
+        if (!video || video.duration < config.MIN_VIDEO_DURATION_SECONDS) return;
+
+        currentVideo = video;
+
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        gestureType = 'tap'; // Assume it's a tap initially
+
+        // Double tap logic only runs when in fullscreen
+        if (document.fullscreenElement) {
+            const DOUBLE_TAP_TIMEOUT_MS = 350;
+            tapTimeout = setTimeout(() => { tapCount = 0; }, DOUBLE_TAP_TIMEOUT_MS);
+            tapCount++;
+        }
+    }
+
+    function onTouchMove(e) {
+        if (!currentVideo || e.touches.length > 1) return;
+
+        const deltaX = e.touches[0].clientX - touchStartX;
+        const deltaY = e.touches[0].clientY - touchStartY;
+
+        // Only determine the gesture type once, on the first significant movement
+        if (gestureType === 'tap' && (Math.abs(deltaX) > config.SWIPE_THRESHOLD || Math.abs(deltaY) > config.SWIPE_THRESHOLD)) {
+            const isVerticalSwipe = Math.abs(deltaY) > Math.abs(deltaX);
+
+            // --- GESTURE ROUTING LOGIC ---
+            // MODIFIED: If it's a vertical swipe and we are NOT in fullscreen, it's a fullscreen gesture.
+            if (isVerticalSwipe && !document.fullscreenElement) {
+                gestureType = 'swipe-y-fullscreen';
+            }
+            // If we ARE in fullscreen, use the original zoned gestures.
+            else if (document.fullscreenElement) {
+                gestureType = isVerticalSwipe ? 'swipe-y' : 'swipe-x';
+            }
+            // Horizontal swipes outside of fullscreen are ignored.
+        }
+
+        // --- GESTURE ACTION (DURING SWIPE) ---
+        if (gestureType && gestureType.startsWith('swipe')) {
+            e.preventDefault(); // Prevent page scrolling
+            // Provide live feedback for seeking and volume/speed changes while in fullscreen
+            if (gestureType === 'swipe-x') handleHorizontalSwipe(deltaX);
+            if (gestureType === 'swipe-y') handleVerticalSwipe(deltaY);
+        }
+    }
+
+    function onTouchEnd(e) {
+        if (!currentVideo) return;
+
+        // --- GESTURE ACTION (ON SWIPE END) ---
+
+        // MODIFIED: Handle the "swipe up to fullscreen" gesture.
+        if (gestureType === 'swipe-y-fullscreen') {
+            const deltaY = e.changedTouches[0].clientY - touchStartY;
+            // A swipe UP results in a negative deltaY.
+            if (deltaY < -config.SWIPE_THRESHOLD) {
+                handleFullscreenToggle();
+            }
+        }
+        // Original logic for gestures that only work inside fullscreen mode.
+        else if (document.fullscreenElement) {
+            if (gestureType === 'tap' && tapCount >= 2) {
+                e.preventDefault();
+                handleDoubleTapSeek();
+                clearTimeout(tapTimeout);
+                tapCount = 0;
+            } else if (gestureType === 'swipe-x') {
+                const deltaX = e.changedTouches[0].clientX - touchStartX;
+                const seekTime = deltaX * config.SEEK_SENSITIVITY;
+                currentVideo.currentTime += seekTime;
+                triggerHapticFeedback();
+            } else if (gestureType === 'swipe-y') {
+                // Haptic feedback for volume/speed is triggered on end to avoid constant vibration.
+                triggerHapticFeedback();
+            }
+        }
+
+        // Reset state for the next gesture
+        currentVideo = null;
+        gestureType = null;
+    }
+
+    // --- Gesture Logic ---
+    function handleFullscreenToggle() {
+        const isFullscreen = !!document.fullscreenElement;
+        const icon = isFullscreen
+            ? `<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>` // Exit fullscreen icon
+            : `<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`; // Enter fullscreen icon
+        showIndicator(currentVideo, icon);
+        triggerHapticFeedback();
+
+        if (isFullscreen) {
+            document.exitFullscreen();
+        } else {
+            // This custom wrapper approach provides a more reliable fullscreen experience
+            // across different websites where the video element itself might not go fullscreen correctly.
+            const wrapper = document.createElement('div');
+            wrapper.id = 'vg-fullscreen-wrapper';
+            Object.assign(wrapper.style, {
+                position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
+                backgroundColor: 'black', display: 'flex',
+                alignItems: 'center', justifyContent: 'center', zIndex: '2147483646'
             });
-            this.feedbackOverlay = feedback;
-            if (getComputedStyle(this.container).position === 'static') {
-                this.container.style.position = 'relative';
-            }
-            this.container.appendChild(this.feedbackOverlay);
-        }
 
-        bindEvents() {
-            this.handleTouchStart = this.handleTouchStart.bind(this);
-            this.video.addEventListener('touchstart', this.handleTouchStart, { passive: false });
-            this.video.addEventListener('ratechange', () => {
-                if (this.gestureType !== 'long-press') {
-                    this.userPlaybackRate = this.video.playbackRate;
-                }
+            playerContainer = currentVideo.parentElement;
+            originalParent = playerContainer.parentElement;
+            originalNextSibling = playerContainer.nextElementSibling;
+
+            originalPlayerStyle = {
+                width: playerContainer.style.width,
+                height: playerContainer.style.height,
+                maxWidth: playerContainer.style.maxWidth,
+                maxHeight: playerContainer.style.maxHeight,
+                position: playerContainer.style.position,
+                zIndex: playerContainer.style.zIndex,
+            };
+
+            Object.assign(playerContainer.style, {
+                width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%',
+                position: 'relative', zIndex: '1'
             });
-        }
 
-        handleTouchStart(e) {
-            if (e.touches.length > 1 || document.querySelector('.gesture-shield-v11')) return;
-            e.preventDefault();
+            wrapper.appendChild(playerContainer);
+            document.body.appendChild(wrapper);
 
-            this.gestureType = null;
-            this.startX = e.touches[0].clientX;
-            this.startY = e.touches[0].clientY;
-            this.initialTime = this.video.currentTime;
-            this.touchStartTime = Date.now();
+            const fsPromise = wrapper.requestFullscreen();
 
-            // 1. Create the temporary shield
-            const shield = document.createElement('div');
-            shield.className = 'gesture-shield-v11';
-            shield.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2147483646;';
-            document.body.appendChild(shield);
-
-            // 2. Define and bind event handlers for the shield
-            const handleTouchMove = (moveEvent) => {
-                if (this.gestureType === 'long-press') return;
-                const deltaX = moveEvent.touches[0].clientX - this.startX;
-                const deltaY = moveEvent.touches[0].clientY - this.startY;
-
-                if (Math.abs(deltaX) > 15 || Math.abs(deltaY) > 15) {
-                    clearTimeout(this.longPressTimeout);
-                    if (!this.gestureType) {
-                        this.gestureType = Math.abs(deltaY) > Math.abs(deltaX) ? 'vertical-swipe' : 'horizontal-swipe';
+            if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
+                fsPromise.then(() => {
+                    if (screen.orientation && typeof screen.orientation.lock === 'function') {
+                        screen.orientation.lock('landscape').catch(err => console.warn('Could not lock orientation:', err.message));
                     }
-                }
-
-                if (document.fullscreenElement && this.gestureType === 'horizontal-swipe') {
-                    const timeChange = deltaX * 0.05;
-                    const newTime = this.initialTime + timeChange;
-                    const timeChangeFormatted = this.formatTimeChange(timeChange);
-                    this.showOverlay(`${this.formatCurrentTime(newTime)}<br>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})`);
-                }
-            };
-
-            const cleanupAndRemoveShield = () => {
-                shield.removeEventListener('touchmove', handleTouchMove);
-                shield.removeEventListener('touchend', handleTouchEnd);
-                shield.removeEventListener('touchcancel', cleanupAndRemoveShield);
-                shield.remove();
-            };
-
-            const handleTouchEnd = (endEvent) => {
-                clearTimeout(this.longPressTimeout);
-
-                const deltaX = endEvent.changedTouches[0].clientX - this.startX;
-                const touchDuration = Date.now() - this.touchStartTime;
-
-                if (this.gestureType === 'vertical-swipe') {
-                    if (document.fullscreenElement) {
-                        document.exitFullscreen().catch(err => console.error(err));
-                    } else {
-                        this.container.requestFullscreen().catch(err => console.error(err));
-                    }
-                } else if (document.fullscreenElement) {
-                    if (this.gestureType === 'long-press') {
-                        this.video.playbackRate = this.userPlaybackRate;
-                    } else if (this.gestureType === 'horizontal-swipe') {
-                        if (touchDuration < 250 && Math.abs(deltaX) < 100) {
-                            const seekAmount = deltaX > 0 ? 5 : -5;
-                            this.video.currentTime += seekAmount;
-                            this.showOverlay(`${seekAmount > 0 ? '+' : ''}${seekAmount}s`, 600);
-                        } else {
-                            const timeChange = deltaX * 0.05;
-                            this.video.currentTime = Math.max(0, Math.min(this.initialTime + timeChange, this.video.duration));
-                        }
-                    }
-                }
-
-                if (!this.gestureType) {
-                    this.video.click(); // It was a simple tap, forward it.
-                }
-                
-                if (!this.feedbackOverlay.innerHTML.includes('s')) {
-                    this.hideOverlay();
-                }
-
-                // 3. Destroy the shield
-                cleanupAndRemoveShield();
-            };
-
-            shield.addEventListener('touchmove', handleTouchMove, { passive: false });
-            shield.addEventListener('touchend', handleTouchEnd, { passive: false });
-            shield.addEventListener('touchcancel', cleanupAndRemoveShield, { passive: false }); // Safety net
-            shield.addEventListener('contextmenu', evt => evt.preventDefault());
-
-            if (document.fullscreenElement) {
-                this.longPressTimeout = setTimeout(() => {
-                    if (!this.gestureType) {
-                        this.gestureType = 'long-press';
-                        this.video.playbackRate = 2.0;
-                        this.showOverlay('2x Speed');
-                    }
-                }, 500);
+                }).catch(err => console.warn('Fullscreen request failed:', err.message));
             }
-        }
-
-        showOverlay(htmlContent, duration = 0) {
-            this.feedbackOverlay.innerHTML = `<div>${htmlContent}</div>`;
-            this.feedbackOverlay.style.display = 'block';
-            if (duration > 0) {
-                setTimeout(() => this.hideOverlay(), duration);
-            }
-        }
-
-        hideOverlay() {
-            this.feedbackOverlay.style.display = 'none';
-        }
-
-        formatTimeChange(seconds) {
-            const sign = seconds < 0 ? '-' : '';
-            return `${sign}${this.formatCurrentTime(Math.abs(seconds))}`;
-        }
-
-        formatCurrentTime(seconds) {
-            seconds = Math.max(0, seconds);
-            const h = Math.floor(seconds / 3600);
-            const m = Math.floor((seconds % 3600) / 60);
-            const s = Math.floor(seconds % 60);
-            const pad = (n) => (n < 10 ? '0' + n : n);
-            return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
         }
     }
 
-    function scanForVideos() {
-        const videos = Array.from(document.querySelectorAll('video'));
-        document.querySelectorAll('*').forEach(el => {
-            if (el.shadowRoot) {
-                videos.push(...el.shadowRoot.querySelectorAll('video'));
-            }
-        });
-        new Set(videos).forEach(initializeController);
+    function handleDoubleTapSeek() {
+        const rect = currentVideo.getBoundingClientRect();
+        const tapZone = (touchStartX - rect.left) / rect.width;
+
+        if (tapZone < 0.33) {
+            currentVideo.currentTime -= config.DOUBLE_TAP_SEEK_SECONDS;
+            showIndicator(currentVideo, `<svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6l-8.5 6z"/></svg> -${config.DOUBLE_TAP_SEEK_SECONDS}s`);
+        } else if (tapZone > 0.66) {
+            currentVideo.currentTime += config.DOUBLE_TAP_SEEK_SECONDS;
+            showIndicator(currentVideo, `+${config.DOUBLE_TAP_SEEK_SECONDS}s <svg viewBox="0 0 24 24"><path d="M18 6h-2v12h2zM4 6v12l8.5-6L4 6z"/></svg>`);
+        }
+        triggerHapticFeedback();
     }
 
-    function initializeController(video) {
-        if (!videoControllers.has(video) && video.parentElement) {
-            const controller = new GestureController(video);
-            videoControllers.set(video, controller);
+    function handleHorizontalSwipe(deltaX) {
+        const seekTime = deltaX * config.SEEK_SENSITIVITY;
+        const newTime = currentVideo.currentTime + seekTime;
+        const direction = seekTime > 0 ? 'forward' : 'rewind';
+        const icon = direction === 'forward' ? `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>` : `<svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm-2-6l6.5 4.5V7.5L9 12z"/></svg>`;
+        showIndicator(currentVideo, `${icon} ${formatTime(newTime)}`);
+    }
+
+    function handleVerticalSwipe(deltaY) {
+        const rect = currentVideo.getBoundingClientRect();
+        const tapZone = (touchStartX - rect.left) / rect.width;
+
+        if (tapZone > 0.66) { // Right side for Volume
+            const volumeChange = -deltaY / 100;
+            currentVideo.volume = Math.max(0, Math.min(1, currentVideo.volume + volumeChange));
+            showIndicator(currentVideo, `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> ${Math.round(currentVideo.volume * 100)}%`);
+        } else if (tapZone < 0.33) { // Left side for Playback Speed
+            if (deltaY < -config.SWIPE_THRESHOLD) { // Swipe Up
+                currentVideo.playbackRate = 2.0;
+                const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
+                showIndicator(currentVideo, `${speedIcon} <span>2.0x Speed</span>`);
+            } else if (deltaY > config.SWIPE_THRESHOLD) { // Swipe Down
+                currentVideo.playbackRate = 1.0;
+                const speedIcon = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
+                showIndicator(currentVideo, `${speedIcon} <span>1.0x Speed</span>`);
+            }
         }
     }
 
-    const observer = new MutationObserver(scanForVideos);
-    observer.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener('load', scanForVideos);
+    function handleFullscreenChange() {
+        // This function cleans up our custom fullscreen wrapper when the user exits fullscreen mode
+        // (e.g., by pressing the back button or the exit fullscreen button in the player controls).
+        if (!document.fullscreenElement) {
+            const wrapper = document.getElementById('vg-fullscreen-wrapper');
+            if (wrapper && originalParent && playerContainer) {
+                // Restore the original styles and position of the video player
+                Object.assign(playerContainer.style, originalPlayerStyle);
+                originalParent.insertBefore(playerContainer, originalNextSibling);
+                wrapper.remove();
+            }
+            // Unlock screen orientation if it was locked
+            if (screen.orientation && typeof screen.orientation.unlock === 'function') {
+                screen.orientation.unlock();
+            }
+        }
+    }
 
+    // --- Utilities ---
+    function formatTime(totalSeconds) {
+        const sec = Math.floor(totalSeconds % 60).toString().padStart(2, '0');
+        const min = Math.floor((totalSeconds / 60) % 60).toString().padStart(2, '0');
+        const hr = Math.floor(totalSeconds / 3600);
+        return hr > 0 ? `${hr}:${min}:${sec}` : `${min}:${sec}`;
+    }
+
+    // --- Initialization ---
+    function initialize() {
+        injectStyles();
+        document.body.addEventListener('touchstart', onTouchStart, { passive: false });
+        document.body.addEventListener('touchmove', onTouchMove, { passive: false });
+        document.body.addEventListener('touchend', onTouchEnd, { passive: false });
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initialize, { once: true });
+    } else {
+        initialize();
+    }
 })();
+
