@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Mobile Video Gesture Control (Final Architecture)
+// @name         Mobile Video Gesture Control (Definitive Final Version)
 // @namespace    http://tampermonkey.net/
-// @version      10.0.0
-// @description  Definitive version built on a proven architecture. Uses a temporary event shield to eliminate all conflicts while preserving all player functions.
+// @version      11.0.0
+// @description  Final version built on a proven architecture. Uses a temporary event shield to eliminate all conflicts while preserving all player functions.
 // @author       사용자 (re-architected by Gemini)
 // @license      MIT
 // @match        *://*/*
@@ -72,8 +72,7 @@
         }
 
         handleTouchStart(e) {
-            // Do not start a new gesture if one is already active from another source
-            if (e.touches.length > 1 || document.querySelector('.gesture-shield-v10')) return;
+            if (e.touches.length > 1 || document.querySelector('.gesture-shield-v11')) return;
             e.preventDefault();
 
             this.gestureType = null;
@@ -84,7 +83,7 @@
 
             // 1. Create the temporary shield
             const shield = document.createElement('div');
-            shield.className = 'gesture-shield-v10'; // Add a unique class for identification
+            shield.className = 'gesture-shield-v11';
             shield.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2147483646;';
             document.body.appendChild(shield);
 
@@ -107,6 +106,13 @@
                     const timeChangeFormatted = this.formatTimeChange(timeChange);
                     this.showOverlay(`${this.formatCurrentTime(newTime)}<br>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})`);
                 }
+            };
+
+            const cleanupAndRemoveShield = () => {
+                shield.removeEventListener('touchmove', handleTouchMove);
+                shield.removeEventListener('touchend', handleTouchEnd);
+                shield.removeEventListener('touchcancel', cleanupAndRemoveShield);
+                shield.remove();
             };
 
             const handleTouchEnd = (endEvent) => {
@@ -144,14 +150,13 @@
                     this.hideOverlay();
                 }
 
-                // 3. Destroy the shield and its listeners
-                shield.removeEventListener('touchmove', handleTouchMove);
-                shield.removeEventListener('touchend', handleTouchEnd);
-                shield.remove();
+                // 3. Destroy the shield
+                cleanupAndRemoveShield();
             };
 
             shield.addEventListener('touchmove', handleTouchMove, { passive: false });
             shield.addEventListener('touchend', handleTouchEnd, { passive: false });
+            shield.addEventListener('touchcancel', cleanupAndRemoveShield, { passive: false }); // Safety net
             shield.addEventListener('contextmenu', evt => evt.preventDefault());
 
             if (document.fullscreenElement) {
