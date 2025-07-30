@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Mobile Video Gesture Control (Definitive Edition)
+// @name         Mobile Video Gesture Control (Definitive Final Version)
 // @namespace    http://tampermonkey.net/
-// @version      8.0.0
-// @description  Final version built on a proven architecture. Uses a temporary event shield to eliminate all gesture conflicts while preserving all player functions.
+// @version      9.0.0
+// @description  Final architecture using an intelligent permanent event shield to eliminate all gesture conflicts while perfectly preserving play/pause functionality.
 // @author       사용자 (re-architected by Gemini)
 // @license      MIT
 // @match        *://*/*
@@ -19,6 +19,7 @@
             this.video = video;
             this.container = video.parentElement;
             this.feedbackOverlay = null;
+            this.eventShield = null;
 
             this.userPlaybackRate = video.playbackRate;
 
@@ -26,17 +27,41 @@
             this.startX = 0;
             this.startY = 0;
             this.initialTime = 0;
+            this.isGestureActive = false;
             this.gestureType = null;
             this.longPressTimeout = null;
             this.touchStartTime = 0;
 
-            if (!this.container) return;
+            if (!this.container) {
+                console.error("Video Gesture Script: Video element has no parent container.", video);
+                return;
+            }
 
-            this.createFeedbackOverlay();
+            this.createOverlays();
             this.bindEvents();
         }
 
-        createFeedbackOverlay() {
+        createOverlays() {
+            // Ensure the container can hold absolutely positioned children.
+            if (getComputedStyle(this.container).position === 'static') {
+                this.container.style.position = 'relative';
+            }
+
+            // The permanent, transparent shield that captures all touch events.
+            const shield = document.createElement('div');
+            Object.assign(shield.style, {
+                position: 'absolute',
+                top: '0',
+                left: '0',
+                width: '100%',
+                height: '100%',
+                zIndex: '99998',
+                userSelect: 'none',
+                '-webkit-touch-callout': 'none'
+            });
+            this.eventShield = shield;
+
+            // The feedback UI element.
             const feedback = document.createElement('div');
             Object.assign(feedback.style, {
                 position: 'absolute',
@@ -49,21 +74,28 @@
                 fontSize: '18px',
                 textAlign: 'center',
                 borderRadius: '8px',
-                zIndex: '2147483647',
+                zIndex: '99999',
                 display: 'none',
                 lineHeight: '1.5',
                 pointerEvents: 'none'
             });
             this.feedbackOverlay = feedback;
-            if (getComputedStyle(this.container).position === 'static') {
-                this.container.style.position = 'relative';
-            }
+
+            this.container.appendChild(this.eventShield);
             this.container.appendChild(this.feedbackOverlay);
         }
 
         bindEvents() {
             this.handleTouchStart = this.handleTouchStart.bind(this);
-            this.video.addEventListener('touchstart', this.handleTouchStart, { passive: false });
+            this.handleTouchMove = this.handleTouchMove.bind(this);
+            this.handleTouchEnd = this.handleTouchEnd.bind(this);
+
+            // All touch events are bound to the permanent shield.
+            this.eventShield.addEventListener('touchstart', this.handleTouchStart, { passive: false });
+            this.eventShield.addEventListener('touchmove', this.handleTouchMove, { passive: false });
+            this.eventShield.addEventListener('touchend', this.handleTouchEnd, { passive: false });
+            this.eventShield.addEventListener('contextmenu', e => e.preventDefault());
+
             this.video.addEventListener('ratechange', () => {
                 if (this.gestureType !== 'long-press') {
                     this.userPlaybackRate = this.video.playbackRate;
@@ -72,97 +104,89 @@
         }
 
         handleTouchStart(e) {
-            // Do not start a new gesture if one is already active from another source
-            if (e.touches.length > 1 || document.querySelector('.gesture-shield')) return;
+            if (e.touches.length > 1) return;
             e.preventDefault();
 
+            this.isGestureActive = true;
             this.gestureType = null;
             this.startX = e.touches[0].clientX;
             this.startY = e.touches[0].clientY;
             this.initialTime = this.video.currentTime;
             this.touchStartTime = Date.now();
 
-            // 1. Create the temporary shield
-            const shield = document.createElement('div');
-            shield.className = 'gesture-shield'; // Add a class for identification
-            shield.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2147483646;';
-            document.body.appendChild(shield);
-
-            // 2. Define and bind event handlers for the shield
-            const handleTouchMove = (moveEvent) => {
-                if (this.gestureType === 'long-press') return;
-                const deltaX = moveEvent.touches[0].clientX - this.startX;
-                const deltaY = moveEvent.touches[0].clientY - this.startY;
-
-                if (Math.abs(deltaX) > 15 || Math.abs(deltaY) > 15) {
-                    clearTimeout(this.longPressTimeout);
-                    if (!this.gestureType) {
-                        this.gestureType = Math.abs(deltaY) > Math.abs(deltaX) ? 'vertical-swipe' : 'horizontal-swipe';
-                    }
-                }
-
-                if (document.fullscreenElement && this.gestureType === 'horizontal-swipe') {
-                    const timeChange = deltaX * 0.05;
-                    const newTime = this.initialTime + timeChange;
-                    const timeChangeFormatted = this.formatTimeChange(timeChange);
-                    this.showOverlay(`${this.formatCurrentTime(newTime)}<br>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})`);
-                }
-            };
-
-            const handleTouchEnd = (endEvent) => {
-                clearTimeout(this.longPressTimeout);
-
-                const deltaX = endEvent.changedTouches[0].clientX - this.startX;
-                const touchDuration = Date.now() - this.touchStartTime;
-
-                if (this.gestureType === 'vertical-swipe') {
-                    if (document.fullscreenElement) {
-                        document.exitFullscreen().catch(err => console.error(err));
-                    } else {
-                        this.container.requestFullscreen().catch(err => console.error(err));
-                    }
-                } else if (document.fullscreenElement) {
-                    if (this.gestureType === 'long-press') {
-                        this.video.playbackRate = this.userPlaybackRate;
-                    } else if (this.gestureType === 'horizontal-swipe') {
-                        if (touchDuration < 250 && Math.abs(deltaX) < 100) {
-                            const seekAmount = deltaX > 0 ? 5 : -5;
-                            this.video.currentTime += seekAmount;
-                            this.showOverlay(`${seekAmount > 0 ? '+' : ''}${seekAmount}s`, 600);
-                        } else {
-                            const timeChange = deltaX * 0.05;
-                            this.video.currentTime = Math.max(0, Math.min(this.initialTime + timeChange, this.video.duration));
-                        }
-                    }
-                }
-
-                if (!this.gestureType) {
-                    this.video.click(); // It was a simple tap
-                }
-                
-                if (!this.feedbackOverlay.innerHTML.includes('s')) {
-                    this.hideOverlay();
-                }
-
-                // 3. Destroy the shield and its listeners
-                shield.removeEventListener('touchmove', handleTouchMove);
-                shield.removeEventListener('touchend', handleTouchEnd);
-                shield.remove();
-            };
-
-            shield.addEventListener('touchmove', handleTouchMove, { passive: false });
-            shield.addEventListener('touchend', handleTouchEnd, { passive: false });
-            shield.addEventListener('contextmenu', evt => evt.preventDefault());
-
             if (document.fullscreenElement) {
                 this.longPressTimeout = setTimeout(() => {
-                    if (!this.gestureType) {
+                    if (this.isGestureActive && !this.gestureType) {
                         this.gestureType = 'long-press';
                         this.video.playbackRate = 2.0;
                         this.showOverlay('2x Speed');
                     }
                 }, 500);
             }
+        }
+
+        handleTouchMove(e) {
+            if (!this.isGestureActive || this.gestureType === 'long-press') return;
+            e.preventDefault();
+
+            const deltaX = e.touches[0].clientX - this.startX;
+            const deltaY = e.touches[0].clientY - this.startY;
+
+            if (Math.abs(deltaX) > 15 || Math.abs(deltaY) > 15) {
+                clearTimeout(this.longPressTimeout);
+                if (!this.gestureType) {
+                    this.gestureType = Math.abs(deltaY) > Math.abs(deltaX) ? 'vertical-swipe' : 'horizontal-swipe';
+                }
+            }
+            
+            if (document.fullscreenElement && this.gestureType === 'horizontal-swipe') {
+                const timeChange = deltaX * 0.05;
+                const newTime = this.initialTime + timeChange;
+                const timeChangeFormatted = this.formatTimeChange(timeChange);
+                this.showOverlay(`${this.formatCurrentTime(newTime)}<br>(${timeChange >= 0 ? '+' : ''}${timeChangeFormatted})`);
+            }
+        }
+
+        handleTouchEnd(e) {
+            if (!this.isGestureActive) return;
+            e.preventDefault();
+            clearTimeout(this.longPressTimeout);
+
+            const deltaX = e.changedTouches[0].clientX - this.startX;
+            const touchDuration = Date.now() - this.touchStartTime;
+
+            // --- The Final Decision Logic ---
+
+            if (this.gestureType === 'vertical-swipe') {
+                if (document.fullscreenElement) {
+                    document.exitFullscreen().catch(err => console.error(err));
+                } else {
+                    this.container.requestFullscreen().catch(err => console.error(err));
+                }
+            } else if (document.fullscreenElement) {
+                if (this.gestureType === 'long-press') {
+                    this.video.playbackRate = this.userPlaybackRate;
+                } else if (this.gestureType === 'horizontal-swipe') {
+                    if (touchDuration < 250 && Math.abs(deltaX) < 100) {
+                        const seekAmount = deltaX > 0 ? 5 : -5;
+                        this.video.currentTime += seekAmount;
+                        this.showOverlay(`${seekAmount > 0 ? '+' : ''}${seekAmount}s`, 600);
+                    } else {
+                        const timeChange = deltaX * 0.05;
+                        this.video.currentTime = Math.max(0, Math.min(this.initialTime + timeChange, this.video.duration));
+                    }
+                }
+            }
+
+            // If no gesture was determined, it was a simple tap. Forward it.
+            if (!this.gestureType) {
+                this.video.click();
+            }
+            
+            if (!this.feedbackOverlay.innerHTML.includes('s')) {
+                 this.hideOverlay();
+            }
+            this.isGestureActive = false;
         }
 
         showOverlay(htmlContent, duration = 0) {
