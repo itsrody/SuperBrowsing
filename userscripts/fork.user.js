@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile Video Seek & Fullscreen Gesture
 // @namespace    http://tampermonkey.net/
-// @version      4.2
+// @version      4.3
 // @description  Adds touch gestures to any HTML5 video on mobile: swipe to seek, long-press for 2x speed, auto-landscape-fullscreen, and disables the context menu. Works with Shadow DOM.
 // @author       사용자 (updated by Gemini)
 // @license      MIT
@@ -42,13 +42,14 @@
         overlay.style.zIndex = '9999';
         overlay.style.display = 'none';
         overlay.style.lineHeight = '1.5';
-        video.parentElement.appendChild(overlay);
+        // Try to append to a more specific container if possible
+        const container = video.parentElement || document.body;
+        container.appendChild(overlay);
         video.overlay = overlay;
     }
 
     function onTouchStart(e, video) {
         if (!video) return;
-        // Prevent gesture if multiple touches (e.g., pinch zoom)
         if (e.touches.length > 1) {
             seeking = false;
             return;
@@ -137,7 +138,8 @@
         if (!/Mobi|Android/i.test(navigator.userAgent)) {
             return;
         }
-        if (!video.videoWidth || video.videoWidth <= video.videoHeight) {
+        // The check is now more reliable because this function is called after metadata is loaded.
+        if (video.videoWidth <= video.videoHeight) {
             return;
         }
         const isAlreadyFullscreen = document.fullscreenElement && document.fullscreenElement.contains(video);
@@ -145,8 +147,11 @@
             return;
         }
         try {
+            // Making the parent element fullscreen is often more stable.
             const fullscreenTarget = video.parentElement || video;
             await fullscreenTarget.requestFullscreen();
+            // Wait a brief moment for fullscreen transition before locking orientation
+            await new Promise(resolve => setTimeout(resolve, 100));
             await screen.orientation.lock('landscape');
         } catch (err) {
             console.error("Userscript Error: Failed to enter landscape fullscreen.", err);
@@ -158,7 +163,7 @@
             try {
                 screen.orientation.unlock();
             } catch (err) {
-                // This might fail if orientation wasn't locked by this script, which is fine.
+                // Ignore errors, as orientation might not have been locked by us.
             }
         }
     }
@@ -181,16 +186,25 @@
             }
         });
 
+        // --- FIXED: Fullscreen Trigger Logic ---
+        // This function will now be called at the right time.
+        const attemptFullscreen = () => enterLandscapeFullscreen(video);
+
+        // Listen for the 'play' event.
         video.addEventListener('play', () => {
-            enterLandscapeFullscreen(video);
+            // Check if video metadata is already loaded (readyState > 0).
+            if (video.readyState > 0) {
+                attemptFullscreen();
+            } else {
+                // If not, wait for the 'loadedmetadata' event to fire once.
+                video.addEventListener('loadedmetadata', attemptFullscreen, { once: true });
+            }
         });
 
         video.addEventListener('touchstart', (e) => onTouchStart(e, video));
         video.addEventListener('touchmove', (e) => onTouchMove(e, video));
         video.addEventListener('touchend', () => onTouchEnd(video));
 
-        // NEW: Prevent the context menu from appearing on long-press.
-        // This stops the annoying menu from showing up when you use the 2x speed gesture.
         video.addEventListener('contextmenu', (e) => {
             e.preventDefault();
         });
