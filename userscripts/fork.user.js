@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Mobile Video Seek & Fullscreen Gesture
+// @name         Mobile Video Gesture Control
 // @namespace    http://tampermonkey.net/
-// @version      4.3
-// @description  Adds touch gestures to any HTML5 video on mobile: swipe to seek, long-press for 2x speed, auto-landscape-fullscreen, and disables the context menu. Works with Shadow DOM.
+// @version      4.4
+// @description  Adds touch gestures to any HTML5 video on mobile: swipe to seek, long-press for 2x speed, double-tap to toggle landscape-fullscreen, and disables the context menu. Works with Shadow DOM.
 // @author       사용자 (updated by Gemini)
 // @license      MIT
 // @match        *://*/*
@@ -23,6 +23,7 @@
     let isSpeedingUp = false;
     let movedEnoughForSeek = false;
     let userPlaybackRates = new Map();
+    let lastTapTime = 0; // NEW: For detecting double-taps
 
     // --- Gesture UI & Logic ---
 
@@ -42,14 +43,32 @@
         overlay.style.zIndex = '9999';
         overlay.style.display = 'none';
         overlay.style.lineHeight = '1.5';
-        // Try to append to a more specific container if possible
         const container = video.parentElement || document.body;
+        container.style.position = 'relative'; // Ensure parent can contain the absolute overlay
         container.appendChild(overlay);
         video.overlay = overlay;
     }
 
     function onTouchStart(e, video) {
         if (!video) return;
+
+        // --- NEW: Double-Tap Logic ---
+        const currentTime = new Date().getTime();
+        const timeSinceLastTap = currentTime - lastTapTime;
+
+        if (timeSinceLastTap < 300) { // 300ms threshold for a double-tap
+            e.preventDefault(); // Prevent zoom or other default double-tap actions
+            toggleLandscapeFullscreen(video);
+            // Reset tap time to prevent triple-tap from re-triggering
+            lastTapTime = 0;
+            // Cancel any pending long-press
+            clearTimeout(longPressTimeout);
+            return; // Exit here to not interfere with seek/speed gestures
+        }
+        lastTapTime = currentTime;
+        // --- End of Double-Tap Logic ---
+
+
         if (e.touches.length > 1) {
             seeking = false;
             return;
@@ -72,6 +91,8 @@
 
     function onTouchMove(e, video) {
         if (!seeking || !video || isSpeedingUp) return;
+        // If finger moves, it's not a tap, so reset tap time
+        lastTapTime = 0;
         let deltaX = e.touches[0].clientX - startX;
 
         if (Math.abs(deltaX) > 10) {
@@ -92,8 +113,9 @@
 
     function onTouchEnd(video) {
         seeking = false;
-        clearTimeout(longPressTimeout);
-        longPressTimeout = null;
+        // Do not clear the longPressTimeout here if it's already fired
+        if(longPressTimeout) clearTimeout(longPressTimeout);
+
         if (isSpeedingUp) {
             video.playbackRate = userPlaybackRates.get(video) || 1.0;
             isSpeedingUp = false;
@@ -107,7 +129,6 @@
     }
 
     // --- Time Formatting Utilities ---
-
     function formatCurrentTime(seconds) {
         let absSeconds = Math.abs(seconds);
         let hours = Math.floor(absSeconds / 3600);
@@ -132,26 +153,26 @@
         }
     }
 
-    // --- Fullscreen and Orientation Logic ---
+    // --- Fullscreen and Orientation Logic (Now a Toggle) ---
+    async function toggleLandscapeFullscreen(video) {
+        // If we are already in fullscreen, exit.
+        if (document.fullscreenElement) {
+            try {
+                await document.exitFullscreen();
+                // The 'fullscreenchange' event listener will handle unlocking orientation.
+            } catch (err) {
+                console.error("Userscript Error: Failed to exit fullscreen.", err);
+            }
+            return;
+        }
 
-    async function enterLandscapeFullscreen(video) {
-        if (!/Mobi|Android/i.test(navigator.userAgent)) {
-            return;
-        }
-        // The check is now more reliable because this function is called after metadata is loaded.
-        if (video.videoWidth <= video.videoHeight) {
-            return;
-        }
-        const isAlreadyFullscreen = document.fullscreenElement && document.fullscreenElement.contains(video);
-        if (isAlreadyFullscreen) {
-            return;
-        }
+        // If not in fullscreen, enter.
+        if (!/Mobi|Android/i.test(navigator.userAgent)) return;
+        if (video.videoWidth <= video.videoHeight) return; // Only for landscape videos
+
         try {
-            // Making the parent element fullscreen is often more stable.
             const fullscreenTarget = video.parentElement || video;
             await fullscreenTarget.requestFullscreen();
-            // Wait a brief moment for fullscreen transition before locking orientation
-            await new Promise(resolve => setTimeout(resolve, 100));
             await screen.orientation.lock('landscape');
         } catch (err) {
             console.error("Userscript Error: Failed to enter landscape fullscreen.", err);
@@ -163,22 +184,17 @@
             try {
                 screen.orientation.unlock();
             } catch (err) {
-                // Ignore errors, as orientation might not have been locked by us.
+                // Ignore errors.
             }
         }
     }
 
-
     // --- Video Discovery and Initialization ---
-
     function addGestureControls(video) {
         if (!video || video._gestureAdded) return;
         video._gestureAdded = true;
 
         createOverlay(video);
-
-        let userRate = userPlaybackRates.get(video) || 1.0;
-        video.playbackRate = userRate;
 
         video.addEventListener('ratechange', () => {
             if (!isSpeedingUp) {
@@ -186,22 +202,8 @@
             }
         });
 
-        // --- FIXED: Fullscreen Trigger Logic ---
-        // This function will now be called at the right time.
-        const attemptFullscreen = () => enterLandscapeFullscreen(video);
-
-        // Listen for the 'play' event.
-        video.addEventListener('play', () => {
-            // Check if video metadata is already loaded (readyState > 0).
-            if (video.readyState > 0) {
-                attemptFullscreen();
-            } else {
-                // If not, wait for the 'loadedmetadata' event to fire once.
-                video.addEventListener('loadedmetadata', attemptFullscreen, { once: true });
-            }
-        });
-
-        video.addEventListener('touchstart', (e) => onTouchStart(e, video));
+        // All gesture logic is now handled in the touch events.
+        video.addEventListener('touchstart', (e) => onTouchStart(e, video), { passive: false });
         video.addEventListener('touchmove', (e) => onTouchMove(e, video));
         video.addEventListener('touchend', () => onTouchEnd(video));
 
@@ -224,7 +226,6 @@
     }
 
     // --- Script Execution Start ---
-
     document.addEventListener('fullscreenchange', handleFullscreenChange);
 
     const observer = new MutationObserver(scanForVideos);
