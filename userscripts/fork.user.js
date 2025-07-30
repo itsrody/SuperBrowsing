@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Mobile Video Gesture Control (Class-based)
 // @namespace    http://tampermonkey.net/
-// @version      5.3.1
-// @description  A robust, class-based implementation for mobile video gestures with a new contextual gesture model and a definitive fullscreen overlay fix.
+// @version      5.4.0
+// @description  Definitive fullscreen overlay fix. A robust, class-based implementation for mobile video gestures with a new contextual gesture model.
 // @author       사용자 (re-architected by Gemini)
 // @license      MIT
 // @match        *://*/*
@@ -14,10 +14,57 @@
 
     const videoControllers = new WeakMap();
 
+    // --- NEW: Global Overlay Management ---
+    let globalOverlay = null;
+
+    /**
+     * Creates a single, global overlay that will be shared by all video controllers.
+     */
+    function createGlobalOverlay() {
+        if (globalOverlay) return;
+        const overlay = document.createElement('div');
+        Object.assign(overlay.style, {
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            padding: '10px 20px',
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            color: '#fff',
+            fontSize: '18px',
+            textAlign: 'center',
+            borderRadius: '8px',
+            zIndex: '2147483647', // Max z-index to ensure it's always on top
+            display: 'none',
+            lineHeight: '1.5',
+            pointerEvents: 'none'
+        });
+        document.body.appendChild(overlay);
+        globalOverlay = overlay;
+    }
+
+    /**
+     * Listens for fullscreen changes and moves the global overlay into the correct
+     * rendering layer to ensure it's always visible.
+     */
+    document.addEventListener('fullscreenchange', () => {
+        if (!globalOverlay) return;
+        const fullscreenElement = document.fullscreenElement;
+        if (fullscreenElement) {
+            // Move the overlay into the fullscreen element to make it visible.
+            fullscreenElement.appendChild(globalOverlay);
+        } else {
+            // Move it back to the body when exiting fullscreen.
+            document.body.appendChild(globalOverlay);
+        }
+    });
+
+
     class GestureController {
-        constructor(video) {
+        // The constructor no longer creates the overlay. It receives the global one.
+        constructor(video, overlay) {
             this.video = video;
-            this.overlay = null;
+            this.overlay = overlay; // Use the shared global overlay
             this.userPlaybackRate = video.playbackRate;
 
             // Gesture state
@@ -29,36 +76,7 @@
             this.longPressTimeout = null;
             this.touchStartTime = 0;
 
-            this.createOverlay();
             this.bindEvents();
-        }
-
-        createOverlay() {
-            const overlay = document.createElement('div');
-            
-            // --- FULLSCREEN FIX ---
-            // The overlay is now positioned relative to the entire screen (`fixed`)
-            // and has the highest possible z-index to ensure it's always on top.
-            Object.assign(overlay.style, {
-                position: 'fixed',
-                top: '50%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                padding: '10px 20px',
-                backgroundColor: 'rgba(0, 0, 0, 0.75)',
-                color: '#fff',
-                fontSize: '18px',
-                textAlign: 'center',
-                borderRadius: '8px',
-                zIndex: '2147483647', // Maximum possible z-index
-                display: 'none',
-                lineHeight: '1.5',
-                pointerEvents: 'none'
-            });
-
-            // It's appended to the main document body to exist outside the video's container.
-            document.body.appendChild(overlay);
-            this.overlay = overlay;
         }
 
         bindEvents() {
@@ -197,7 +215,7 @@
             this.video.removeEventListener('touchend', this.handleTouchEnd);
             this.video.removeEventListener('ratechange', this.handleRateChange);
             this.video.removeEventListener('contextmenu', this.handleContextMenu, true);
-            if (this.overlay) this.overlay.remove();
+            // The overlay is global, so we don't remove it here.
         }
     }
 
@@ -213,11 +231,14 @@
 
     function initializeController(video) {
         if (!videoControllers.has(video)) {
-            const controller = new GestureController(video);
+            // Pass the global overlay to the controller.
+            const controller = new GestureController(video, globalOverlay);
             videoControllers.set(video, controller);
         }
     }
 
+    // --- Script Execution Start ---
+    createGlobalOverlay(); // Create the one-and-only overlay.
     const observer = new MutationObserver(scanForVideos);
     observer.observe(document.body, { childList: true, subtree: true });
     window.addEventListener('load', scanForVideos);
