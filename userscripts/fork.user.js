@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Mobile Video Gesture Control (Class-based)
+// @name         Mobile Video Gesture Control (Event Shield)
 // @namespace    http://tampermonkey.net/
-// @version      5.4.0
-// @description  Definitive fullscreen overlay fix. A robust, class-based implementation for mobile video gestures with a new contextual gesture model.
+// @version      6.0.0
+// @description  Definitive Edition: Uses an event shield to eliminate all gesture conflicts and guarantee UI visibility in fullscreen.
 // @author       사용자 (re-architected by Gemini)
 // @license      MIT
 // @match        *://*/*
@@ -14,57 +14,13 @@
 
     const videoControllers = new WeakMap();
 
-    // --- NEW: Global Overlay Management ---
-    let globalOverlay = null;
-
-    /**
-     * Creates a single, global overlay that will be shared by all video controllers.
-     */
-    function createGlobalOverlay() {
-        if (globalOverlay) return;
-        const overlay = document.createElement('div');
-        Object.assign(overlay.style, {
-            position: 'fixed',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            padding: '10px 20px',
-            backgroundColor: 'rgba(0, 0, 0, 0.75)',
-            color: '#fff',
-            fontSize: '18px',
-            textAlign: 'center',
-            borderRadius: '8px',
-            zIndex: '2147483647', // Max z-index to ensure it's always on top
-            display: 'none',
-            lineHeight: '1.5',
-            pointerEvents: 'none'
-        });
-        document.body.appendChild(overlay);
-        globalOverlay = overlay;
-    }
-
-    /**
-     * Listens for fullscreen changes and moves the global overlay into the correct
-     * rendering layer to ensure it's always visible.
-     */
-    document.addEventListener('fullscreenchange', () => {
-        if (!globalOverlay) return;
-        const fullscreenElement = document.fullscreenElement;
-        if (fullscreenElement) {
-            // Move the overlay into the fullscreen element to make it visible.
-            fullscreenElement.appendChild(globalOverlay);
-        } else {
-            // Move it back to the body when exiting fullscreen.
-            document.body.appendChild(globalOverlay);
-        }
-    });
-
-
     class GestureController {
-        // The constructor no longer creates the overlay. It receives the global one.
-        constructor(video, overlay) {
+        constructor(video) {
             this.video = video;
-            this.overlay = overlay; // Use the shared global overlay
+            this.container = video.parentElement;
+            this.feedbackOverlay = null;
+            this.eventShield = null; // The element that will capture all touches
+
             this.userPlaybackRate = video.playbackRate;
 
             // Gesture state
@@ -76,7 +32,59 @@
             this.longPressTimeout = null;
             this.touchStartTime = 0;
 
+            // A check to ensure we have a valid container to work with.
+            if (!this.container) {
+                console.error("Video Gesture Script: Video element has no parent container.", video);
+                return;
+            }
+
+            this.createOverlays();
             this.bindEvents();
+        }
+
+        createOverlays() {
+            // Ensure the container can hold absolutely positioned children.
+            // This is critical for the shield and overlay to be positioned correctly.
+            if (getComputedStyle(this.container).position === 'static') {
+                this.container.style.position = 'relative';
+            }
+
+            // --- The Event Shield ---
+            const shield = document.createElement('div');
+            Object.assign(shield.style, {
+                position: 'absolute',
+                top: '0',
+                left: '0',
+                width: '100%',
+                height: '100%',
+                zIndex: '99998', // High enough to be on top of the video.
+                userSelect: 'none', // Prevents text selection during gestures.
+                '-webkit-touch-callout': 'none' // Disables the callout menu on iOS.
+            });
+            this.eventShield = shield;
+
+            // --- The Feedback Overlay ---
+            const feedback = document.createElement('div');
+            Object.assign(feedback.style, {
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                padding: '10px 20px',
+                backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                color: '#fff',
+                fontSize: '18px',
+                textAlign: 'center',
+                borderRadius: '8px',
+                zIndex: '99999', // Higher than the shield.
+                display: 'none',
+                lineHeight: '1.5',
+                pointerEvents: 'none'
+            });
+            this.feedbackOverlay = feedback;
+
+            this.container.appendChild(this.eventShield);
+            this.container.appendChild(this.feedbackOverlay);
         }
 
         bindEvents() {
@@ -84,22 +92,19 @@
             this.handleTouchMove = this.handleTouchMove.bind(this);
             this.handleTouchEnd = this.handleTouchEnd.bind(this);
             this.handleRateChange = this.handleRateChange.bind(this);
-            this.handleContextMenu = this.handleContextMenu.bind(this);
 
-            this.video.addEventListener('touchstart', this.handleTouchStart, { passive: false });
-            this.video.addEventListener('touchmove', this.handleTouchMove, { passive: false });
-            this.video.addEventListener('touchend', this.handleTouchEnd, { passive: false });
+            // --- All touch events are now bound to the shield ---
+            this.eventShield.addEventListener('touchstart', this.handleTouchStart, { passive: false });
+            this.eventShield.addEventListener('touchmove', this.handleTouchMove, { passive: false });
+            this.eventShield.addEventListener('touchend', this.handleTouchEnd, { passive: false });
+            this.eventShield.addEventListener('contextmenu', e => e.preventDefault());
+
             this.video.addEventListener('ratechange', this.handleRateChange);
-            this.video.addEventListener('contextmenu', this.handleContextMenu, true);
-        }
-
-        handleContextMenu(e) {
-            e.preventDefault();
-            e.stopPropagation();
         }
 
         handleTouchStart(e) {
             if (e.touches.length > 1) return;
+            e.preventDefault(); // Prevent default actions like scrolling the page.
 
             this.isGestureActive = true;
             this.gestureType = null;
@@ -121,13 +126,13 @@
 
         handleTouchMove(e) {
             if (!this.isGestureActive || this.gestureType === 'long-press') return;
+            e.preventDefault();
 
             const deltaX = e.touches[0].clientX - this.startX;
             const deltaY = e.touches[0].clientY - this.startY;
 
             if (Math.abs(deltaX) > 10 || Math.abs(deltaY) > 10) {
                 clearTimeout(this.longPressTimeout);
-
                 if (!this.gestureType) {
                     this.gestureType = Math.abs(deltaY) > Math.abs(deltaX) ? 'vertical-swipe' : 'horizontal-swipe';
                 }
@@ -143,21 +148,21 @@
 
         handleTouchEnd(e) {
             if (!this.isGestureActive) return;
+            e.preventDefault();
             clearTimeout(this.longPressTimeout);
 
             const deltaX = e.changedTouches[0].clientX - this.startX;
-            const deltaY = e.changedTouches[0].clientY - this.startY;
             const touchDuration = Date.now() - this.touchStartTime;
 
             if (this.gestureType === 'vertical-swipe') {
                 if (document.fullscreenElement) {
                     document.exitFullscreen().catch(err => console.error(err));
                 } else {
-                    this.video.requestFullscreen().catch(err => console.error(err));
+                    // Request fullscreen on the container, not the video.
+                    this.container.requestFullscreen().catch(err => console.error(err));
                 }
             } else if (document.fullscreenElement) {
                 if (this.gestureType === 'long-press') {
-                    e.preventDefault();
                     this.video.playbackRate = this.userPlaybackRate;
                 } else if (this.gestureType === 'horizontal-swipe') {
                     if (touchDuration < 250 && Math.abs(deltaX) < 100) {
@@ -171,7 +176,7 @@
                 }
             }
 
-            if (!this.overlay.innerHTML.includes('s')) {
+            if (!this.feedbackOverlay.innerHTML.includes('s')) {
                  this.hideOverlay();
             }
             this.isGestureActive = false;
@@ -184,15 +189,15 @@
         }
 
         showOverlay(htmlContent, duration = 0) {
-            this.overlay.innerHTML = `<div>${htmlContent}</div>`;
-            this.overlay.style.display = 'block';
+            this.feedbackOverlay.innerHTML = `<div>${htmlContent}</div>`;
+            this.feedbackOverlay.style.display = 'block';
             if (duration > 0) {
                 setTimeout(() => this.hideOverlay(), duration);
             }
         }
 
         hideOverlay() {
-            this.overlay.style.display = 'none';
+            this.feedbackOverlay.style.display = 'none';
         }
 
         formatTimeChange(seconds) {
@@ -210,12 +215,10 @@
         }
 
         destroy() {
-            this.video.removeEventListener('touchstart', this.handleTouchStart);
-            this.video.removeEventListener('touchmove', this.handleTouchMove);
-            this.video.removeEventListener('touchend', this.handleTouchEnd);
-            this.video.removeEventListener('ratechange', this.handleRateChange);
-            this.video.removeEventListener('contextmenu', this.handleContextMenu, true);
-            // The overlay is global, so we don't remove it here.
+            this.eventShield.remove();
+            this.feedbackOverlay.remove();
+            // We no longer need to remove individual listeners from the shield
+            // as the shield itself is destroyed.
         }
     }
 
@@ -231,14 +234,11 @@
 
     function initializeController(video) {
         if (!videoControllers.has(video)) {
-            // Pass the global overlay to the controller.
-            const controller = new GestureController(video, globalOverlay);
+            const controller = new GestureController(video);
             videoControllers.set(video, controller);
         }
     }
 
-    // --- Script Execution Start ---
-    createGlobalOverlay(); // Create the one-and-only overlay.
     const observer = new MutationObserver(scanForVideos);
     observer.observe(document.body, { childList: true, subtree: true });
     window.addEventListener('load', scanForVideos);
