@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro (Long-Press Fork)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      9.6
+// @version      10.0
 // @description  Adds a powerful, zoned gesture interface, including long-press to speed up, brightness, and volume control, to most web videos.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
@@ -32,11 +32,11 @@
 
     // --- Central Configuration Panel ---
     const DEFAULTS = {
-        MIN_VIDEO_DURATION_SECONDS: 60,
-        DOUBLE_TAP_SEEK_SECONDS: 10,
+        MIN_VIDEO_DURATION_SECONDS: 90,
+        DOUBLE_TAP_SEEK_SECONDS: 5,
         SWIPE_THRESHOLD: 20,
         SEEK_SENSITIVITY: 0.3,
-        BRIGHTNESS_SENSITIVITY: 200, // Lower is more sensitive
+        BRIGHTNESS_SENSITIVITY: 250, // Lower is more sensitive
         VOLUME_SENSITIVITY: 250,     // Higher value means more gradual/smoother change
         ENABLE_HAPTIC_FEEDBACK: true,
         HAPTIC_FEEDBACK_DURATION_MS: 20,
