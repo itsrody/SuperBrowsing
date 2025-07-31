@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      8.4
+// @version      8.5
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos using a robust state machine.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
@@ -66,27 +66,24 @@
             }
             .vg-indicator.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
             .vg-indicator svg { width: 24px; height: 24px; fill: #fff; }
-            
-            /* *** FIX: Ensure player UI remains visible and video scales correctly *** */
-            #vg-fullscreen-wrapper > * {
+
+            /* *** NEW FIX: More precise styling for fullscreen mode *** */
+            .vg-fullscreen-active-player {
                 width: 100% !important;
                 height: 100% !important;
-                max-width: none !important;
-                max-height: none !important;
-                top: 0 !important;
-                left: 0 !important;
-                transform: none !important;
             }
-            #vg-fullscreen-wrapper video {
-                object-fit: contain !important;
+            .vg-fullscreen-active-player video {
+                width: 100% !important;
+                height: 100% !important;
+                object-fit: contain !important; /* Prevents zoom/crop */
             }
         `;
         document.head.appendChild(style);
     }
 
     // --- State Management ---
-    let activeGesture = null; // The state machine object for the current gesture
-    let lastTap = { time: 0, count: 0 }; // For tracking double taps
+    let activeGesture = null;
+    let lastTap = { time: 0, count: 0 };
     let playerContainer = null;
     let originalParent = null;
     let originalNextSibling = null;
@@ -276,17 +273,12 @@
 
             originalParent = playerContainer.parentElement;
             originalNextSibling = playerContainer.nextElementSibling;
+            
+            // Store a copy of original inline styles
+            originalPlayerStyle.cssText = playerContainer.style.cssText;
 
-            originalPlayerStyle = {
-                width: playerContainer.style.width,
-                height: playerContainer.style.height,
-                maxWidth: playerContainer.style.maxWidth,
-                maxHeight: playerContainer.style.maxHeight,
-                position: playerContainer.style.position,
-                zIndex: playerContainer.style.zIndex,
-            };
-
-            // We no longer need to apply inline styles here as the CSS rule handles it better
+            // Add class for targeted CSS styling
+            playerContainer.classList.add('vg-fullscreen-active-player');
             
             wrapper.appendChild(playerContainer);
             document.body.appendChild(wrapper);
@@ -357,8 +349,10 @@
         if (!document.fullscreenElement) {
             const wrapper = document.getElementById('vg-fullscreen-wrapper');
             if (wrapper && originalParent && playerContainer) {
-                // Restore original inline styles when exiting fullscreen
-                Object.assign(playerContainer.style, originalPlayerStyle);
+                // Remove the class and restore original styles
+                playerContainer.classList.remove('vg-fullscreen-active-player');
+                playerContainer.style.cssText = originalPlayerStyle.cssText;
+                
                 originalParent.insertBefore(playerContainer, originalNextSibling);
                 wrapper.remove();
             }
