@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      8.1
+// @version      8.2
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos using a robust state machine.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
@@ -18,7 +18,7 @@
     // --- Central Configuration Panel ---
     const DEFAULTS = {
         MIN_VIDEO_DURATION_SECONDS: 60,
-        DOUBLE_TAP_SEEK_SECONDS: 10,
+        DOUBLE_TAP_SEEK_SECONDS: 5,
         SWIPE_THRESHOLD: 20,
         SEEK_SENSITIVITY: 0.3,
         ENABLE_HAPTIC_FEEDBACK: true,
@@ -80,14 +80,12 @@
 
     // --- UI & Feedback ---
     function showIndicator(video, html) {
-        // The indicator should be a child of the fullscreen element if it exists, otherwise the video's parent.
         const parent = document.fullscreenElement || video.parentElement;
         if (!parent) return;
 
         if (!parent.gestureIndicator) {
              const indicator = document.createElement('div');
              indicator.className = 'vg-indicator';
-             // Ensure the parent can contain an absolutely positioned element
              if (getComputedStyle(parent).position === 'static') {
                  parent.style.position = 'relative';
              }
@@ -98,7 +96,6 @@
         gestureIndicator.innerHTML = html;
         gestureIndicator.classList.add('visible');
 
-        // Clear any existing hide timeout
         if (parent.indicatorTimeout) clearTimeout(parent.indicatorTimeout);
 
         parent.indicatorTimeout = setTimeout(() => {
@@ -114,30 +111,25 @@
 
     // --- Improved Video Discovery ---
     function findActiveVideo(targetElement) {
-        // Priority 1: If we are in fullscreen, the video is inside it.
         if (document.fullscreenElement) {
             const videoInFs = document.fullscreenElement.querySelector('video');
             if (videoInFs) return videoInFs;
         }
-
-        // Priority 2: Check the element that was touched and its parents.
         const closestVideo = targetElement.closest('video');
         if (closestVideo) return closestVideo;
 
-        // Priority 3: Check known common player containers for complex sites (e.g., YouTube, Vimeo).
         const playerContainer = targetElement.closest('.html5-video-player, .player, .video-js, [data-vjs-player]');
         if (playerContainer) {
             const videoInContainer = playerContainer.querySelector('video');
             if (videoInContainer) return videoInContainer;
         }
 
-        // Priority 4: Fallback to the largest playing video in the viewport.
         let largestVideo = null;
         let maxArea = 0;
         document.querySelectorAll('video').forEach(video => {
             if (video.paused || video.readyState < 1) return;
             const rect = video.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) { // Is it visible?
+            if (rect.width > 0 && rect.height > 0) {
                 const area = rect.width * rect.height;
                 if (area > maxArea) {
                     maxArea = area;
@@ -158,21 +150,17 @@
             return;
         }
         
-        // Stop the site's own gesture handling if we've found a video.
-        // This is crucial for compatibility with sites like YouTube.
         e.stopPropagation();
 
-        // Initialize the state machine for this gesture
         activeGesture = {
             video: video,
             startX: e.touches[0].clientX,
             startY: e.touches[0].clientY,
             isSwipe: false,
-            action: 'none', // Becomes 'seeking', 'volume', 'fullscreen', 'speed'
+            action: 'none',
             finalized: false,
         };
 
-        // Handle tap counting
         if (Date.now() - lastTap.time < config.DOUBLE_TAP_TIMEOUT_MS) {
             lastTap.count++;
         } else {
@@ -184,29 +172,30 @@
     function onTouchMove(e) {
         if (!activeGesture || e.touches.length > 1) return;
         
-        e.stopPropagation(); // Continue to prevent site's own handlers
-        e.preventDefault(); // Prevent scrolling the page etc.
-
+        e.stopPropagation();
+        
         const deltaX = e.touches[0].clientX - activeGesture.startX;
         const deltaY = e.touches[0].clientY - activeGesture.startY;
 
-        // Determine the gesture's action type *once* when the swipe threshold is crossed
         if (!activeGesture.isSwipe && Math.hypot(deltaX, deltaY) > config.SWIPE_THRESHOLD) {
             activeGesture.isSwipe = true;
+            // A swipe is not a tap, so reset the tap count.
+            lastTap.count = 0;
+            
             const rect = activeGesture.video.getBoundingClientRect();
             const touchZoneX = (activeGesture.startX - rect.left) / rect.width;
 
-            if (Math.abs(deltaX) > Math.abs(deltaY)) { // Horizontal Swipe
+            if (Math.abs(deltaX) > Math.abs(deltaY)) {
                 if (document.fullscreenElement) activeGesture.action = 'seeking';
-            } else { // Vertical Swipe
+            } else {
                 if (touchZoneX < 0.33) activeGesture.action = 'speed';
                 else if (touchZoneX > 0.66) activeGesture.action = 'volume';
                 else activeGesture.action = 'fullscreen';
             }
         }
 
-        // Execute live updates for swipe actions
         if (activeGesture.isSwipe) {
+            e.preventDefault(); // Prevent page scroll only when swiping
             switch (activeGesture.action) {
                 case 'seeking': handleHorizontalSwipe(deltaX); break;
                 case 'volume': handleVerticalSwipe(deltaY, 'volume'); break;
@@ -222,7 +211,6 @@
         activeGesture.finalized = true;
 
         if (activeGesture.isSwipe) {
-            // Finalize swipe actions
             if (activeGesture.action === 'seeking') {
                 const deltaX = e.changedTouches[0].clientX - activeGesture.startX;
                 const seekTime = deltaX * config.SEEK_SENSITIVITY;
@@ -232,25 +220,23 @@
                 triggerHapticFeedback();
             } else if (activeGesture.action === 'fullscreen') {
                  const deltaY = e.changedTouches[0].clientY - activeGesture.startY;
-                 if (Math.abs(deltaY) > config.SWIPE_THRESHOLD) { // Ensure it was a deliberate swipe
+                 if (Math.abs(deltaY) > config.SWIPE_THRESHOLD) {
                     handleFullscreenToggle(activeGesture.video);
                  }
             }
         } else {
-            // Handle tap actions
             if (lastTap.count >= 2) {
+                // *** FIX: Prevent default action (like a native dblclick) for our handled double-tap ***
+                e.preventDefault();
                 if (document.fullscreenElement) {
                     handleDoubleTapSeek(activeGesture.video, activeGesture.startX);
                 } else {
                     handleFullscreenToggle(activeGesture.video);
                 }
-                lastTap = { time: 0, count: 0 }; // Reset tap counter after any double tap action
-            } else {
-                 // Could add single-tap to play/pause here
+                lastTap = { time: 0, count: 0 };
             }
         }
 
-        // Clean up
         activeGesture = null;
     }
 
@@ -311,14 +297,13 @@
         const rect = video.getBoundingClientRect();
         const tapZone = (touchStartX - rect.left) / rect.width;
 
-        if (tapZone < 0.4) { // Left 40%
+        if (tapZone < 0.4) {
             video.currentTime -= config.DOUBLE_TAP_SEEK_SECONDS;
             showIndicator(video, `<svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6l-8.5 6z"/></svg> -${config.DOUBLE_TAP_SEEK_SECONDS}s`);
-        } else if (tapZone > 0.6) { // Right 40%
+        } else if (tapZone > 0.6) {
             video.currentTime += config.DOUBLE_TAP_SEEK_SECONDS;
             showIndicator(video, `+${config.DOUBLE_TAP_SEEK_SECONDS}s <svg viewBox="0 0 24 24"><path d="M18 6h-2v12h2zM4 6v12l8.5-6L4 6z"/></svg>`);
         } else {
-            // Double tap in the middle zone could play/pause
             if (video.paused) {
                 video.play();
             } else {
@@ -342,16 +327,15 @@
         const { video } = activeGesture;
 
         if (type === 'volume') {
-            const volumeChange = -deltaY / 150; // Slower sensitivity
+            const volumeChange = -deltaY / 150;
             video.volume = Math.max(0, Math.min(1, video.volume + volumeChange));
             showIndicator(video, `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> ${Math.round(video.volume * 100)}%`);
         } else if (type === 'speed') {
-            // This logic can be expanded to be incremental instead of just two states
-            if (deltaY < -config.SWIPE_THRESHOLD) { // Swipe Up
+            if (deltaY < -config.SWIPE_THRESHOLD) {
                 video.playbackRate = 2.0;
                 const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
                 showIndicator(video, `${speedIcon} <span>2.0x Speed</span>`);
-            } else if (deltaY > config.SWIPE_THRESHOLD) { // Swipe Down
+            } else if (deltaY > config.SWIPE_THRESHOLD) {
                 video.playbackRate = 1.0;
                 const speedIcon = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
                 showIndicator(video, `${speedIcon} <span>1.0x Speed</span>`);
@@ -384,8 +368,6 @@
     // --- Initialization ---
     function initialize() {
         injectStyles();
-        // Use capture: true to get the event before the target site's own scripts can.
-        // This is key for stopping their handlers.
         document.addEventListener('touchstart', onTouchStart, { passive: false, capture: true });
         document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
         document.addEventListener('touchend', onTouchEnd, { passive: false, capture: true });
