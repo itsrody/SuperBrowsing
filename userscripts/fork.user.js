@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      8.7
+// @version      8.8
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos using a robust state machine.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
@@ -113,43 +113,53 @@
         }
     }
 
-    // --- Improved Video Discovery ---
-    function findActiveVideo(targetElement) {
+    // --- Improved Video & Player Discovery ---
+    function findVideoAndPlayer(targetElement) {
+        let video = null;
         if (document.fullscreenElement) {
-            const videoInFs = document.fullscreenElement.querySelector('video');
-            if (videoInFs) return videoInFs;
+            video = document.fullscreenElement.querySelector('video');
         }
-        const closestVideo = targetElement.closest('video');
-        if (closestVideo) return closestVideo;
-
-        const playerContainer = targetElement.closest('.html5-video-player, .player, .video-js, [data-vjs-player]');
-        if (playerContainer) {
-            const videoInContainer = playerContainer.querySelector('video');
-            if (videoInContainer) return videoInContainer;
+        if (!video) {
+            video = targetElement.closest('video');
         }
 
-        let largestVideo = null;
-        let maxArea = 0;
-        document.querySelectorAll('video').forEach(video => {
-            if (video.paused || video.readyState < 1) return;
-            const rect = video.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) {
-                const area = rect.width * rect.height;
-                if (area > maxArea) {
-                    maxArea = area;
-                    largestVideo = video;
+        if (!video) {
+            let largestVideo = null;
+            let maxArea = 0;
+            document.querySelectorAll('video').forEach(v => {
+                if (v.paused || v.readyState < 1) return;
+                const rect = v.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) {
+                    const area = rect.width * rect.height;
+                    if (area > maxArea) {
+                        maxArea = area;
+                        largestVideo = v;
+                    }
                 }
-            }
-        });
-        return largestVideo;
+            });
+            video = largestVideo;
+        }
+
+        if (!video) return null;
+
+        // *** NEW LOGIC: Find the top-level player container ***
+        const playerSelectors = '.html5-video-player, .player, .video-js, [data-vjs-player], .jwplayer';
+        const playerContainer = video.closest(playerSelectors);
+
+        // Return the video and the best-guess container, or the video's parent as a fallback.
+        // Crucially, never return the video itself as the container.
+        return {
+            video: video,
+            container: playerContainer || video.parentElement
+        };
     }
 
 
     // --- Event Handlers using State Machine ---
     function onTouchStart(e) {
-        const video = findActiveVideo(e.target);
+        const result = findVideoAndPlayer(e.target);
 
-        if (!video || video.duration < config.MIN_VIDEO_DURATION_SECONDS || e.touches.length > 1) {
+        if (!result || !result.video || result.video.duration < config.MIN_VIDEO_DURATION_SECONDS || e.touches.length > 1) {
             activeGesture = null;
             return;
         }
@@ -157,7 +167,8 @@
         e.stopPropagation();
 
         activeGesture = {
-            video: video,
+            video: result.video,
+            container: result.container,
             startX: e.touches[0].clientX,
             startY: e.touches[0].clientY,
             isSwipe: false,
@@ -224,7 +235,7 @@
             } else if (activeGesture.action === 'fullscreen') {
                  const deltaY = e.changedTouches[0].clientY - activeGesture.startY;
                  if (Math.abs(deltaY) > config.SWIPE_THRESHOLD) {
-                    handleFullscreenToggle(activeGesture.video);
+                    handleFullscreenToggle();
                  }
             }
         } else {
@@ -233,7 +244,7 @@
                 if (document.fullscreenElement) {
                     handleDoubleTapSeek(activeGesture.video, activeGesture.startX);
                 } else {
-                    handleFullscreenToggle(activeGesture.video);
+                    handleFullscreenToggle();
                 }
                 lastTap = { time: 0, count: 0 };
             }
@@ -243,7 +254,7 @@
     }
 
     // --- Gesture Logic ---
-    function handleFullscreenToggle(video) {
+    function handleFullscreenToggle() {
         const isFullscreen = document.fullscreenElement;
         const icon = isFullscreen
             ? `<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>`
@@ -254,10 +265,8 @@
         if (isFullscreen) {
             document.exitFullscreen();
         } else {
-            // Find the main player container that holds the video and its UI
-            const playerContainer = video.closest('.html5-video-player, .player, .video-js, [data-vjs-player]') || video;
-            
-            const fsPromise = playerContainer.requestFullscreen();
+            const { container, video } = activeGesture;
+            const fsPromise = container.requestFullscreen();
 
             if (config.FORCE_LANDSCAPE && video.videoWidth > video.videoHeight) {
                 fsPromise.then(() => {
@@ -322,12 +331,12 @@
     }
 
     function handleFullscreenChange() {
-        // This function now only needs to move the indicator
         if (document.fullscreenElement) {
+            // Move indicator into the fullscreen container so it's visible
             document.fullscreenElement.appendChild(globalIndicator);
         } else {
+            // Move indicator back to the body when exiting
             document.body.appendChild(globalIndicator);
-            // Unlock orientation if it was locked
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
             }
