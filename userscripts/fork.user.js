@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name          Video Gestures Pro
+// @name          Video Gestures Pro (Long-Press Fork)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      8.8
-// @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos using a robust state machine.
+// @version      9.0
+// @description  Adds a powerful, zoned gesture interface, including long-press to speed up, to most web videos.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
 // @exclude      *://*.netflix.com/*
@@ -25,6 +25,7 @@
         HAPTIC_FEEDBACK_DURATION_MS: 20,
         FORCE_LANDSCAPE: true,
         DOUBLE_TAP_TIMEOUT_MS: 350,
+        LONG_PRESS_DURATION_MS: 400, // Time to hold for long-press
     };
 
     let config = await GM_getValue('config', DEFAULTS);
@@ -92,9 +93,10 @@
     // --- State Management ---
     let activeGesture = null;
     let lastTap = { time: 0, count: 0 };
+    let longPressTimeout = null;
 
     // --- UI & Feedback ---
-    function showIndicator(html) {
+    function showIndicator(html, stayVisible = false) {
         if (!globalIndicator) return;
 
         globalIndicator.innerHTML = html;
@@ -102,9 +104,15 @@
 
         if (indicatorTimeout) clearTimeout(indicatorTimeout);
 
-        indicatorTimeout = setTimeout(() => {
-            globalIndicator.classList.remove('visible');
-        }, 800);
+        if (!stayVisible) {
+            indicatorTimeout = setTimeout(() => {
+                globalIndicator.classList.remove('visible');
+            }, 800);
+        }
+    }
+
+    function hideIndicator() {
+         if (globalIndicator) globalIndicator.classList.remove('visible');
     }
 
     function triggerHapticFeedback() {
@@ -142,12 +150,9 @@
 
         if (!video) return null;
 
-        // *** NEW LOGIC: Find the top-level player container ***
         const playerSelectors = '.html5-video-player, .player, .video-js, [data-vjs-player], .jwplayer';
         const playerContainer = video.closest(playerSelectors);
 
-        // Return the video and the best-guess container, or the video's parent as a fallback.
-        // Crucially, never return the video itself as the container.
         return {
             video: video,
             container: playerContainer || video.parentElement
@@ -174,6 +179,7 @@
             isSwipe: false,
             action: 'none',
             finalized: false,
+            originalPlaybackRate: result.video.playbackRate,
         };
 
         if (Date.now() - lastTap.time < config.DOUBLE_TAP_TIMEOUT_MS) {
@@ -182,6 +188,10 @@
             lastTap.count = 1;
         }
         lastTap.time = Date.now();
+
+        // Start timer for long-press action
+        clearTimeout(longPressTimeout);
+        longPressTimeout = setTimeout(() => handleLongPress(), config.LONG_PRESS_DURATION_MS);
     }
 
     function onTouchMove(e) {
@@ -193,8 +203,17 @@
         const deltaY = e.touches[0].clientY - activeGesture.startY;
 
         if (!activeGesture.isSwipe && Math.hypot(deltaX, deltaY) > config.SWIPE_THRESHOLD) {
-            activeGesture.isSwipe = true;
+            // If user starts swiping, it's not a long-press or tap
+            clearTimeout(longPressTimeout);
             lastTap.count = 0;
+            
+            // If long-press was active, release it
+            if (activeGesture.action === 'long-press-speed') {
+                activeGesture.video.playbackRate = activeGesture.originalPlaybackRate;
+                hideIndicator();
+            }
+
+            activeGesture.isSwipe = true;
             
             const rect = activeGesture.video.getBoundingClientRect();
             const touchZoneX = (activeGesture.startX - rect.left) / rect.width;
@@ -221,10 +240,15 @@
     function onTouchEnd(e) {
         if (!activeGesture || activeGesture.finalized) return;
         
+        clearTimeout(longPressTimeout);
         e.stopPropagation();
         activeGesture.finalized = true;
 
-        if (activeGesture.isSwipe) {
+        // If the long-press action was active, release it
+        if (activeGesture.action === 'long-press-speed') {
+            activeGesture.video.playbackRate = activeGesture.originalPlaybackRate;
+            hideIndicator();
+        } else if (activeGesture.isSwipe) {
             if (activeGesture.action === 'seeking') {
                 const deltaX = e.changedTouches[0].clientX - activeGesture.startX;
                 const seekTime = deltaX * config.SEEK_SENSITIVITY;
@@ -239,6 +263,7 @@
                  }
             }
         } else {
+            // It's a tap or double-tap
             if (lastTap.count >= 2) {
                 e.preventDefault();
                 if (document.fullscreenElement) {
@@ -254,6 +279,22 @@
     }
 
     // --- Gesture Logic ---
+    function handleLongPress() {
+        if (!activeGesture || activeGesture.isSwipe) return;
+
+        const rect = activeGesture.video.getBoundingClientRect();
+        const touchZoneX = (activeGesture.startX - rect.left) / rect.width;
+
+        // Only trigger if in the middle zone
+        if (touchZoneX > 0.33 && touchZoneX < 0.66) {
+            activeGesture.action = 'long-press-speed';
+            activeGesture.video.playbackRate = 2.0;
+            const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
+            showIndicator(`${speedIcon} <span>2.0x Speed</span>`, true); // Keep indicator visible
+            triggerHapticFeedback();
+        }
+    }
+
     function handleFullscreenToggle() {
         const isFullscreen = document.fullscreenElement;
         const icon = isFullscreen
@@ -332,10 +373,8 @@
 
     function handleFullscreenChange() {
         if (document.fullscreenElement) {
-            // Move indicator into the fullscreen container so it's visible
             document.fullscreenElement.appendChild(globalIndicator);
         } else {
-            // Move indicator back to the body when exiting
             document.body.appendChild(globalIndicator);
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
