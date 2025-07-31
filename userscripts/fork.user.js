@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro (Long-Press Fork)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      9.0
+// @version      9.1
 // @description  Adds a powerful, zoned gesture interface, including long-press to speed up, to most web videos.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
@@ -278,6 +278,14 @@
         activeGesture = null;
     }
 
+    // --- New handler to prevent context menu during gestures ---
+    function onContextMenu(e) {
+        // If a gesture is active on a video, prevent the context menu.
+        if (activeGesture) {
+            e.preventDefault();
+        }
+    }
+
     // --- Gesture Logic ---
     function handleLongPress() {
         if (!activeGesture || activeGesture.isSwipe) return;
@@ -397,6 +405,8 @@
         document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
         document.addEventListener('touchend', onTouchEnd, { passive: false, capture: true });
         document.addEventListener('fullscreenchange', handleFullscreenChange);
+        // Add the new context menu listener
+        document.addEventListener('contextmenu', onContextMenu, { capture: true });
     }
 
     if (document.readyState === 'loading') {
