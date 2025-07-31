@@ -1,337 +1,253 @@
 // ==UserScript==
-// @name          Video Gestures Pro
-// @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      7.4
-// @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos.
-// @author       Murtaza Salih & Gemini
+// @name         Synced Smart Video Progress Tracker
+// @name:en      Synced Smart Video Progress Tracker
+// @name:zh-CN   同步型智能视频进度跟踪器
+// @version      2.0.0
+// @description  Saves all video progress into a single JSON object, which syncs across devices via ScriptCat's sync API every 2.5 minutes.
+// @description:en Saves all video progress into a single JSON object, which syncs across devices via ScriptCat's sync API every 2.5 minutes.
+// @description:zh-CN 将所有视频进度保存到单个JSON对象中，通过ScriptCat的同步功能每2.5分钟跨设备同步一次。
+// @author       Your Name (Crafted by Gemini)
 // @match        *://*/*
-// @exclude      *://*.youtube.com/*
-// @exclude      *://*.dailymotion.com/*
-// @exclude      *://*.vimeo.com/*
-// @exclude      *://*.netflix.com/*
-// @grant        GM_getValue
-// @grant        GM_setValue
-// @grant        GM_registerMenuCommand
-// @run-at       document-start
+// @icon         https://fonts.gstatic.com/s/i/materialicons/sync/v6/white-24dp/1x/gm_sync_white_24dp.png
+// @grant        GM.setValue
+// @grant        GM.getValue
+// @grant        GM.deleteValue
+// @grant        GM.addStyle
+// @grant        GM.registerMenuCommand
+// @run-at       document-end
+// @license      MIT
 // ==/UserScript==
 
-(async function() {
+(async () => {
     'use strict';
 
-    // --- Central Configuration Panel ---
-    const DEFAULTS = {
-        MIN_VIDEO_DURATION_SECONDS: 90,
-        DOUBLE_TAP_SEEK_SECONDS: 5,
-        SWIPE_THRESHOLD: 20, // Minimum pixels to move to register a swipe
-        SEEK_SENSITIVITY: 0.3,
-        ENABLE_HAPTIC_FEEDBACK: true,
-        HAPTIC_FEEDBACK_DURATION_MS: 20,
-        FORCE_LANDSCAPE: true
+    const DATABASE_KEY = 'svpt_database';
+    const SYNC_INTERVAL = 150 * 1000; // 2.5 minutes
+
+    let progressDatabase = {};
+    let isDatabaseDirty = false; // A flag to check if the database has new data to save
+
+    // --- Database & Syncing Logic ---
+
+    /**
+     * Loads the entire progress database from storage into memory.
+     */
+    const loadDatabase = async () => {
+        progressDatabase = await GM.getValue(DATABASE_KEY, {});
+        console.log('[SVPT] Progress database loaded.');
     };
 
-    let config = await GM_getValue('config', DEFAULTS);
-
-    GM_registerMenuCommand('Configure Gestures', () => {
-        const currentConfig = JSON.stringify(config, null, 2);
-        const newConfigStr = prompt('Edit Gesture Settings:', currentConfig);
-        if (newConfigStr) {
-            try {
-                const newConfig = JSON.parse(newConfigStr);
-                config = { ...DEFAULTS, ...newConfig };
-                GM_setValue('config', config);
-                alert('Settings saved! Please reload the page for changes to take effect.');
-            } catch (e) {
-                alert('Error parsing settings. Please ensure it is valid JSON.\n\n' + e);
-            }
+    /**
+     * Saves the in-memory database to storage if it has changed.
+     * This function is called periodically to sync data.
+     */
+    const syncDatabaseToStorage = async () => {
+        if (!isDatabaseDirty) {
+            // console.log('[SVPT] No changes to sync.');
+            return;
         }
-    });
+        await GM.setValue(DATABASE_KEY, progressDatabase);
+        isDatabaseDirty = false;
+        console.log(`[SVPT] Database synced to storage at ${new Date().toLocaleTimeString()}`);
+    };
 
 
-    // --- Styles ---
-    function injectStyles() {
-        if (document.getElementById('video-gesture-pro-styles')) return;
-        const style = document.createElement('style');
-        style.id = 'video-gesture-pro-styles';
-        style.innerHTML = `
-            @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap');
-            .vg-indicator {
-                position: absolute; top: 50%; left: 50%;
-                transform: translate(-50%, -50%);
-                padding: 10px 16px; background-color: rgba(30, 30, 30, 0.9);
-                color: #fff; font-family: 'Roboto', sans-serif; font-size: 16px;
-                border-radius: 20px;
+    // --- Core Video Logic ---
+
+    /**
+     * Creates a robust, unique key for storing video progress.
+     * @param {HTMLVideoElement} video - The video element.
+     * @returns {string} A unique storage key.
+     */
+    const createStorageKey = (video) => {
+        const url = window.location.href.split('?')[0];
+        const duration = Math.round(video.duration);
+        // Using '|' as a separator for clarity
+        return `video|${url}|${duration}`;
+    };
+
+    /**
+     * Saves the video's current time to the in-memory database.
+     * @param {HTMLVideoElement} video - The video element.
+     */
+    const saveProgress = (video) => {
+        // Don't save if progress is too close to the start or end
+        if (video.currentTime < 5 || video.currentTime > video.duration - 10) {
+            return;
+        }
+
+        const key = createStorageKey(video);
+        const data = {
+            progress: video.currentTime,
+            timestamp: Date.now()
+        };
+
+        // Update the database in memory and mark it as "dirty" for the next sync
+        progressDatabase[key] = data;
+        isDatabaseDirty = true;
+    };
+
+    /**
+     * Restores video progress from the in-memory database.
+     * @param {HTMLVideoElement} video - The video element to restore progress for.
+     */
+    const restoreProgress = (video) => {
+        if (isNaN(video.duration) || video.duration <= 0) return;
+
+        const key = createStorageKey(video);
+        const data = progressDatabase[key];
+
+        if (data && typeof data.progress === 'number' && data.progress < video.duration - 10) {
+            video.currentTime = data.progress;
+            const timeStr = new Date(data.progress * 1000).toISOString().substr(11, 8);
+            createToast(`Progress restored to ${timeStr}`, video);
+        }
+    };
+
+
+    // --- UI & Styling (Unchanged) ---
+
+    const injectStyles = () => {
+        GM.addStyle(`
+            .svpt-toast-container {
+                position: absolute;
+                top: 16px; left: 16px;
                 z-index: 2147483647;
-                display: flex;
-                align-items: center; gap: 8px; opacity: 0; pointer-events: none;
-                transition: opacity 0.2s ease, transform 0.2s ease;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                background-color: #323232;
+                color: #ffffff;
+                padding: 10px 16px;
+                border-radius: 8px;
+                font-family: 'Roboto', 'Noto', sans-serif;
+                font-size: 14px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+                opacity: 0;
+                transform: translateY(-20px);
+                transition: opacity 300ms cubic-bezier(0.4, 0, 0.2, 1), transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+                pointer-events: none;
             }
-            .vg-indicator.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-            .vg-indicator svg { width: 24px; height: 24px; fill: #fff; }
-        `;
-        document.head.appendChild(style);
-    }
+            .svpt-toast-container.show { opacity: 1; transform: translateY(0); }
+        `);
+    };
 
-    // --- Global State ---
-    let touchStartX = 0, touchStartY = 0;
-    let currentVideo = null;
-    let gestureType = null;
-    let tapTimeout = null;
-    let tapCount = 0;
-    let playerContainer = null;
-    let originalParent = null;
-    let originalNextSibling = null;
-    let originalPlayerStyle = {};
-
-    // --- UI & Feedback ---
-    function showIndicator(video, html) {
-        const parent = document.fullscreenElement || video.parentElement;
-        if (!parent) return;
-        if (!parent.gestureIndicator) {
-             const indicator = document.createElement('div');
-             indicator.className = 'vg-indicator';
-             parent.appendChild(indicator);
-             parent.gestureIndicator = indicator;
+    const createToast = (message, video) => {
+        const toast = document.createElement('div');
+        toast.className = 'svpt-toast-container';
+        toast.textContent = message;
+        const container = video.parentElement;
+        if (getComputedStyle(container).position === 'static') {
+            container.style.position = 'relative';
         }
-        const { gestureIndicator } = parent;
-        gestureIndicator.innerHTML = html;
-        gestureIndicator.classList.add('visible');
-        setTimeout(() => { if (gestureIndicator) gestureIndicator.classList.remove('visible'); }, 800);
-    }
+        container.appendChild(toast);
+        setTimeout(() => toast.classList.add('show'), 50);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 350);
+        }, 3500);
+    };
 
-    function triggerHapticFeedback() {
-        if (config.ENABLE_HAPTIC_FEEDBACK && navigator.vibrate) {
-            navigator.vibrate(config.HAPTIC_FEEDBACK_DURATION_MS);
-        }
-    }
 
-    // --- Event Handlers ---
-    function onTouchStart(e) {
-        let video = e.target.closest('video');
-        if (document.fullscreenElement) {
-             video = document.fullscreenElement.querySelector('video');
+    // --- Data Management (Updated for Database model) ---
+
+    const exportProgress = () => {
+        if (Object.keys(progressDatabase).length === 0) {
+            alert('No video progress data found to export.');
+            return;
         }
 
-        if (!video || video.duration < config.MIN_VIDEO_DURATION_SECONDS) return;
+        const jsonString = JSON.stringify(progressDatabase, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `video_progress_backup_${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        alert('Progress data exported successfully!');
+    };
 
-        currentVideo = video;
+    const importProgress = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'application/json';
+        input.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
 
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-        gestureType = 'tap'; // Assume it's a tap initially
-
-        // Double tap logic only runs when in fullscreen
-        if (document.fullscreenElement) {
-            const DOUBLE_TAP_TIMEOUT_MS = 350;
-            tapTimeout = setTimeout(() => { tapCount = 0; }, DOUBLE_TAP_TIMEOUT_MS);
-            tapCount++;
-        }
-    }
-
-    function onTouchMove(e) {
-        if (!currentVideo || e.touches.length > 1) return;
-
-        const deltaX = e.touches[0].clientX - touchStartX;
-        const deltaY = e.touches[0].clientY - touchStartY;
-
-        // Only determine the gesture type once, on the first significant movement
-        if (gestureType === 'tap' && (Math.abs(deltaX) > config.SWIPE_THRESHOLD || Math.abs(deltaY) > config.SWIPE_THRESHOLD)) {
-            const isVerticalSwipe = Math.abs(deltaY) > Math.abs(deltaX);
-
-            // --- GESTURE ROUTING LOGIC ---
-            // MODIFIED: If it's a vertical swipe and we are NOT in fullscreen, it's a fullscreen gesture.
-            if (isVerticalSwipe && !document.fullscreenElement) {
-                gestureType = 'swipe-y-fullscreen';
+            try {
+                const text = await file.text();
+                const dataToImport = JSON.parse(text);
+                // Overwrite the in-memory database and save it immediately
+                progressDatabase = dataToImport;
+                await GM.setValue(DATABASE_KEY, progressDatabase);
+                isDatabaseDirty = false; // It's now clean
+                alert(`Successfully imported ${Object.keys(dataToImport).length} video progress entries. Data has been synced.`);
+            } catch (err) {
+                alert('Import failed. The file is not a valid JSON or is corrupted.');
+                console.error('Import error:', err);
             }
-            // If we ARE in fullscreen, use the original zoned gestures.
-            else if (document.fullscreenElement) {
-                gestureType = isVerticalSwipe ? 'swipe-y' : 'swipe-x';
+        };
+        input.click();
+    };
+
+    const clearAllProgress = async () => {
+        if (!confirm('Are you sure you want to delete ALL saved video progress? This action cannot be undone.')) {
+            return;
+        }
+        progressDatabase = {};
+        await GM.deleteValue(DATABASE_KEY);
+        isDatabaseDirty = false;
+        alert(`All saved progress has been deleted.`);
+    };
+
+
+    // --- Initialization and Event Handling ---
+
+    const processedVideos = new WeakMap();
+    const initVideo = (video) => {
+        if (processedVideos.has(video)) return;
+        processedVideos.set(video, true);
+
+        let saveInterval;
+        video.addEventListener('loadedmetadata', () => restoreProgress(video), { once: true });
+        video.addEventListener('play', () => {
+            clearInterval(saveInterval);
+            saveInterval = setInterval(() => saveProgress(video), 2000);
+        });
+        video.addEventListener('pause', () => {
+            clearInterval(saveInterval);
+            saveProgress(video); // Save instantly on pause
+        });
+        video.addEventListener('ended', () => clearInterval(saveInterval));
+    };
+
+    // 1. Load the database from storage on script start
+    await loadDatabase();
+
+    // 2. Start the periodic sync to storage
+    setInterval(syncDatabaseToStorage, SYNC_INTERVAL);
+
+    // 3. Register menu commands
+    GM.registerMenuCommand('Export Progress (JSON)', exportProgress);
+    GM.registerMenuCommand('Import Progress (JSON)', importProgress);
+    GM.registerMenuCommand('⚠️ Clear All Progress', clearAllProgress);
+
+    // 4. Inject styles and set up observers
+    injectStyles();
+    document.querySelectorAll('video').forEach(video => {
+        if (video.readyState >= 1) initVideo(video);
+        else video.addEventListener('loadedmetadata', () => initVideo(video), { once: true });
+    });
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach(mutation => mutation.addedNodes.forEach(node => {
+            if (node.nodeType === 1) {
+                if (node.tagName === 'VIDEO') initVideo(node);
+                else node.querySelectorAll('video').forEach(initVideo);
             }
-            // Horizontal swipes outside of fullscreen are ignored.
-        }
+        }));
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
 
-        // --- GESTURE ACTION (DURING SWIPE) ---
-        if (gestureType && gestureType.startsWith('swipe')) {
-            e.preventDefault(); // Prevent page scrolling
-            // Provide live feedback for seeking and volume/speed changes while in fullscreen
-            if (gestureType === 'swipe-x') handleHorizontalSwipe(deltaX);
-            if (gestureType === 'swipe-y') handleVerticalSwipe(deltaY);
-        }
-    }
-
-    function onTouchEnd(e) {
-        if (!currentVideo) return;
-
-        // --- GESTURE ACTION (ON SWIPE END) ---
-
-        // MODIFIED: Handle the "swipe up to fullscreen" gesture.
-        if (gestureType === 'swipe-y-fullscreen') {
-            const deltaY = e.changedTouches[0].clientY - touchStartY;
-            // A swipe UP results in a negative deltaY.
-            if (deltaY < -config.SWIPE_THRESHOLD) {
-                handleFullscreenToggle();
-            }
-        }
-        // Original logic for gestures that only work inside fullscreen mode.
-        else if (document.fullscreenElement) {
-            if (gestureType === 'tap' && tapCount >= 2) {
-                e.preventDefault();
-                handleDoubleTapSeek();
-                clearTimeout(tapTimeout);
-                tapCount = 0;
-            } else if (gestureType === 'swipe-x') {
-                const deltaX = e.changedTouches[0].clientX - touchStartX;
-                const seekTime = deltaX * config.SEEK_SENSITIVITY;
-                currentVideo.currentTime += seekTime;
-                triggerHapticFeedback();
-            } else if (gestureType === 'swipe-y') {
-                // Haptic feedback for volume/speed is triggered on end to avoid constant vibration.
-                triggerHapticFeedback();
-            }
-        }
-
-        // Reset state for the next gesture
-        currentVideo = null;
-        gestureType = null;
-    }
-
-    // --- Gesture Logic ---
-    function handleFullscreenToggle() {
-        const isFullscreen = !!document.fullscreenElement;
-        const icon = isFullscreen
-            ? `<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>` // Exit fullscreen icon
-            : `<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`; // Enter fullscreen icon
-        showIndicator(currentVideo, icon);
-        triggerHapticFeedback();
-
-        if (isFullscreen) {
-            document.exitFullscreen();
-        } else {
-            // This custom wrapper approach provides a more reliable fullscreen experience
-            // across different websites where the video element itself might not go fullscreen correctly.
-            const wrapper = document.createElement('div');
-            wrapper.id = 'vg-fullscreen-wrapper';
-            Object.assign(wrapper.style, {
-                position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
-                backgroundColor: 'black', display: 'flex',
-                alignItems: 'center', justifyContent: 'center', zIndex: '2147483646'
-            });
-
-            playerContainer = currentVideo.parentElement;
-            originalParent = playerContainer.parentElement;
-            originalNextSibling = playerContainer.nextElementSibling;
-
-            originalPlayerStyle = {
-                width: playerContainer.style.width,
-                height: playerContainer.style.height,
-                maxWidth: playerContainer.style.maxWidth,
-                maxHeight: playerContainer.style.maxHeight,
-                position: playerContainer.style.position,
-                zIndex: playerContainer.style.zIndex,
-            };
-
-            Object.assign(playerContainer.style, {
-                width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%',
-                position: 'relative', zIndex: '1'
-            });
-
-            wrapper.appendChild(playerContainer);
-            document.body.appendChild(wrapper);
-
-            const fsPromise = wrapper.requestFullscreen();
-
-            if (config.FORCE_LANDSCAPE && currentVideo.videoWidth > currentVideo.videoHeight) {
-                fsPromise.then(() => {
-                    if (screen.orientation && typeof screen.orientation.lock === 'function') {
-                        screen.orientation.lock('landscape').catch(err => console.warn('Could not lock orientation:', err.message));
-                    }
-                }).catch(err => console.warn('Fullscreen request failed:', err.message));
-            }
-        }
-    }
-
-    function handleDoubleTapSeek() {
-        const rect = currentVideo.getBoundingClientRect();
-        const tapZone = (touchStartX - rect.left) / rect.width;
-
-        if (tapZone < 0.33) {
-            currentVideo.currentTime -= config.DOUBLE_TAP_SEEK_SECONDS;
-            showIndicator(currentVideo, `<svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6l-8.5 6z"/></svg> -${config.DOUBLE_TAP_SEEK_SECONDS}s`);
-        } else if (tapZone > 0.66) {
-            currentVideo.currentTime += config.DOUBLE_TAP_SEEK_SECONDS;
-            showIndicator(currentVideo, `+${config.DOUBLE_TAP_SEEK_SECONDS}s <svg viewBox="0 0 24 24"><path d="M18 6h-2v12h2zM4 6v12l8.5-6L4 6z"/></svg>`);
-        }
-        triggerHapticFeedback();
-    }
-
-    function handleHorizontalSwipe(deltaX) {
-        const seekTime = deltaX * config.SEEK_SENSITIVITY;
-        const newTime = currentVideo.currentTime + seekTime;
-        const direction = seekTime > 0 ? 'forward' : 'rewind';
-        const icon = direction === 'forward' ? `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>` : `<svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm-2-6l6.5 4.5V7.5L9 12z"/></svg>`;
-        showIndicator(currentVideo, `${icon} ${formatTime(newTime)}`);
-    }
-
-    function handleVerticalSwipe(deltaY) {
-        const rect = currentVideo.getBoundingClientRect();
-        const tapZone = (touchStartX - rect.left) / rect.width;
-
-        if (tapZone > 0.66) { // Right side for Volume
-            const volumeChange = -deltaY / 100;
-            currentVideo.volume = Math.max(0, Math.min(1, currentVideo.volume + volumeChange));
-            showIndicator(currentVideo, `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> ${Math.round(currentVideo.volume * 100)}%`);
-        } else if (tapZone < 0.33) { // Left side for Playback Speed
-            if (deltaY < -config.SWIPE_THRESHOLD) { // Swipe Up
-                currentVideo.playbackRate = 2.0;
-                const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
-                showIndicator(currentVideo, `${speedIcon} <span>2.0x Speed</span>`);
-            } else if (deltaY > config.SWIPE_THRESHOLD) { // Swipe Down
-                currentVideo.playbackRate = 1.0;
-                const speedIcon = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
-                showIndicator(currentVideo, `${speedIcon} <span>1.0x Speed</span>`);
-            }
-        }
-    }
-
-    function handleFullscreenChange() {
-        // This function cleans up our custom fullscreen wrapper when the user exits fullscreen mode
-        // (e.g., by pressing the back button or the exit fullscreen button in the player controls).
-        if (!document.fullscreenElement) {
-            const wrapper = document.getElementById('vg-fullscreen-wrapper');
-            if (wrapper && originalParent && playerContainer) {
-                // Restore the original styles and position of the video player
-                Object.assign(playerContainer.style, originalPlayerStyle);
-                originalParent.insertBefore(playerContainer, originalNextSibling);
-                wrapper.remove();
-            }
-            // Unlock screen orientation if it was locked
-            if (screen.orientation && typeof screen.orientation.unlock === 'function') {
-                screen.orientation.unlock();
-            }
-        }
-    }
-
-    // --- Utilities ---
-    function formatTime(totalSeconds) {
-        const sec = Math.floor(totalSeconds % 60).toString().padStart(2, '0');
-        const min = Math.floor((totalSeconds / 60) % 60).toString().padStart(2, '0');
-        const hr = Math.floor(totalSeconds / 3600);
-        return hr > 0 ? `${hr}:${min}:${sec}` : `${min}:${sec}`;
-    }
-
-    // --- Initialization ---
-    function initialize() {
-        injectStyles();
-        document.body.addEventListener('touchstart', onTouchStart, { passive: false });
-        document.body.addEventListener('touchmove', onTouchMove, { passive: false });
-        document.body.addEventListener('touchend', onTouchEnd, { passive: false });
-        document.addEventListener('fullscreenchange', handleFullscreenChange);
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initialize, { once: true });
-    } else {
-        initialize();
-    }
 })();
 
