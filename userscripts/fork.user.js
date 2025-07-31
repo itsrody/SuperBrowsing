@@ -1,293 +1,285 @@
 // ==UserScript==
-// @name         Video Progress Tracker Pro
-// @name:en      Video Progress Tracker Pro
-// @name:zh-CN   专业视频进度跟踪器
-// @version      8.1.0
-// @description  Adds a cross-device "Resume Watching" list and automatically cleans up old, stale progress entries.
-// @description:en Adds a cross-device "Resume Watching" list and automatically cleans up old, stale progress entries.
-// @description:zh-CN 添加跨设备的“继续观看”列表，并自动清理旧的、过时的进度条目。
-// @author       Your Name (Crafted by Gemini)
+// @name         Enhanced Video Gestures (Classic Style)
+// @name:en      Enhanced Video Gestures (Classic Style)
+// @version      2.1.0
+// @description  Adds Android-style touch gestures with a classic, minimalist overlay style and intelligent conflict prevention.
+// @author       Your Name (Based on itsrody's script, enhanced by Gemini)
 // @match        *://*/*
-// @icon         https://fonts.gstatic.com/s/i/materialicons/playlist_play/v6/white-24dp/1x/gm_playlist_play_white_24dp.png
 // @grant        GM.setValue
 // @grant        GM.getValue
-// @grant        GM.deleteValue
-// @grant        GM.listValues
 // @grant        GM.addStyle
-// @grant        GM.registerMenuCommand
-// @run-at       document-end
+// @run-at       document-start
 // @license      MIT
-// @setting { "key": "minDuration", "label": "Minimum Duration to Save (seconds)", "type": "number", "default": 90 }
-// @setting { "key": "saveInterval", "label": "How often to save during playback (ms)", "type": "number", "default": 2000 }
-// @setting { "key": "cleanupDays", "label": "Auto-delete progress older than (days, 0=disable)", "type": "number", "default": 60 }
 // ==/UserScript==
 
-(async () => {
+(function() {
     'use strict';
 
     // --- Configuration ---
     const CONFIG = {
-        MIN_DURATION_TO_SAVE: await GM.getValue('minDuration', 90),
-        SAVE_INTERVAL: await GM.getValue('saveInterval', 2000),
-        CLEANUP_DAYS: await GM.getValue('cleanupDays', 60),
-        SCRIPT_PREFIX: 'vpt8_', // Unique prefix for this major version
-        LAST_CLEANUP_KEY: 'vpt8_last_cleanup'
+        DOUBLE_TAP_TIME: 300, // Time in ms to detect a double tap
+        SWIPE_THRESHOLD: 30, // Minimum pixels to move to trigger a swipe
+        LONG_PRESS_TIME: 500, // Time in ms to detect a long press for playback speed
+        OVERLAY_TIMEOUT: 800, // How long to show the overlay icons
     };
 
-    const processedVideos = new WeakMap();
+    // Use a WeakMap to store state for each video element
+    const videoStates = new WeakMap();
 
-    // --- Core Logic ---
+    // --- Fullscreen Conflict Detection ---
+    /**
+     * Checks if the native player likely has its own double-tap-to-fullscreen gesture.
+     * @param {HTMLElement} videoWrapper - The element that contains the video.
+     * @returns {Promise<boolean>} - True if a native gesture is detected.
+     */
+    function detectNativeFullscreenGesture(videoWrapper) {
+        return new Promise(resolve => {
+            let detected = false;
+            const timeout = 150; // Wait 150ms for a reaction
 
-    const throttle = (func, limit) => {
-        let inThrottle;
-        return function() {
-            if (!inThrottle) {
-                func.apply(this, arguments);
-                inThrottle = true;
-                setTimeout(() => inThrottle = false, limit);
-            }
-        };
-    };
+            const onFullscreenChange = () => {
+                detected = true;
+            };
 
-    const createStorageKey = (video) => {
-        const pageUrl = window.location.href.split('?')[0].split('#')[0];
-        const duration = Math.round(video.duration);
-        const videoSrc = (video.currentSrc || video.src || '').split('?')[0].split('#')[0];
-        if (videoSrc && !videoSrc.startsWith('blob:')) return `${CONFIG.SCRIPT_PREFIX}src|${pageUrl}|${videoSrc}`;
-        let parent = video.parentElement;
-        for (let i = 0; i < 5 && parent; i++) {
-            if (parent.id) return `${CONFIG.SCRIPT_PREFIX}id|${pageUrl}|${parent.id}|${duration}`;
-            parent = parent.parentElement;
-        }
-        const allVideos = Array.from(document.querySelectorAll('video'));
-        const videoIndex = allVideos.indexOf(video);
-        if (videoIndex !== -1) return `${CONFIG.SCRIPT_PREFIX}index|${pageUrl}|${videoIndex}|${duration}`;
-        return null;
-    };
+            document.addEventListener('fullscreenchange', onFullscreenChange);
 
-    const saveProgress = async (video) => {
-        const key = createStorageKey(video);
-        if (!key) return;
-        if (video.currentTime > 5 && video.currentTime < video.duration - 10) {
-            const title = document.title.replace(/ - YouTube$/, '').replace(/ - Twitch$/, '');
-            await GM.setValue(key, {
-                progress: video.currentTime,
-                duration: video.duration,
-                timestamp: Date.now(),
-                title: title,
-                pageUrl: window.location.href
+            // Dispatch a fake double-click event to probe the player
+            const dblClickEvent = new MouseEvent('dblclick', {
+                bubbles: true,
+                cancelable: true,
+                view: window
             });
-        }
-    };
+            videoWrapper.dispatchEvent(dblClickEvent);
 
-    const restoreProgress = async (video) => {
-        const key = createStorageKey(video);
-        if (!key) return;
-        const data = await GM.getValue(key);
-        if (data && typeof data.progress === 'number' && Math.abs(data.duration - video.duration) < 10) {
-            if (data.progress < video.duration - 10) {
-                video.currentTime = data.progress;
-                createToast(`Progress restored to ${new Date(data.progress * 1000).toISOString().substr(11, 8)}`, video);
+            setTimeout(() => {
+                document.removeEventListener('fullscreenchange', onFullscreenChange);
+                if (detected) {
+                    console.log('[Gestures] Native double-tap fullscreen detected. Disabling custom gesture.');
+                }
+                resolve(detected);
+            }, timeout);
+        });
+    }
+
+
+    // --- Gesture Handling Logic ---
+
+    function handleTouchStart(e) {
+        const video = e.currentTarget.video;
+        const state = videoStates.get(video);
+        if (!state || e.touches.length > 1) return;
+
+        state.touchStartX = e.touches[0].clientX;
+        state.touchStartY = e.touches[0].clientY;
+        state.isSwiping = false;
+        state.longPressTimer = setTimeout(() => onLongPress(video), CONFIG.LONG_PRESS_TIME);
+    }
+
+    function handleTouchMove(e) {
+        const video = e.currentTarget.video;
+        const state = videoStates.get(video);
+        if (!state || e.touches.length > 1) return;
+
+        const deltaX = e.touches[0].clientX - state.touchStartX;
+        const deltaY = e.touches[0].clientY - state.touchStartY;
+
+        if (Math.abs(deltaX) > CONFIG.SWIPE_THRESHOLD || Math.abs(deltaY) > CONFIG.SWIPE_THRESHOLD) {
+            clearTimeout(state.longPressTimer);
+            state.isSwiping = true;
+            if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                const seekAmount = (deltaX / video.offsetWidth) * 60;
+                video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + seekAmount));
+                showOverlay(state.overlay, ` ${formatTime(video.currentTime)} / ${formatTime(video.duration)}`);
+            } else {
+                const change = -deltaY / video.offsetHeight;
+                if (state.touchStartX < window.innerWidth / 2) {
+                    showOverlay(state.overlay, '☀️ Brightness');
+                } else {
+                    video.volume = Math.max(0, Math.min(1, video.volume + change));
+                    showOverlay(state.overlay, `🔊 ${Math.round(video.volume * 100)}%`);
+                }
             }
         }
-    };
+    }
 
-    const deleteProgress = async (video) => {
-        const key = createStorageKey(video);
-        if (key) {
-            await GM.deleteValue(key);
-            console.log(`[VPT] Deleted progress for video: ${key}`);
-        }
-    };
+    function handleTouchEnd(e) {
+        const video = e.currentTarget.video;
+        const state = videoStates.get(video);
+        if (!state) return;
 
-    // --- Features: Resume List & Cleanup ---
+        clearTimeout(state.longPressTimer);
 
-    const showResumeList = async () => {
-        const allKeys = (await GM.listValues()).filter(k => k.startsWith(CONFIG.SCRIPT_PREFIX) && k !== CONFIG.LAST_CLEANUP_KEY);
-        if (allKeys.length === 0) {
-            alert('No saved video progress found.');
+        if (state.isLongPressing) {
+            video.playbackRate = state.originalPlaybackRate;
+            state.isLongPressing = false;
+            hideOverlay(state.overlay);
             return;
         }
 
-        let allProgress = [];
-        for (const key of allKeys) {
-            const data = await GM.getValue(key);
-            if (data && data.title && data.pageUrl) {
-                allProgress.push(data);
-            }
-        }
-
-        allProgress.sort((a, b) => b.timestamp - a.timestamp);
-
-        const modalOverlay = document.createElement('div');
-        modalOverlay.className = 'vpt-modal-overlay';
-        modalOverlay.innerHTML = `
-            <div class="vpt-modal-content">
-                <span class="vpt-modal-close">&times;</span>
-                <h2>Resume Watching</h2>
-                <div class="vpt-resume-list">
-                    ${allProgress.map(data => {
-                        const url = new URL(data.pageUrl);
-                        url.searchParams.set('t', Math.round(data.progress) + 's');
-                        const progressTime = new Date(data.progress * 1000).toISOString().substr(11, 8);
-                        const totalTime = new Date(data.duration * 1000).toISOString().substr(11, 8);
-                        return `<a href="${url.href}" class="vpt-resume-item">
-                                    <span class="vpt-resume-title">${data.title}</span>
-                                    <span class="vpt-resume-details">
-                                        At ${progressTime} / ${totalTime} on <strong>${url.hostname}</strong>
-                                    </span>
-                                </a>`;
-                    }).join('')}
-                </div>
-            </div>
-        `;
-        document.body.appendChild(modalOverlay);
-
-        const closeModal = () => document.body.removeChild(modalOverlay);
-        modalOverlay.querySelector('.vpt-modal-close').onclick = closeModal;
-        modalOverlay.onclick = (e) => {
-            if (e.target === modalOverlay) closeModal();
-        };
-    };
-
-    const runCleanup = async () => {
-        if (CONFIG.CLEANUP_DAYS <= 0) return;
-
-        const lastCleanup = await GM.getValue(CONFIG.LAST_CLEANUP_KEY, 0);
-        const oneDay = 24 * 60 * 60 * 1000;
-
-        if (Date.now() - lastCleanup < oneDay) return;
-
-        console.log('[VPT] Running stale progress cleanup...');
-        const allKeys = (await GM.listValues()).filter(k => k.startsWith(CONFIG.SCRIPT_PREFIX) && k !== CONFIG.LAST_CLEANUP_KEY);
-        const cutoffTime = Date.now() - (CONFIG.CLEANUP_DAYS * oneDay);
-        let deletedCount = 0;
-
-        for (const key of allKeys) {
-            const data = await GM.getValue(key);
-            if (data && data.timestamp < cutoffTime) {
-                await GM.deleteValue(key);
-                deletedCount++;
-            }
-        }
-
-        if (deletedCount > 0) {
-            console.log(`[VPT] Cleaned up ${deletedCount} stale progress entries.`);
-        }
-        await GM.setValue(CONFIG.LAST_CLEANUP_KEY, Date.now());
-    };
-
-    const setCleanupDays = async () => {
-        const currentDays = CONFIG.CLEANUP_DAYS;
-        const newDaysStr = prompt(`Set auto-delete for progress older than (days).\nEnter 0 to disable cleanup.\n\nCurrent value: ${currentDays} days`, currentDays);
-
-        if (newDaysStr === null) return;
-
-        const newDays = parseInt(newDaysStr, 10);
-        if (isNaN(newDays) || newDays < 0) {
-            alert('Invalid input. Please enter a non-negative number.');
+        if (state.isSwiping) {
+            hideOverlay(state.overlay);
             return;
         }
 
-        await GM.setValue('cleanupDays', newDays);
-        CONFIG.CLEANUP_DAYS = newDays;
+        if (state.tapTimer) {
+            clearTimeout(state.tapTimer);
+            state.tapTimer = null;
+            onDoubleTap(video, state);
+        } else {
+            state.tapTimer = setTimeout(() => {
+                state.tapTimer = null;
+                onSingleTap(video);
+            }, CONFIG.DOUBLE_TAP_TIME);
+        }
+    }
 
-        alert(newDays === 0 ? 'Automatic cleanup has been disabled.' : `Progress older than ${newDays} days will now be automatically deleted.`);
-    };
+    function onSingleTap(video) {
+        video.paused ? video.play() : video.pause();
+    }
 
-    // --- UI, Data Management, and Initialization ---
+    function onDoubleTap(video, state) {
+        const rect = video.getBoundingClientRect();
+        const tapPosition = (state.touchStartX - rect.left) / rect.width;
 
-    const injectStyles = () => {
+        if (tapPosition < 0.3) {
+            video.currentTime -= 10;
+            showOverlay(state.overlay, '« 10s');
+        } else if (tapPosition > 0.7) {
+            video.currentTime += 10;
+            showOverlay(state.overlay, '10s »');
+        } else {
+            if (!state.hasNativeFullscreen) {
+                toggleFullscreen(video, state);
+            } else {
+                video.paused ? video.play() : video.pause();
+            }
+        }
+    }
+
+    function onLongPress(video) {
+        const state = videoStates.get(video);
+        if (state.isSwiping) return;
+        state.isLongPressing = true;
+        state.originalPlaybackRate = video.playbackRate;
+        video.playbackRate = 2.0;
+        showOverlay(state.overlay, '▶️▶️ Speed 2x');
+    }
+
+    function toggleFullscreen(video, state) {
+        if (!document.fullscreenElement) {
+            state.videoWrapper.requestFullscreen();
+            showOverlay(state.overlay, '⛶ Enter Fullscreen');
+        } else {
+            document.exitFullscreen();
+            showOverlay(state.overlay, '⛶ Exit Fullscreen');
+        }
+    }
+
+
+    // --- UI & Helper Functions ---
+
+    function formatTime(seconds) {
+        const date = new Date(seconds * 1000);
+        const hh = date.getUTCHours();
+        const mm = date.getUTCMinutes();
+        const ss = date.getUTCSeconds().toString().padStart(2, '0');
+        if (hh) {
+            return `${hh}:${mm.toString().padStart(2, '0')}:${ss}`;
+        }
+        return `${mm}:${ss}`;
+    }
+
+    function showOverlay(overlay, text) {
+        overlay.textContent = text;
+        overlay.style.opacity = '1';
+        if (overlay.hideTimer) clearTimeout(overlay.hideTimer);
+        overlay.hideTimer = setTimeout(() => hideOverlay(overlay), CONFIG.OVERLAY_TIMEOUT);
+    }
+
+    function hideOverlay(overlay) {
+        overlay.style.opacity = '0';
+    }
+
+
+    // --- Initialization ---
+
+    function injectStyles() {
+        // NEW: Adopted classic styling for the overlay
         GM.addStyle(`
-            .vpt-toast {
+            .gesture-overlay {
                 position: absolute;
-                top: 16px;
-                left: 16px;
-                z-index: 2147483647;
-                background-color: rgba(30, 30, 30, 0.8);
-                color: #ffffff;
-                padding: 10px 16px;
-                border-radius: 12px;
-                font-family: 'Roboto', 'Noto', sans-serif;
-                font-size: 14px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                backdrop-filter: blur(8px);
-                -webkit-backdrop-filter: blur(8px);
-                opacity: 0;
-                transform: translateY(-20px);
-                transition: opacity 300ms cubic-bezier(0.4, 0, 0.2, 1), transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background-color: rgba(0, 0, 0, 0.55);
+                color: white;
+                padding: 10px 18px;
+                border-radius: 6px;
+                font-size: 16px;
+                font-family: sans-serif;
+                font-weight: bold;
                 pointer-events: none;
+                opacity: 0;
+                transition: opacity 0.4s ease;
+                z-index: 2147483647;
             }
-            .vpt-toast.show {
-                opacity: 1;
-                transform: translateY(0);
-            }
-            .vpt-modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 999999999; display: flex; align-items: center; justify-content: center; } .vpt-modal-content { background: #282c34; color: #eee; padding: 20px 30px; border-radius: 12px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.4); } .vpt-modal-close { position: absolute; top: 10px; right: 15px; font-size: 28px; font-weight: bold; cursor: pointer; color: #aaa; } .vpt-modal-close:hover { color: #fff; } .vpt-modal-content h2 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 10px; } .vpt-resume-list { display: flex; flex-direction: column; gap: 10px; } .vpt-resume-item { display: block; padding: 10px; background: #3a3f4b; border-radius: 8px; text-decoration: none; color: #eee; transition: background 0.2s ease; } .vpt-resume-item:hover { background: #4a4f5b; } .vpt-resume-title { display: block; font-weight: bold; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .vpt-resume-details { font-size: 0.9em; color: #ccc; }
         `);
-    };
+    }
 
-    const createToast = (message, video) => {
-        const toast = document.createElement('div');
-        toast.className = 'vpt-toast';
-        toast.textContent = message;
+    async function initVideo(video) {
+        if (videoStates.has(video)) return;
 
-        const container = video.parentElement;
-        if (getComputedStyle(container).position === 'static') {
-            container.style.position = 'relative';
-        }
-        container.appendChild(toast);
+        const videoWrapper = video.parentElement;
+        if (!videoWrapper) return;
 
-        setTimeout(() => toast.classList.add('show'), 50);
+        const overlay = document.createElement('div');
+        overlay.className = 'gesture-overlay';
+        videoWrapper.style.position = 'relative';
+        videoWrapper.appendChild(overlay);
 
-        setTimeout(() => {
-            if (document.body.contains(toast)) {
-                toast.classList.remove('show');
-                setTimeout(() => toast.remove(), 350);
-            }
-        }, 5000);
-    };
+        const hasNativeFullscreen = await detectNativeFullscreenGesture(videoWrapper);
 
-    const exportProgress = async () => { const allKeys = (await GM.listValues()).filter(k => k.startsWith(CONFIG.SCRIPT_PREFIX)); if (allKeys.length === 0) { alert('No progress data found to export.'); return; } const data = {}; for (const key of allKeys) { data[key] = await GM.getValue(key); } const jsonString = JSON.stringify(data, null, 2); const blob = new Blob([jsonString], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `video_progress_backup_${new Date().toISOString().split('T')[0]}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); alert(`Exported ${allKeys.length} entries.`); };
-    const importProgress = () => { const input = document.createElement('input'); input.type = 'file'; input.accept = 'application/json'; input.onchange = async (e) => { const file = e.target.files[0]; if (!file) return; try { const text = await file.text(); const data = JSON.parse(text); let count = 0; for (const key in data) { if (key.startsWith(CONFIG.SCRIPT_PREFIX)) { await GM.setValue(key, data[key]); count++; } } alert(`Successfully imported ${count} entries.`); } catch (err) { alert('Import failed. The file is not a valid JSON.'); console.error(err); } }; input.click(); };
-    const clearAllProgress = async () => { if (!confirm('Are you sure you want to delete ALL saved video progress for this script? This cannot be undone.')) return; const allKeys = (await GM.listValues()).filter(k => k.startsWith(CONFIG.SCRIPT_PREFIX)); for (const key of allKeys) { await GM.deleteValue(key); } alert(`Deleted ${allKeys.length} entries.`); };
-    
-    GM.registerMenuCommand('▶️ Resume Watching', showResumeList);
-    GM.registerMenuCommand('⚙️ Set Cleanup Days', setCleanupDays);
-    GM.registerMenuCommand('📤 Export Progress', exportProgress);
-    GM.registerMenuCommand('📥 Import Progress', importProgress);
-    GM.registerMenuCommand('🗑️ Clear All Progress', clearAllProgress);
+        videoStates.set(video, {
+            overlay: overlay,
+            videoWrapper: videoWrapper,
+            hasNativeFullscreen: hasNativeFullscreen,
+            touchStartX: 0,
+            touchStartY: 0,
+            isSwiping: false,
+            isLongPressing: false,
+            tapTimer: null,
+            originalPlaybackRate: video.playbackRate,
+        });
 
-    const initVideo = (video) => {
-        if (processedVideos.has(video) || video.duration < CONFIG.MIN_DURATION_TO_SAVE) return;
-        processedVideos.set(video, true);
-        restoreProgress(video);
-        const throttledSave = throttle(() => saveProgress(video), CONFIG.SAVE_INTERVAL);
-        video.addEventListener('timeupdate', throttledSave);
-        video.addEventListener('pause', () => saveProgress(video));
-        video.addEventListener('ended', () => deleteProgress(video));
-    };
+        const gestureTarget = videoWrapper;
+        gestureTarget.video = video;
+        gestureTarget.addEventListener('touchstart', handleTouchStart, { passive: false });
+        gestureTarget.addEventListener('touchmove', handleTouchMove, { passive: false });
+        gestureTarget.addEventListener('touchend', handleTouchEnd, { passive: false });
+    }
 
-    const handleVideoElement = (video) => {
-        if (video.readyState >= 1) initVideo(video);
-        else video.addEventListener('loadedmetadata', () => initVideo(video), { once: true });
-    };
-
-    // --- Script Entry Point ---
+    // --- Main Execution ---
     injectStyles();
-    runCleanup();
 
     const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
             for (const node of mutation.addedNodes) {
                 if (node.nodeType === 1) {
-                    if (node.tagName === 'VIDEO') handleVideoElement(node);
-                    else node.querySelectorAll('video').forEach(handleVideoElement);
+                    if (node.tagName === 'VIDEO') {
+                        initVideo(node);
+                    } else {
+                        node.querySelectorAll('video').forEach(initVideo);
+                    }
                 }
             }
         }
     });
-    observer.observe(document.body, { childList: true, subtree: true });
-    document.querySelectorAll('video').forEach(handleVideoElement);
+
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+
+    document.querySelectorAll('video').forEach(initVideo);
 
 })();
