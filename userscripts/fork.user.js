@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro Enhanced
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      8.1
+// @version      8.0
 // @description  Adds a powerful, zoned gesture interface with intelligent native player detection to avoid conflicts
 // @author       Murtaza Salih
 // @match        *://*/*
@@ -294,12 +294,12 @@
             parent.appendChild(overlay);
         }
         
-        overlay.textContent = hasNative ? 'Native Player' : 'Swipe Up for Fullscreen';
+        overlay.textContent = hasNative ? 'Native Player' : 'Enhanced Gestures';
         overlay.classList.add('visible');
         
         setTimeout(() => {
             if (overlay) overlay.classList.remove('visible');
-        }, 3000);
+        }, 2000);
     }
 
     function triggerHapticFeedback() {
@@ -414,7 +414,7 @@
     // --- Enhanced Gesture Logic ---
     function handleNormalModeFullscreenToggle() {
         const fullscreenIcon = `<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`;
-        showIndicator(currentVideo, `${fullscreenIcon} <span>Swipe Up for Fullscreen</span>`, 'fullscreen-toggle');
+        showIndicator(currentVideo, `${fullscreenIcon} <span>Fullscreen</span>`, 'fullscreen-toggle');
         triggerHapticFeedback();
         
         // Use the existing fullscreen toggle logic
