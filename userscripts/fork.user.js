@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name          Video Gestures Pro (Long-Press Fork)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      9.2
-// @description  Adds a powerful, zoned gesture interface, including long-press to speed up, to most web videos.
+// @version      9.4
+// @description  Adds a powerful, zoned gesture interface, including long-press to speed up, brightness, and volume control, to most web videos.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
 // @exclude      *://*.netflix.com/*
@@ -21,6 +21,8 @@
         DOUBLE_TAP_SEEK_SECONDS: 10,
         SWIPE_THRESHOLD: 20,
         SEEK_SENSITIVITY: 0.3,
+        BRIGHTNESS_SENSITIVITY: 200, // Lower is more sensitive
+        VOLUME_SENSITIVITY: 250,     // Higher value means more gradual/smoother change
         ENABLE_HAPTIC_FEEDBACK: true,
         HAPTIC_FEEDBACK_DURATION_MS: 20,
         FORCE_LANDSCAPE: true,
@@ -180,6 +182,8 @@
             action: 'none',
             finalized: false,
             originalPlaybackRate: result.video.playbackRate,
+            initialBrightness: parseFloat(document.documentElement.style.filter.match(/brightness\((\d+\.?\d*)\)/)?.[1] || 1),
+            initialVolume: result.video.volume,
         };
 
         if (Date.now() - lastTap.time < config.DOUBLE_TAP_TIMEOUT_MS) {
@@ -203,11 +207,9 @@
         const deltaY = e.touches[0].clientY - activeGesture.startY;
 
         if (!activeGesture.isSwipe && Math.hypot(deltaX, deltaY) > config.SWIPE_THRESHOLD) {
-            // If user starts swiping, it's not a long-press or tap
             clearTimeout(longPressTimeout);
             lastTap.count = 0;
             
-            // If long-press was active, release it
             if (activeGesture.action === 'long-press-speed') {
                 activeGesture.video.playbackRate = activeGesture.originalPlaybackRate;
                 hideIndicator();
@@ -221,7 +223,7 @@
             if (Math.abs(deltaX) > Math.abs(deltaY)) {
                 if (document.fullscreenElement) activeGesture.action = 'seeking';
             } else {
-                if (touchZoneX < 0.33) activeGesture.action = 'speed';
+                if (touchZoneX < 0.33) activeGesture.action = 'brightness';
                 else if (touchZoneX > 0.66) activeGesture.action = 'volume';
                 else activeGesture.action = 'fullscreen';
             }
@@ -232,7 +234,7 @@
             switch (activeGesture.action) {
                 case 'seeking': handleHorizontalSwipe(deltaX); break;
                 case 'volume': handleVerticalSwipe(deltaY, 'volume'); break;
-                case 'speed': handleVerticalSwipe(deltaY, 'speed'); break;
+                case 'brightness': handleVerticalSwipe(deltaY, 'brightness'); break;
             }
         }
     }
@@ -244,7 +246,6 @@
         e.stopPropagation();
         activeGesture.finalized = true;
 
-        // If the long-press action was active, release it
         if (activeGesture.action === 'long-press-speed') {
             activeGesture.video.playbackRate = activeGesture.originalPlaybackRate;
             hideIndicator();
@@ -254,7 +255,7 @@
                 const seekTime = deltaX * config.SEEK_SENSITIVITY;
                 activeGesture.video.currentTime += seekTime;
                 triggerHapticFeedback();
-            } else if (activeGesture.action === 'volume' || activeGesture.action === 'speed') {
+            } else if (activeGesture.action === 'volume' || activeGesture.action === 'brightness') {
                 triggerHapticFeedback();
             } else if (activeGesture.action === 'fullscreen') {
                  const deltaY = e.changedTouches[0].clientY - activeGesture.startY;
@@ -263,7 +264,6 @@
                  }
             }
         } else {
-            // It's a tap or double-tap
             if (lastTap.count >= 2) {
                 e.preventDefault();
                 if (document.fullscreenElement) {
@@ -278,9 +278,7 @@
         activeGesture = null;
     }
 
-    // --- New handler to prevent context menu during gestures ---
     function onContextMenu(e) {
-        // If a gesture is active on a video, forcefully prevent the context menu.
         if (activeGesture) {
             e.preventDefault();
             e.stopPropagation();
@@ -295,12 +293,11 @@
         const rect = activeGesture.video.getBoundingClientRect();
         const touchZoneX = (activeGesture.startX - rect.left) / rect.width;
 
-        // Only trigger if in the middle zone
         if (touchZoneX > 0.33 && touchZoneX < 0.66) {
             activeGesture.action = 'long-press-speed';
             activeGesture.video.playbackRate = 2.0;
             const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
-            showIndicator(`${speedIcon} <span>2.0x Speed</span>`, true); // Keep indicator visible
+            showIndicator(`${speedIcon} <span>2.0x Speed</span>`, true);
             triggerHapticFeedback();
         }
     }
@@ -362,22 +359,21 @@
 
     function handleVerticalSwipe(deltaY, type) {
         if (!activeGesture) return;
-        const { video } = activeGesture;
-
+        
         if (type === 'volume') {
-            const volumeChange = -deltaY / 150;
-            video.volume = Math.max(0, Math.min(1, video.volume + volumeChange));
+            const { video } = activeGesture;
+            const change = -deltaY / config.VOLUME_SENSITIVITY;
+            let newVolume = activeGesture.initialVolume + change;
+            newVolume = Math.max(0, Math.min(1, newVolume)); // Clamp between 0 and 1
+            video.volume = newVolume;
             showIndicator(`<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> ${Math.round(video.volume * 100)}%`);
-        } else if (type === 'speed') {
-            if (deltaY < -config.SWIPE_THRESHOLD) {
-                video.playbackRate = 2.0;
-                const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
-                showIndicator(`${speedIcon} <span>2.0x Speed</span>`);
-            } else if (deltaY > config.SWIPE_THRESHOLD) {
-                video.playbackRate = 1.0;
-                const speedIcon = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
-                showIndicator(`${speedIcon} <span>1.0x Speed</span>`);
-            }
+        } else if (type === 'brightness') {
+            const change = -deltaY / config.BRIGHTNESS_SENSITIVITY;
+            let newBrightness = activeGesture.initialBrightness + change;
+            newBrightness = Math.max(0.1, Math.min(2, newBrightness)); // Clamp between 10% and 200%
+
+            document.documentElement.style.filter = `brightness(${newBrightness})`;
+            showIndicator(`☀️ ${Math.round(newBrightness * 100)}%`);
         }
     }
 
@@ -407,7 +403,6 @@
         document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
         document.addEventListener('touchend', onTouchEnd, { passive: false, capture: true });
         document.addEventListener('fullscreenchange', handleFullscreenChange);
-        // Add the new context menu listener
         document.addEventListener('contextmenu', onContextMenu, { capture: true });
     }
 
