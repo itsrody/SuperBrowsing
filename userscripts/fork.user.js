@@ -1,438 +1,395 @@
 // ==UserScript==
-// @name            Video Gestures (Ultimate)
-// @name:en         Video Gestures (Ultimate)
-// @description     The ultimate gesture control script for web videos. Features a full settings panel, advanced gestures like screen lock and subtitle control, and a polished UI.
-// @description:en  The ultimate gesture control script for web videos. Features a full settings panel, advanced gestures like screen lock and subtitle control, and a polished UI.
-// @version         4.1.0
-// @author          L.Xavier & Murtaza Salih (Merged & Upgraded by Gemini)
-// @namespace       https://github.com/itsrody/SuperBrowsing
-// @match           *://*/*
-// @license         MIT
-// @grant           GM_getValue
-// @grant           GM_setValue
-// @grant           GM_registerMenuCommand
-// @run-at          document-start
+// @name          Video Gestures Pro
+// @namespace    https://github.com/itsrody/SuperBrowsing
+// @version      8.1
+// @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos using a robust state machine.
+// @author       Murtaza Salih (with Gemini improvements)
+// @match        *://*/*
+// @exclude      *://*.netflix.com/*
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_registerMenuCommand
+// @run-at       document-start
 // ==/UserScript==
-
-// v4.1.0 (Bugfix) - 2025-07-31
-// 1. Fixed a critical bug in the `formatTime` function that caused errors.
-// 2. Restored the more robust `findVideoBox` logic for better video detection.
-// 3. Cleaned up and simplified touch event logic, removing legacy code.
-// 4. Improved overall stability and reliability.
 
 (async function() {
     'use strict';
 
-    /* --- Configuration --- */
+    // --- Central Configuration Panel ---
     const DEFAULTS = {
-        seekSeconds: 10,
-        speedStep: 0.25,
-        volumeStep: 0.1,
-        enableHaptics: true,
-        enableLockGesture: true,
-        enableSubtitleGesture: true,
-        enablePlaylistGesture: true,
+        MIN_VIDEO_DURATION_SECONDS: 60,
+        DOUBLE_TAP_SEEK_SECONDS: 10,
+        SWIPE_THRESHOLD: 20,
+        SEEK_SENSITIVITY: 0.3,
+        ENABLE_HAPTIC_FEEDBACK: true,
+        HAPTIC_FEEDBACK_DURATION_MS: 20,
+        FORCE_LANDSCAPE: true,
+        DOUBLE_TAP_TIMEOUT_MS: 350,
     };
+
     let config = await GM_getValue('config', DEFAULTS);
 
-    /* --- Global State & Constants --- */
-    const gestureData = {};
-    const CHECK_M_OBSERVER = new MutationObserver(() => { if (!checkTimer) { checkTimer = setTimeout(loadCheck, 500); } });
-    const LIMIT = ((screen.width > screen.height ? screen.height : screen.width) * 0.2) ** 2;
-
-    let startPoint = {}, timeSpan = 0, pressTime = 0, raiseTime = 0;
-    let fingersNum = 0, gestureTimer = 0, isAllow = 0;
-    let currentVideo = null, checkTimer = 0, resizeTimer = 0, fullsState = 0;
-    let isLocked = false;
-    let gestureType = null; // Can be 'swipe', 'two-finger-tap'
-
-    /* --- Gesture Definitions & Actions --- */
-    const gestureActions = {
-        '◆◆': () => gestureData.videoFullScreen(),
-        'V→': () => {
-            currentVideo.currentTime += config.seekSeconds;
-            showScrubbingBar();
-        },
-        'V←': () => {
-            currentVideo.currentTime -= config.seekSeconds;
-            showScrubbingBar();
-        },
-        'V↑': () => {
-            currentVideo.volume = Math.min(1, currentVideo.volume + config.volumeStep);
-            showIndicator(currentVideo, `<svg viewBox="0 0 24 24" fill="white"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> ${Math.round(currentVideo.volume * 100)}%`);
-        },
-        'V↓': () => {
-            currentVideo.volume = Math.max(0, currentVideo.volume - config.volumeStep);
-            showIndicator(currentVideo, `<svg viewBox="0 0 24 24" fill="white"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"/></svg> ${Math.round(currentVideo.volume * 100)}%`);
-        },
-        'V↑●': () => {
-            let newRate = currentVideo.playbackRate + config.speedStep;
-            currentVideo.playbackRate = Math.min(4, newRate);
-            showIndicator(currentVideo, `<span>${currentVideo.playbackRate.toFixed(2)}x Speed</span>`);
-        },
-        'V↓●': () => {
-            let newRate = currentVideo.playbackRate - config.speedStep;
-            currentVideo.playbackRate = Math.max(0.25, newRate);
-            showIndicator(currentVideo, `<span>${currentVideo.playbackRate.toFixed(2)}x Speed</span>`);
-        },
-        '◆◆◆': () => {
-            if (document.pictureInPictureElement) { document.exitPictureInPicture(); }
-            else if (currentVideo?.requestPictureInPicture) { currentVideo.requestPictureInPicture(); }
-        },
-        'V↓→': () => {
-            if (!config.enableLockGesture) return;
-            isLocked = !isLocked;
-            const icon = isLocked
-                ? `<svg viewBox="0 0 24 24" fill="white"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>`
-                : `<svg viewBox="0 0 24 24" fill="white"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h1.9c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2z"/></svg>`;
-            showIndicator(currentVideo, icon);
-        },
-        'V↑↓': () => {
-            if (!config.enableSubtitleGesture || !currentVideo.textTracks || currentVideo.textTracks.length === 0) return;
-            const tracks = Array.from(currentVideo.textTracks);
-            const currentTrackIndex = tracks.findIndex(t => t.mode === 'showing');
-            tracks.forEach(t => t.mode = 'disabled');
-            const nextTrackIndex = (currentTrackIndex + 1) % (tracks.length + 1);
-            if (nextTrackIndex < tracks.length) {
-                tracks[nextTrackIndex].mode = 'showing';
-                showIndicator(currentVideo, `字幕: ${tracks[nextTrackIndex].label || 'On'}`);
-            } else {
-                showIndicator(currentVideo, `字幕: Off`);
-            }
-        },
-        'V→→': () => {
-            if (!config.enablePlaylistGesture) return;
-            const nextButton = document.querySelector('.ytp-next-button, [data-player-control="next"], [aria-label="Next"], [data-uia="next-episode"]');
-            if (nextButton) {
-                nextButton.click();
-                showIndicator(currentVideo, `<svg viewBox="0 0 24 24" fill="white"><path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>`);
+    GM_registerMenuCommand('Configure Gestures', () => {
+        const currentConfig = JSON.stringify(config, null, 2);
+        const newConfigStr = prompt('Edit Gesture Settings:', currentConfig);
+        if (newConfigStr) {
+            try {
+                const newConfig = JSON.parse(newConfigStr);
+                config = { ...DEFAULTS, ...newConfig };
+                GM_setValue('config', config);
+                alert('Settings saved! Please reload the page for changes to take effect.');
+            } catch (e) {
+                alert('Error parsing settings. Please ensure it is valid JSON.\n\n' + e);
             }
         }
-    };
+    });
 
-    /* --- UI & Feedback Module --- */
+
+    // --- Styles ---
     function injectStyles() {
-        if (document.getElementById('video-gesture-ultimate-styles')) return;
+        if (document.getElementById('video-gesture-pro-styles')) return;
         const style = document.createElement('style');
-        style.id = 'video-gesture-ultimate-styles';
+        style.id = 'video-gesture-pro-styles';
         style.innerHTML = `
-            .vg-indicator { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 10px 16px; background-color: rgba(30, 30, 30, 0.9); color: #fff; font-family: 'Roboto', sans-serif; font-size: 16px; border-radius: 20px; z-index: 2147483647; display: flex; align-items: center; gap: 8px; opacity: 0; pointer-events: none; transition: opacity 0.2s ease, transform 0.2s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-            .vg-indicator.visible { opacity: 1; }
-            .vg-scrubbing-bar { position: absolute; top: 0; left: 0; width: 100%; height: 5px; background-color: rgba(255, 255, 255, 0.3); z-index: 2147483647; opacity: 0; transition: opacity 0.3s ease; pointer-events: none; }
-            .vg-scrubbing-bar.visible { opacity: 1; }
-            .vg-scrubbing-bar-progress { height: 100%; background-color: #ff0033; }
-            .vg-scrubbing-bar-time { color: #fff; font-size: 14px; position: absolute; top: 8px; left: 10px; text-shadow: 1px 1px 2px #000; }
-            .vg-settings-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 2147483647; display: flex; align-items: center; justify-content: center; font-family: 'Roboto', sans-serif; }
-            .vg-settings-panel { background: #2c2c2c; color: #fff; border-radius: 12px; padding: 20px; width: 90%; max-width: 400px; box-shadow: 0 5px 20px rgba(0,0,0,0.4); }
-            .vg-settings-panel h2 { text-align: center; margin-top: 0; margin-bottom: 24px; }
-            .vg-settings-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-            .vg-settings-row label { font-size: 16px; }
-            .vg-settings-row input[type="number"] { width: 60px; background: #444; border: 1px solid #555; color: #fff; border-radius: 6px; padding: 5px; text-align: center; }
-            .vg-settings-row .vg-switch { position: relative; display: inline-block; width: 50px; height: 28px; }
-            .vg-settings-row .vg-switch input { opacity: 0; width: 0; height: 0; }
-            .vg-settings-row .vg-slider { position: absolute; cursor: pointer; inset: 0; background-color: #555; transition: .4s; border-radius: 28px; }
-            .vg-settings-row .vg-slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
-            .vg-settings-row input:checked + .vg-slider { background-color: #ff0033; }
-            .vg-settings-row input:checked + .vg-slider:before { transform: translateX(22px); }
-            .vg-settings-buttons { text-align: center; margin-top: 20px; }
-            .vg-settings-buttons button { background: #ff0033; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px; }
+            @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap');
+            .vg-indicator {
+                position: absolute; top: 50%; left: 50%;
+                transform: translate(-50%, -50%);
+                padding: 10px 16px; background-color: rgba(30, 30, 30, 0.9);
+                color: #fff; font-family: 'Roboto', sans-serif; font-size: 16px;
+                border-radius: 20px;
+                z-index: 2147483647;
+                display: flex;
+                align-items: center; gap: 8px; opacity: 0; pointer-events: none;
+                transition: opacity 0.2s ease, transform 0.2s ease;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            }
+            .vg-indicator.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            .vg-indicator svg { width: 24px; height: 24px; fill: #fff; }
         `;
         document.head.appendChild(style);
     }
 
+    // --- State Management ---
+    let activeGesture = null; // The state machine object for the current gesture
+    let lastTap = { time: 0, count: 0 }; // For tracking double taps
+    let playerContainer = null;
+    let originalParent = null;
+    let originalNextSibling = null;
+    let originalPlayerStyle = {};
+
+    // --- UI & Feedback ---
     function showIndicator(video, html) {
-        const parent = document.fullscreenElement || gestureData.findVideoBox(video) || video.parentElement;
+        // The indicator should be a child of the fullscreen element if it exists, otherwise the video's parent.
+        const parent = document.fullscreenElement || video.parentElement;
         if (!parent) return;
+
         if (!parent.gestureIndicator) {
-            const indicator = document.createElement('div');
-            indicator.className = 'vg-indicator';
-            parent.style.position = parent.style.position || 'relative';
-            parent.appendChild(indicator);
-            parent.gestureIndicator = indicator;
+             const indicator = document.createElement('div');
+             indicator.className = 'vg-indicator';
+             // Ensure the parent can contain an absolutely positioned element
+             if (getComputedStyle(parent).position === 'static') {
+                 parent.style.position = 'relative';
+             }
+             parent.appendChild(indicator);
+             parent.gestureIndicator = indicator;
         }
         const { gestureIndicator } = parent;
         gestureIndicator.innerHTML = html;
         gestureIndicator.classList.add('visible');
-        if (config.enableHaptics) triggerHapticFeedback();
-        setTimeout(() => { if (gestureIndicator) gestureIndicator.classList.remove('visible'); }, 800);
-    }
 
-    function showScrubbingBar() {
-        const parent = document.fullscreenElement || gestureData.findVideoBox(currentVideo) || currentVideo.parentElement;
-        if (!parent) return;
-        if (!parent.scrubbingBar) {
-            const bar = document.createElement('div');
-            bar.className = 'vg-scrubbing-bar';
-            bar.innerHTML = `<div class="vg-scrubbing-bar-progress"></div><div class="vg-scrubbing-bar-time"></div>`;
-            parent.style.position = parent.style.position || 'relative';
-            parent.appendChild(bar);
-            parent.scrubbingBar = bar;
-            parent.scrubbingBarProgress = bar.querySelector('.vg-scrubbing-bar-progress');
-            parent.scrubbingBarTime = bar.querySelector('.vg-scrubbing-bar-time');
-        }
-        const { scrubbingBar, scrubbingBarProgress, scrubbingBarTime } = parent;
-        scrubbingBarProgress.style.width = `${(currentVideo.currentTime / currentVideo.duration) * 100}%`;
-        scrubbingBarTime.textContent = `${formatTime(currentVideo.currentTime)} / ${formatTime(currentVideo.duration)}`;
-        scrubbingBar.classList.add('visible');
-        if (config.enableHaptics) triggerHapticFeedback();
-        if (parent.scrubbingTimeout) clearTimeout(parent.scrubbingTimeout);
-        parent.scrubbingTimeout = setTimeout(() => { if (scrubbingBar) scrubbingBar.classList.remove('visible'); }, 1500);
+        // Clear any existing hide timeout
+        if (parent.indicatorTimeout) clearTimeout(parent.indicatorTimeout);
+
+        parent.indicatorTimeout = setTimeout(() => {
+            if (gestureIndicator) gestureIndicator.classList.remove('visible');
+        }, 800);
     }
 
     function triggerHapticFeedback() {
-        if (navigator.vibrate) navigator.vibrate(20);
-    }
-
-    /* --- Gesture Engine --- */
-    function runGesture() {
-        const action = gestureActions[gestureData.path];
-        if (action) {
-            try { action(); } catch (e) { console.error("Gesture Error:", e); }
-        }
-        raiseTime = 0;
-    }
-
-    function longPress() {
-        if (isAllow) {
-            isAllow = 0;
-            startPoint = gestureData.touchEnd;
-            gestureData.path += '●';
-            runGesture();
+        if (config.ENABLE_HAPTIC_FEEDBACK && navigator.vibrate) {
+            navigator.vibrate(config.HAPTIC_FEEDBACK_DURATION_MS);
         }
     }
 
-    function touchStart(e) {
-        if (isLocked) {
-            gestureData.path = 'V';
-            return;
-        }
-        if (e.touches.length === 2) {
-            gestureType = 'two-finger-tap';
-            return;
-        }
-        clearTimeout(gestureTimer);
-        if ((fingersNum = e.touches?.length) !== 1) return;
-        pressTime = Date.now();
-        timeSpan = pressTime - raiseTime;
-        let lineLen = raiseTime && (e.changedTouches[0].screenX - gestureData.touchEnd.screenX) ** 2 + (e.changedTouches[0].screenY - gestureData.touchEnd.screenY) ** 2;
-
-        if (timeSpan > 50 || lineLen > LIMIT) {
-            startPoint = e.changedTouches[0];
-            gestureData.path = '';
-            const targetVideo = e.target.closest('video') || (document.fullscreenElement && document.fullscreenElement.querySelector('video'));
-            if (targetVideo && targetVideo.duration > 30) {
-                currentVideo = targetVideo;
-                gestureData.path = 'V';
-            } else {
-                currentVideo = null;
-                gestureData.path = '';
-            }
-            isAllow = 1;
-        }
-        gestureTimer = setTimeout(longPress, 300);
-    }
-
-    function touchMove(e) {
-        if (!currentVideo || isLocked || gestureType === 'two-finger-tap' || e.touches.length > 1) return;
-        clearTimeout(gestureTimer);
-        gestureData.touchEnd = e.changedTouches[0];
-
-        let xLen = (gestureData.touchEnd.screenX - startPoint.screenX) ** 2;
-        let yLen = (gestureData.touchEnd.screenY - startPoint.screenY) ** 2;
-        let pathLen = xLen + yLen;
-        if (pathLen < LIMIT / 100) return;
-
-        let direction = (xLen > yLen) ? ((gestureData.touchEnd.screenX > startPoint.screenX) ? '→' : '←') : ((gestureData.touchEnd.screenY > startPoint.screenY) ? '↑' : '↓');
-        let lastIcon = gestureData.path?.slice(-1);
-
-        if (lastIcon !== direction) {
-            gestureData.path += direction;
-            startPoint = gestureData.touchEnd;
-            isAllow = 1;
-        }
-    }
-
-    function touchEnd(e) {
-        if (isLocked) {
-            if (gestureData.path === 'V↓→') runGesture();
-            isAllow = 0;
-            return;
-        }
-        if (gestureType === 'two-finger-tap') {
-            if (currentVideo) currentVideo.paused ? currentVideo.play() : currentVideo.pause();
-            gestureType = null;
-            isAllow = 0;
-            return;
-        }
-        if (!currentVideo) return;
-        clearTimeout(gestureTimer);
-        if (--fingersNum > 0) return;
-        gestureData.touchEnd = e.changedTouches[0];
-        raiseTime = Date.now();
-
-        if (isAllow) {
-            gestureTimer = setTimeout(runGesture, 100);
-        }
-    }
-
-    /* --- Settings Panel --- */
-    function showSettingsPanel() {
-        if (document.querySelector('.vg-settings-overlay')) return;
-        const overlay = document.createElement('div');
-        overlay.className = 'vg-settings-overlay';
-        overlay.innerHTML = `
-            <div class="vg-settings-panel">
-                <h2>⚙️ Video Gestures Settings</h2>
-                <div class="vg-settings-row">
-                    <label for="vg-seek">⏩ Seek Seconds</label>
-                    <input type="number" id="vg-seek" min="1" max="60" value="${config.seekSeconds}">
-                </div>
-                <div class="vg-settings-row">
-                    <label for="vg-speed">🚀 Speed Step</label>
-                    <input type="number" id="vg-speed" min="0.05" max="1" step="0.05" value="${config.speedStep}">
-                </div>
-                <div class="vg-settings-row">
-                    <label for="vg-volume">🔊 Volume Step</label>
-                    <input type="number" id="vg-volume" min="0.01" max="0.5" step="0.01" value="${config.volumeStep}">
-                </div>
-                <div class="vg-settings-row">
-                    <label>👋 Haptic Feedback</label>
-                    <label class="vg-switch"><input type="checkbox" id="vg-haptics" ${config.enableHaptics ? 'checked' : ''}><span class="vg-slider"></span></label>
-                </div>
-                <div class="vg-settings-row">
-                    <label>🔒 Lock Gesture</label>
-                    <label class="vg-switch"><input type="checkbox" id="vg-lock" ${config.enableLockGesture ? 'checked' : ''}><span class="vg-slider"></span></label>
-                </div>
-                <div class="vg-settings-row">
-                    <label>字幕 Subtitle Gesture</label>
-                    <label class="vg-switch"><input type="checkbox" id="vg-subs" ${config.enableSubtitleGesture ? 'checked' : ''}><span class="vg-slider"></span></label>
-                </div>
-                <div class="vg-settings-row">
-                    <label>⏯️ Playlist Gesture</label>
-                    <label class="vg-switch"><input type="checkbox" id="vg-playlist" ${config.enablePlaylistGesture ? 'checked' : ''}><span class="vg-slider"></span></label>
-                </div>
-                <div class="vg-settings-buttons">
-                    <button id="vg-save-settings">Save & Close</button>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(overlay);
-        overlay.querySelector('#vg-save-settings').addEventListener('click', () => {
-            config.seekSeconds = parseFloat(document.getElementById('vg-seek').value);
-            config.speedStep = parseFloat(document.getElementById('vg-speed').value);
-            config.volumeStep = parseFloat(document.getElementById('vg-volume').value);
-            config.enableHaptics = document.getElementById('vg-haptics').checked;
-            config.enableLockGesture = document.getElementById('vg-lock').checked;
-            config.enableSubtitleGesture = document.getElementById('vg-subs').checked;
-            config.enablePlaylistGesture = document.getElementById('vg-playlist').checked;
-            GM_setValue('config', config);
-            overlay.remove();
-        });
-        overlay.addEventListener('click', (e) => {
-            if (e.target === overlay) overlay.remove();
-        });
-    }
-
-    /* --- Advanced Video Discovery & Handling --- */
-    const ATTACH_SHADOW = Element.prototype.attachShadow;
-    const CANVAS_2D_DRAWIMAGE = CanvasRenderingContext2D.prototype.drawImage;
-    async function setVideo(player) {
-        let newPlayer = player.target || player;
-        if (currentVideo && newPlayer.muted) return;
-        currentVideo = newPlayer;
-    }
-    CanvasRenderingContext2D.prototype.drawImage = function () {
-        const ele = arguments[0];
-        if (ele && ele.nodeName === 'VIDEO' && !document.contains(ele)) {
-            ele.style.display = 'none';
-            this.canvas.insertAdjacentElement('afterend', ele);
-        }
-        return CANVAS_2D_DRAWIMAGE.call(this, ...arguments);
-    };
-    gestureData.videoFullScreen = async function() {
-        if (resizeTimer) return;
+    // --- Improved Video Discovery ---
+    function findActiveVideo(targetElement) {
+        // Priority 1: If we are in fullscreen, the video is inside it.
         if (document.fullscreenElement) {
-            await document.exitFullscreen().catch(console.warn);
-        } else if (currentVideo) {
-            const container = gestureData.findVideoBox(currentVideo);
-            if (container) await container.requestFullscreen().catch(console.warn);
+            const videoInFs = document.fullscreenElement.querySelector('video');
+            if (videoInFs) return videoInFs;
         }
-    };
-    // Restored robust findVideoBox logic
-    gestureData.findVideoBox = (player = currentVideo) => {
-        if (!player || !document.contains(player)) { return null; }
-        if (player._videoBox_?.contains(player) && (document.fullscreen || player._checkHeight_ === player.clientHeight)) { return player._videoBox_; }
-        let parentEle = player.parentNode;
-        player.setAttribute('_videobox_', ''); player._checkHeight_ = player.clientHeight; player._videoBox_ = parentEle;
-        while (parentEle && parentEle.nodeName !== 'BODY') {
-            if(player.clientHeight * 1.08 > parentEle.clientHeight) {
-                if(parentEle.clientHeight) player._videoBox_ = parentEle;
-                parentEle.setAttribute('_videobox_', '');
-            } else { break; }
-            parentEle = parentEle.parentNode;
+
+        // Priority 2: Check the element that was touched and its parents.
+        const closestVideo = targetElement.closest('video');
+        if (closestVideo) return closestVideo;
+
+        // Priority 3: Check known common player containers for complex sites (e.g., YouTube, Vimeo).
+        const playerContainer = targetElement.closest('.html5-video-player, .player, .video-js, [data-vjs-player]');
+        if (playerContainer) {
+            const videoInContainer = playerContainer.querySelector('video');
+            if (videoInContainer) return videoInContainer;
         }
-        return player._videoBox_;
-    };
-    function regRESIZE() {
-        let videoCss = addStyle('');
-        window.addEventListener('resize', () => {
-            if (document.fullscreenElement && !fullsState) {
-                resizeTimer = setTimeout(() => resizeTimer = 0, 400);
-                fullsState = document.fullscreenElement;
-            } else if (fullsState && !document.fullscreenElement) {
-                resizeTimer = setTimeout(() => resizeTimer = 0, 400);
-                fullsState = 0;
+
+        // Priority 4: Fallback to the largest playing video in the viewport.
+        let largestVideo = null;
+        let maxArea = 0;
+        document.querySelectorAll('video').forEach(video => {
+            if (video.paused || video.readyState < 1) return;
+            const rect = video.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) { // Is it visible?
+                const area = rect.width * rect.height;
+                if (area > maxArea) {
+                    maxArea = area;
+                    largestVideo = video;
+                }
             }
-        }, true);
+        });
+        return largestVideo;
     }
-    Element.prototype.attachShadow = function () {
-        if (!gestureData.shadowList) gestureData.shadowList = [];
-        const shadowRoot = ATTACH_SHADOW.call(this, ...arguments);
-        gestureData.shadowList.push(shadowRoot);
-        CHECK_M_OBSERVER.observe(shadowRoot, { childList: true, subtree: true });
-        return shadowRoot;
-    };
-    async function loadCheck() {
-        let videoEles = [...document.querySelectorAll('video:not([_videoBox_])')];
-        if (gestureData.shadowList) {
-            for (const shadow of gestureData.shadowList) {
-                videoEles.push(...shadow.querySelectorAll('video:not([_videoBox_])'));
+
+
+    // --- Event Handlers using State Machine ---
+    function onTouchStart(e) {
+        const video = findActiveVideo(e.target);
+
+        if (!video || video.duration < config.MIN_VIDEO_DURATION_SECONDS || e.touches.length > 1) {
+            activeGesture = null;
+            return;
+        }
+        
+        // Stop the site's own gesture handling if we've found a video.
+        // This is crucial for compatibility with sites like YouTube.
+        e.stopPropagation();
+
+        // Initialize the state machine for this gesture
+        activeGesture = {
+            video: video,
+            startX: e.touches[0].clientX,
+            startY: e.touches[0].clientY,
+            isSwipe: false,
+            action: 'none', // Becomes 'seeking', 'volume', 'fullscreen', 'speed'
+            finalized: false,
+        };
+
+        // Handle tap counting
+        if (Date.now() - lastTap.time < config.DOUBLE_TAP_TIMEOUT_MS) {
+            lastTap.count++;
+        } else {
+            lastTap.count = 1;
+        }
+        lastTap.time = Date.now();
+    }
+
+    function onTouchMove(e) {
+        if (!activeGesture || e.touches.length > 1) return;
+        
+        e.stopPropagation(); // Continue to prevent site's own handlers
+        e.preventDefault(); // Prevent scrolling the page etc.
+
+        const deltaX = e.touches[0].clientX - activeGesture.startX;
+        const deltaY = e.touches[0].clientY - activeGesture.startY;
+
+        // Determine the gesture's action type *once* when the swipe threshold is crossed
+        if (!activeGesture.isSwipe && Math.hypot(deltaX, deltaY) > config.SWIPE_THRESHOLD) {
+            activeGesture.isSwipe = true;
+            const rect = activeGesture.video.getBoundingClientRect();
+            const touchZoneX = (activeGesture.startX - rect.left) / rect.width;
+
+            if (Math.abs(deltaX) > Math.abs(deltaY)) { // Horizontal Swipe
+                if (document.fullscreenElement) activeGesture.action = 'seeking';
+            } else { // Vertical Swipe
+                if (touchZoneX < 0.33) activeGesture.action = 'speed';
+                else if (touchZoneX > 0.66) activeGesture.action = 'volume';
+                else activeGesture.action = 'fullscreen';
             }
         }
-        if (videoEles.length) {
-            for (const video of videoEles) {
-                await gestureData.findVideoBox(video);
-                if (!video.paused) setVideo(video);
-                video.addEventListener('playing', setVideo, { once: true });
+
+        // Execute live updates for swipe actions
+        if (activeGesture.isSwipe) {
+            switch (activeGesture.action) {
+                case 'seeking': handleHorizontalSwipe(deltaX); break;
+                case 'volume': handleVerticalSwipe(deltaY, 'volume'); break;
+                case 'speed': handleVerticalSwipe(deltaY, 'speed'); break;
             }
         }
-        checkTimer = 0;
     }
-    function addStyle(css) {
-        const style = document.createElement('style');
-        style.textContent = css;
-        document.head.appendChild(style);
-        return style;
+
+    function onTouchEnd(e) {
+        if (!activeGesture || activeGesture.finalized) return;
+        
+        e.stopPropagation();
+        activeGesture.finalized = true;
+
+        if (activeGesture.isSwipe) {
+            // Finalize swipe actions
+            if (activeGesture.action === 'seeking') {
+                const deltaX = e.changedTouches[0].clientX - activeGesture.startX;
+                const seekTime = deltaX * config.SEEK_SENSITIVITY;
+                activeGesture.video.currentTime += seekTime;
+                triggerHapticFeedback();
+            } else if (activeGesture.action === 'volume' || activeGesture.action === 'speed') {
+                triggerHapticFeedback();
+            } else if (activeGesture.action === 'fullscreen') {
+                 const deltaY = e.changedTouches[0].clientY - activeGesture.startY;
+                 if (Math.abs(deltaY) > config.SWIPE_THRESHOLD) { // Ensure it was a deliberate swipe
+                    handleFullscreenToggle(activeGesture.video);
+                 }
+            }
+        } else {
+            // Handle tap actions
+            if (lastTap.count >= 2) {
+                if (document.fullscreenElement) {
+                    handleDoubleTapSeek(activeGesture.video, activeGesture.startX);
+                } else {
+                    handleFullscreenToggle(activeGesture.video);
+                }
+                lastTap = { time: 0, count: 0 }; // Reset tap counter after any double tap action
+            } else {
+                 // Could add single-tap to play/pause here
+            }
+        }
+
+        // Clean up
+        activeGesture = null;
     }
-    // Restored robust formatTime function
+
+    // --- Gesture Logic ---
+    function handleFullscreenToggle(video) {
+        const isFullscreen = document.fullscreenElement;
+        const icon = isFullscreen
+            ? `<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>`
+            : `<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`;
+        showIndicator(video, icon);
+        triggerHapticFeedback();
+
+        if (isFullscreen) {
+            document.exitFullscreen();
+        } else {
+            const wrapper = document.createElement('div');
+            wrapper.id = 'vg-fullscreen-wrapper';
+            Object.assign(wrapper.style, {
+                position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
+                backgroundColor: 'black', display: 'flex',
+                alignItems: 'center', justifyContent: 'center', zIndex: '2147483646'
+            });
+
+            playerContainer = video.parentElement;
+            originalParent = playerContainer.parentElement;
+            originalNextSibling = playerContainer.nextElementSibling;
+
+            originalPlayerStyle = {
+                width: playerContainer.style.width,
+                height: playerContainer.style.height,
+                maxWidth: playerContainer.style.maxWidth,
+                maxHeight: playerContainer.style.maxHeight,
+                position: playerContainer.style.position,
+                zIndex: playerContainer.style.zIndex,
+            };
+
+            Object.assign(playerContainer.style, {
+                width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%',
+                position: 'relative', zIndex: '1'
+            });
+
+            wrapper.appendChild(playerContainer);
+            document.body.appendChild(wrapper);
+
+            const fsPromise = wrapper.requestFullscreen();
+
+            if (config.FORCE_LANDSCAPE && video.videoWidth > video.videoHeight) {
+                fsPromise.then(() => {
+                    if (screen.orientation && typeof screen.orientation.lock === 'function') {
+                        screen.orientation.lock('landscape').catch(err => console.warn('Could not lock orientation:', err.message));
+                    }
+                }).catch(err => console.warn('Fullscreen request failed:', err.message));
+            }
+        }
+    }
+
+    function handleDoubleTapSeek(video, touchStartX) {
+        const rect = video.getBoundingClientRect();
+        const tapZone = (touchStartX - rect.left) / rect.width;
+
+        if (tapZone < 0.4) { // Left 40%
+            video.currentTime -= config.DOUBLE_TAP_SEEK_SECONDS;
+            showIndicator(video, `<svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6l-8.5 6z"/></svg> -${config.DOUBLE_TAP_SEEK_SECONDS}s`);
+        } else if (tapZone > 0.6) { // Right 40%
+            video.currentTime += config.DOUBLE_TAP_SEEK_SECONDS;
+            showIndicator(video, `+${config.DOUBLE_TAP_SEEK_SECONDS}s <svg viewBox="0 0 24 24"><path d="M18 6h-2v12h2zM4 6v12l8.5-6L4 6z"/></svg>`);
+        } else {
+            // Double tap in the middle zone could play/pause
+            if (video.paused) {
+                video.play();
+            } else {
+                video.pause();
+            }
+        }
+        triggerHapticFeedback();
+    }
+
+    function handleHorizontalSwipe(deltaX) {
+        if (!activeGesture) return;
+        const { video } = activeGesture;
+        const seekTime = deltaX * config.SEEK_SENSITIVITY;
+        const newTime = video.currentTime + seekTime;
+        const icon = seekTime > 0 ? `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>` : `<svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm-2-6l6.5 4.5V7.5L9 12z"/></svg>`;
+        showIndicator(video, `${icon} ${formatTime(newTime)}`);
+    }
+
+    function handleVerticalSwipe(deltaY, type) {
+        if (!activeGesture) return;
+        const { video } = activeGesture;
+
+        if (type === 'volume') {
+            const volumeChange = -deltaY / 150; // Slower sensitivity
+            video.volume = Math.max(0, Math.min(1, video.volume + volumeChange));
+            showIndicator(video, `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> ${Math.round(video.volume * 100)}%`);
+        } else if (type === 'speed') {
+            // This logic can be expanded to be incremental instead of just two states
+            if (deltaY < -config.SWIPE_THRESHOLD) { // Swipe Up
+                video.playbackRate = 2.0;
+                const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
+                showIndicator(video, `${speedIcon} <span>2.0x Speed</span>`);
+            } else if (deltaY > config.SWIPE_THRESHOLD) { // Swipe Down
+                video.playbackRate = 1.0;
+                const speedIcon = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
+                showIndicator(video, `${speedIcon} <span>1.0x Speed</span>`);
+            }
+        }
+    }
+
+    function handleFullscreenChange() {
+        if (!document.fullscreenElement) {
+            const wrapper = document.getElementById('vg-fullscreen-wrapper');
+            if (wrapper && originalParent && playerContainer) {
+                Object.assign(playerContainer.style, originalPlayerStyle);
+                originalParent.insertBefore(playerContainer, originalNextSibling);
+                wrapper.remove();
+            }
+            if (screen.orientation && typeof screen.orientation.unlock === 'function') {
+                screen.orientation.unlock();
+            }
+        }
+    }
+
+    // --- Utilities ---
     function formatTime(totalSeconds) {
-        if (isNaN(totalSeconds)) return '00:00';
         const sec = Math.floor(totalSeconds % 60).toString().padStart(2, '0');
         const min = Math.floor((totalSeconds / 60) % 60).toString().padStart(2, '0');
         const hr = Math.floor(totalSeconds / 3600);
         return hr > 0 ? `${hr}:${min}:${sec}` : `${min}:${sec}`;
     }
 
-    /* --- Initialization --- */
+    // --- Initialization ---
     function initialize() {
         injectStyles();
-        regRESIZE();
-        GM_registerMenuCommand('⚙️ Configure Video Gestures', showSettingsPanel);
-        window.addEventListener('touchstart', touchStart, { capture: true, passive: false });
-        window.addEventListener('touchmove', touchMove, { capture: true, passive: false });
-        window.addEventListener('touchend', touchEnd, { capture: true, passive: false });
-        checkTimer = setTimeout(loadCheck, 500);
-        CHECK_M_OBSERVER.observe(document, { childList: true, subtree: true });
+        // Use capture: true to get the event before the target site's own scripts can.
+        // This is key for stopping their handlers.
+        document.addEventListener('touchstart', onTouchStart, { passive: false, capture: true });
+        document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
+        document.addEventListener('touchend', onTouchEnd, { passive: false, capture: true });
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
     }
 
     if (document.readyState === 'loading') {
