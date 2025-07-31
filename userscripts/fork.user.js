@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro Enhanced
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      8.1
+// @version      8.2
 // @description  Adds a powerful, zoned gesture interface with intelligent native player detection to avoid conflicts. Fullscreen on swipe up.
 // @author       Murtaza Salih (Modified)
 // @match        *://*/*
