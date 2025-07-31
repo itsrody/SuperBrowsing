@@ -294,12 +294,12 @@
             parent.appendChild(overlay);
         }
         
-        overlay.textContent = hasNative ? 'Native Player' : 'Enhanced Gestures';
+        overlay.textContent = hasNative ? 'Native Player' : 'Swipe Up for Fullscreen';
         overlay.classList.add('visible');
         
         setTimeout(() => {
             if (overlay) overlay.classList.remove('visible');
-        }, 2000);
+        }, 3000);
     }
 
     function triggerHapticFeedback() {
@@ -322,10 +322,8 @@
         touchStartY = e.touches[0].clientY;
         gestureType = 'tap';
 
-        // Handle both fullscreen and normal mode double-tap logic
-        if (document.fullscreenElement || 
-            (config.ENABLE_NORMAL_MODE_FULLSCREEN && normalModeDoubleTapEnabled.get(video))) {
-            
+        // Handle only fullscreen mode double-tap logic (removed normal mode double-tap)
+        if (document.fullscreenElement) {
             clearTimeout(tapTimeout);
             tapTimeout = setTimeout(() => { tapCount = 0; }, config.DOUBLE_TAP_TIMEOUT_MS);
             tapCount++;
@@ -344,10 +342,24 @@
                 const rect = currentVideo.getBoundingClientRect();
                 const tapZone = (touchStartX - rect.left) / rect.width;
 
-                if (isVerticalSwipe && tapZone > 0.33 && tapZone < 0.66) {
-                    gestureType = 'swipe-y-fullscreen';
+                if (isVerticalSwipe) {
+                    if (document.fullscreenElement) {
+                        // In fullscreen: center zone for exit fullscreen
+                        if (tapZone > 0.33 && tapZone < 0.66) {
+                            gestureType = 'swipe-y-fullscreen';
+                        } else {
+                            gestureType = 'swipe-y';
+                        }
+                    } else {
+                        // In normal mode: swipe up anywhere for fullscreen
+                        if (deltaY < -config.SWIPE_THRESHOLD && 
+                            config.ENABLE_NORMAL_MODE_FULLSCREEN && 
+                            normalModeDoubleTapEnabled.get(currentVideo)) {
+                            gestureType = 'swipe-up-fullscreen';
+                        }
+                    }
                 } else if (document.fullscreenElement) {
-                    gestureType = isVerticalSwipe ? 'swipe-y' : 'swipe-x';
+                    gestureType = 'swipe-x';
                 }
             }
         }
@@ -402,7 +414,7 @@
     // --- Enhanced Gesture Logic ---
     function handleNormalModeFullscreenToggle() {
         const fullscreenIcon = `<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`;
-        showIndicator(currentVideo, `${fullscreenIcon} <span>Fullscreen</span>`, 'fullscreen-toggle');
+        showIndicator(currentVideo, `${fullscreenIcon} <span>Swipe Up for Fullscreen</span>`, 'fullscreen-toggle');
         triggerHapticFeedback();
         
         // Use the existing fullscreen toggle logic
