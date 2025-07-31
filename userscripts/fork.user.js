@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      8.5
+// @version      8.6
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos using a robust state machine.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
@@ -45,40 +45,48 @@
     });
 
 
-    // --- Styles ---
-    function injectStyles() {
-        if (document.getElementById('video-gesture-pro-styles')) return;
+    // --- Styles & Global Indicator ---
+    let globalIndicator = null;
+    let indicatorTimeout = null;
+
+    function initializeIndicator() {
+        if (document.getElementById('vg-global-indicator')) return;
+
         const style = document.createElement('style');
         style.id = 'video-gesture-pro-styles';
         style.innerHTML = `
             @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap');
-            .vg-indicator {
-                position: absolute; top: 50%; left: 50%;
-                transform: translate(-50%, -50%);
-                padding: 10px 16px; background-color: rgba(30, 30, 30, 0.9);
-                color: #fff; font-family: 'Roboto', sans-serif; font-size: 16px;
+            #vg-global-indicator {
+                position: fixed; /* Relative to the viewport, not any element */
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%) scale(0.9);
+                padding: 10px 16px;
+                background-color: rgba(30, 30, 30, 0.9);
+                color: #fff;
+                font-family: 'Roboto', sans-serif;
+                font-size: 16px;
                 border-radius: 20px;
                 z-index: 2147483647;
                 display: flex;
-                align-items: center; gap: 8px; opacity: 0; pointer-events: none;
+                align-items: center;
+                gap: 8px;
+                opacity: 0;
+                pointer-events: none;
                 transition: opacity 0.2s ease, transform 0.2s ease;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.3);
             }
-            .vg-indicator.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-            .vg-indicator svg { width: 24px; height: 24px; fill: #fff; }
-
-            /* *** NEW FIX: More precise styling for fullscreen mode *** */
-            .vg-fullscreen-active-player {
-                width: 100% !important;
-                height: 100% !important;
+            #vg-global-indicator.visible {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
             }
-            .vg-fullscreen-active-player video {
-                width: 100% !important;
-                height: 100% !important;
-                object-fit: contain !important; /* Prevents zoom/crop */
-            }
+            #vg-global-indicator svg { width: 24px; height: 24px; fill: #fff; }
         `;
         document.head.appendChild(style);
+
+        globalIndicator = document.createElement('div');
+        globalIndicator.id = 'vg-global-indicator';
+        document.body.appendChild(globalIndicator);
     }
 
     // --- State Management ---
@@ -90,27 +98,16 @@
     let originalPlayerStyle = {};
 
     // --- UI & Feedback ---
-    function showIndicator(video, html) {
-        const parent = document.fullscreenElement || video.parentElement;
-        if (!parent) return;
+    function showIndicator(html) {
+        if (!globalIndicator) return;
 
-        if (!parent.gestureIndicator) {
-             const indicator = document.createElement('div');
-             indicator.className = 'vg-indicator';
-             if (getComputedStyle(parent).position === 'static') {
-                 parent.style.position = 'relative';
-             }
-             parent.appendChild(indicator);
-             parent.gestureIndicator = indicator;
-        }
-        const { gestureIndicator } = parent;
-        gestureIndicator.innerHTML = html;
-        gestureIndicator.classList.add('visible');
+        globalIndicator.innerHTML = html;
+        globalIndicator.classList.add('visible');
 
-        if (parent.indicatorTimeout) clearTimeout(parent.indicatorTimeout);
+        if (indicatorTimeout) clearTimeout(indicatorTimeout);
 
-        parent.indicatorTimeout = setTimeout(() => {
-            if (gestureIndicator) gestureIndicator.classList.remove('visible');
+        indicatorTimeout = setTimeout(() => {
+            globalIndicator.classList.remove('visible');
         }, 800);
     }
 
@@ -255,7 +252,7 @@
         const icon = isFullscreen
             ? `<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>`
             : `<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`;
-        showIndicator(video, icon);
+        showIndicator(icon);
         triggerHapticFeedback();
 
         if (isFullscreen) {
@@ -274,11 +271,11 @@
             originalParent = playerContainer.parentElement;
             originalNextSibling = playerContainer.nextElementSibling;
             
-            // Store a copy of original inline styles
             originalPlayerStyle.cssText = playerContainer.style.cssText;
-
-            // Add class for targeted CSS styling
-            playerContainer.classList.add('vg-fullscreen-active-player');
+            
+            // The player container itself needs to be flexible within the wrapper
+            playerContainer.style.width = '100%';
+            playerContainer.style.height = '100%';
             
             wrapper.appendChild(playerContainer);
             document.body.appendChild(wrapper);
@@ -301,10 +298,10 @@
 
         if (tapZone < 0.4) {
             video.currentTime -= config.DOUBLE_TAP_SEEK_SECONDS;
-            showIndicator(video, `<svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6l-8.5 6z"/></svg> -${config.DOUBLE_TAP_SEEK_SECONDS}s`);
+            showIndicator(`- ${config.DOUBLE_TAP_SEEK_SECONDS}s`);
         } else if (tapZone > 0.6) {
             video.currentTime += config.DOUBLE_TAP_SEEK_SECONDS;
-            showIndicator(video, `+${config.DOUBLE_TAP_SEEK_SECONDS}s <svg viewBox="0 0 24 24"><path d="M18 6h-2v12h2zM4 6v12l8.5-6L4 6z"/></svg>`);
+            showIndicator(`+ ${config.DOUBLE_TAP_SEEK_SECONDS}s`);
         } else {
             if (video.paused) {
                 video.play();
@@ -321,7 +318,7 @@
         const seekTime = deltaX * config.SEEK_SENSITIVITY;
         const newTime = video.currentTime + seekTime;
         const icon = seekTime > 0 ? `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>` : `<svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm-2-6l6.5 4.5V7.5L9 12z"/></svg>`;
-        showIndicator(video, `${icon} ${formatTime(newTime)}`);
+        showIndicator(`${icon} ${formatTime(newTime)}`);
     }
 
     function handleVerticalSwipe(deltaY, type) {
@@ -331,16 +328,16 @@
         if (type === 'volume') {
             const volumeChange = -deltaY / 150;
             video.volume = Math.max(0, Math.min(1, video.volume + volumeChange));
-            showIndicator(video, `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> ${Math.round(video.volume * 100)}%`);
+            showIndicator(`<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> ${Math.round(video.volume * 100)}%`);
         } else if (type === 'speed') {
             if (deltaY < -config.SWIPE_THRESHOLD) {
                 video.playbackRate = 2.0;
                 const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
-                showIndicator(video, `${speedIcon} <span>2.0x Speed</span>`);
+                showIndicator(`${speedIcon} <span>2.0x Speed</span>`);
             } else if (deltaY > config.SWIPE_THRESHOLD) {
                 video.playbackRate = 1.0;
                 const speedIcon = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
-                showIndicator(video, `${speedIcon} <span>1.0x Speed</span>`);
+                showIndicator(`${speedIcon} <span>1.0x Speed</span>`);
             }
         }
     }
@@ -349,10 +346,7 @@
         if (!document.fullscreenElement) {
             const wrapper = document.getElementById('vg-fullscreen-wrapper');
             if (wrapper && originalParent && playerContainer) {
-                // Remove the class and restore original styles
-                playerContainer.classList.remove('vg-fullscreen-active-player');
                 playerContainer.style.cssText = originalPlayerStyle.cssText;
-                
                 originalParent.insertBefore(playerContainer, originalNextSibling);
                 wrapper.remove();
             }
@@ -372,7 +366,7 @@
 
     // --- Initialization ---
     function initialize() {
-        injectStyles();
+        initializeIndicator();
         document.addEventListener('touchstart', onTouchStart, { passive: false, capture: true });
         document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
         document.addEventListener('touchend', onTouchEnd, { passive: false, capture: true });
