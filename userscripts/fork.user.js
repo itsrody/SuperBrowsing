@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      8.2
+// @version      8.3
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos using a robust state machine.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
@@ -18,7 +18,7 @@
     // --- Central Configuration Panel ---
     const DEFAULTS = {
         MIN_VIDEO_DURATION_SECONDS: 60,
-        DOUBLE_TAP_SEEK_SECONDS: 5,
+        DOUBLE_TAP_SEEK_SECONDS: 10,
         SWIPE_THRESHOLD: 20,
         SEEK_SENSITIVITY: 0.3,
         ENABLE_HAPTIC_FEEDBACK: true,
@@ -66,6 +66,11 @@
             }
             .vg-indicator.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
             .vg-indicator svg { width: 24px; height: 24px; fill: #fff; }
+            #vg-fullscreen-wrapper video { /* Fix for zoom issue */
+                object-fit: contain !important;
+                height: 100% !important;
+                width: 100% !important;
+            }
         `;
         document.head.appendChild(style);
     }
@@ -179,7 +184,6 @@
 
         if (!activeGesture.isSwipe && Math.hypot(deltaX, deltaY) > config.SWIPE_THRESHOLD) {
             activeGesture.isSwipe = true;
-            // A swipe is not a tap, so reset the tap count.
             lastTap.count = 0;
             
             const rect = activeGesture.video.getBoundingClientRect();
@@ -195,7 +199,7 @@
         }
 
         if (activeGesture.isSwipe) {
-            e.preventDefault(); // Prevent page scroll only when swiping
+            e.preventDefault();
             switch (activeGesture.action) {
                 case 'seeking': handleHorizontalSwipe(deltaX); break;
                 case 'volume': handleVerticalSwipe(deltaY, 'volume'); break;
@@ -226,7 +230,6 @@
             }
         } else {
             if (lastTap.count >= 2) {
-                // *** FIX: Prevent default action (like a native dblclick) for our handled double-tap ***
                 e.preventDefault();
                 if (document.fullscreenElement) {
                     handleDoubleTapSeek(activeGesture.video, activeGesture.startX);
@@ -260,7 +263,9 @@
                 alignItems: 'center', justifyContent: 'center', zIndex: '2147483646'
             });
 
-            playerContainer = video.parentElement;
+            // *** FIX: Find the *actual* player container, not just the video's parent ***
+            playerContainer = video.closest('.html5-video-player, .player, .video-js, [data-vjs-player]') || video.parentElement;
+
             originalParent = playerContainer.parentElement;
             originalNextSibling = playerContainer.nextElementSibling;
 
