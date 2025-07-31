@@ -1,11 +1,18 @@
 // ==UserScript==
 // @name          Video Gestures Pro (Long-Press Fork)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      9.4
+// @version      9.5
 // @description  Adds a powerful, zoned gesture interface, including long-press to speed up, brightness, and volume control, to most web videos.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
 // @exclude      *://*.netflix.com/*
+// @exclude      *://*.youtube.com/*
+// @exclude      *://*.instagram.com/*
+// @exclude      *://*.facebook.com/*
+// @exclude      *://*.reddit.com/*
+// @exclude      *://*.tiktok.com/*
+// @exclude      *://*.dailymotion.com/*
+// @exclude      *://*.hulu.com/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
@@ -371,9 +378,9 @@
             const change = -deltaY / config.BRIGHTNESS_SENSITIVITY;
             let newBrightness = activeGesture.initialBrightness + change;
             newBrightness = Math.max(0.1, Math.min(2, newBrightness)); // Clamp between 10% and 200%
-
+            const brightnessIcon = `<svg viewBox="0 0 24 24"><path d="M20 8.69V4h-4.69L12 0 8.69 4H4v4.69L0 12l4 3.31V20h4.69L12 24l3.31-4H20v-4.69L24 12l-4-3.31M12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/></svg>`;
             document.documentElement.style.filter = `brightness(${newBrightness})`;
-            showIndicator(`☀️ ${Math.round(newBrightness * 100)}%`);
+            showIndicator(`${brightnessIcon} ${Math.round(newBrightness * 100)}%`);
         }
     }
 
