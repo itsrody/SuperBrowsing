@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      8.6
+// @version      8.7
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos using a robust state machine.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
@@ -57,7 +57,7 @@
         style.innerHTML = `
             @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap');
             #vg-global-indicator {
-                position: fixed; /* Relative to the viewport, not any element */
+                position: fixed;
                 top: 50%;
                 left: 50%;
                 transform: translate(-50%, -50%) scale(0.9);
@@ -92,10 +92,6 @@
     // --- State Management ---
     let activeGesture = null;
     let lastTap = { time: 0, count: 0 };
-    let playerContainer = null;
-    let originalParent = null;
-    let originalNextSibling = null;
-    let originalPlayerStyle = {};
 
     // --- UI & Feedback ---
     function showIndicator(html) {
@@ -258,29 +254,10 @@
         if (isFullscreen) {
             document.exitFullscreen();
         } else {
-            const wrapper = document.createElement('div');
-            wrapper.id = 'vg-fullscreen-wrapper';
-            Object.assign(wrapper.style, {
-                position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
-                backgroundColor: 'black', display: 'flex',
-                alignItems: 'center', justifyContent: 'center', zIndex: '2147483646'
-            });
-
-            playerContainer = video.closest('.html5-video-player, .player, .video-js, [data-vjs-player]') || video.parentElement;
-
-            originalParent = playerContainer.parentElement;
-            originalNextSibling = playerContainer.nextElementSibling;
+            // Find the main player container that holds the video and its UI
+            const playerContainer = video.closest('.html5-video-player, .player, .video-js, [data-vjs-player]') || video;
             
-            originalPlayerStyle.cssText = playerContainer.style.cssText;
-            
-            // The player container itself needs to be flexible within the wrapper
-            playerContainer.style.width = '100%';
-            playerContainer.style.height = '100%';
-            
-            wrapper.appendChild(playerContainer);
-            document.body.appendChild(wrapper);
-
-            const fsPromise = wrapper.requestFullscreen();
+            const fsPromise = playerContainer.requestFullscreen();
 
             if (config.FORCE_LANDSCAPE && video.videoWidth > video.videoHeight) {
                 fsPromise.then(() => {
@@ -295,13 +272,15 @@
     function handleDoubleTapSeek(video, touchStartX) {
         const rect = video.getBoundingClientRect();
         const tapZone = (touchStartX - rect.left) / rect.width;
+        const seekIconBack = `<svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6l-8.5 6z"/></svg>`;
+        const seekIconFwd = `<svg viewBox="0 0 24 24"><path d="M18 6h-2v12h2zM4 6v12l8.5-6L4 6z"/></svg>`;
 
         if (tapZone < 0.4) {
             video.currentTime -= config.DOUBLE_TAP_SEEK_SECONDS;
-            showIndicator(`- ${config.DOUBLE_TAP_SEEK_SECONDS}s`);
+            showIndicator(`${seekIconBack} -${config.DOUBLE_TAP_SEEK_SECONDS}s`);
         } else if (tapZone > 0.6) {
             video.currentTime += config.DOUBLE_TAP_SEEK_SECONDS;
-            showIndicator(`+ ${config.DOUBLE_TAP_SEEK_SECONDS}s`);
+            showIndicator(`+${config.DOUBLE_TAP_SEEK_SECONDS}s ${seekIconFwd}`);
         } else {
             if (video.paused) {
                 video.play();
@@ -343,13 +322,12 @@
     }
 
     function handleFullscreenChange() {
-        if (!document.fullscreenElement) {
-            const wrapper = document.getElementById('vg-fullscreen-wrapper');
-            if (wrapper && originalParent && playerContainer) {
-                playerContainer.style.cssText = originalPlayerStyle.cssText;
-                originalParent.insertBefore(playerContainer, originalNextSibling);
-                wrapper.remove();
-            }
+        // This function now only needs to move the indicator
+        if (document.fullscreenElement) {
+            document.fullscreenElement.appendChild(globalIndicator);
+        } else {
+            document.body.appendChild(globalIndicator);
+            // Unlock orientation if it was locked
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
             }
