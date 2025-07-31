@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name          Video Gestures Pro Enhanced
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      8.0
-// @description  Adds a powerful, zoned gesture interface with intelligent native player detection to avoid conflicts
-// @author       Murtaza Salih
+// @version      8.1
+// @description  Adds a powerful, zoned gesture interface with intelligent native player detection to avoid conflicts. Fullscreen on swipe up.
+// @author       Murtaza Salih (Modified)
 // @match        *://*/*
 // @exclude      *://*.youtube.com/*
 // @exclude      *://*.dailymotion.com/*
@@ -256,7 +256,7 @@
     let originalParent = null;
     let originalNextSibling = null;
     let originalPlayerStyle = {};
-    let normalModeDoubleTapEnabled = new WeakMap(); // Track per-video status
+    let enhancedGesturesEnabled = new WeakMap(); // Track per-video status
 
     // --- UI & Feedback ---
     function showIndicator(video, html, className = '') {
@@ -322,7 +322,7 @@
         touchStartY = e.touches[0].clientY;
         gestureType = 'tap';
 
-        // Handle only fullscreen mode double-tap logic (removed normal mode double-tap)
+        // This logic is for double-tap seeking *inside* fullscreen mode.
         if (document.fullscreenElement) {
             clearTimeout(tapTimeout);
             tapTimeout = setTimeout(() => { tapCount = 0; }, config.DOUBLE_TAP_TIMEOUT_MS);
@@ -344,21 +344,23 @@
 
                 if (isVerticalSwipe) {
                     if (document.fullscreenElement) {
-                        // In fullscreen: center zone for exit fullscreen
+                        // In fullscreen: vertical swipe in center zone is for exiting fullscreen
                         if (tapZone > 0.33 && tapZone < 0.66) {
                             gestureType = 'swipe-y-fullscreen';
                         } else {
+                            // Vertical swipes on sides control volume/speed
                             gestureType = 'swipe-y';
                         }
                     } else {
-                        // In normal mode: swipe up anywhere for fullscreen
+                        // MODIFICATION: In normal mode, a swipe up anywhere triggers fullscreen
                         if (deltaY < -config.SWIPE_THRESHOLD && 
                             config.ENABLE_NORMAL_MODE_FULLSCREEN && 
-                            normalModeDoubleTapEnabled.get(currentVideo)) {
+                            enhancedGesturesEnabled.get(currentVideo)) {
                             gestureType = 'swipe-up-fullscreen';
                         }
                     }
                 } else if (document.fullscreenElement) {
+                    // Horizontal swipes are only for seeking in fullscreen
                     gestureType = 'swipe-x';
                 }
             }
@@ -374,39 +376,43 @@
     async function onTouchEnd(e) {
         if (!currentVideo) return;
 
-        if (gestureType === 'swipe-y-fullscreen') {
+        // MODIFICATION: Handle swipe up to enter fullscreen as the primary action
+        if (gestureType === 'swipe-up-fullscreen') {
+            e.preventDefault();
+            e.stopPropagation();
+            handleNormalModeFullscreenToggle();
+        } 
+        // Handle swipe down from center to exit fullscreen
+        else if (gestureType === 'swipe-y-fullscreen') {
             const deltaY = e.changedTouches[0].clientY - touchStartY;
             if (deltaY > config.SWIPE_THRESHOLD) {
                 handleFullscreenToggle();
             }
         }
+        // Handle all gestures that occur *inside* fullscreen mode
         else if (document.fullscreenElement) {
-            // Existing fullscreen double-tap logic
+            // Double-tap to seek
             if (gestureType === 'tap' && tapCount >= 2) {
                 e.preventDefault();
                 handleDoubleTapSeek();
                 clearTimeout(tapTimeout);
                 tapCount = 0;
-            } else if (gestureType === 'swipe-x') {
+            } 
+            // Finalize horizontal swipe seek
+            else if (gestureType === 'swipe-x') {
                 const deltaX = e.changedTouches[0].clientX - touchStartX;
                 const seekTime = deltaX * config.SEEK_SENSITIVITY;
                 currentVideo.currentTime += seekTime;
                 triggerHapticFeedback();
-            } else if (gestureType === 'swipe-y') {
+            } 
+            // Finalize vertical swipe for volume/speed
+            else if (gestureType === 'swipe-y') {
                 triggerHapticFeedback();
             }
         }
-        else if (config.ENABLE_NORMAL_MODE_FULLSCREEN && 
-                 normalModeDoubleTapEnabled.get(currentVideo) && 
-                 gestureType === 'tap' && tapCount >= 2) {
-            // New normal mode double-tap fullscreen
-            e.preventDefault();
-            e.stopPropagation();
-            handleNormalModeFullscreenToggle();
-            clearTimeout(tapTimeout);
-            tapCount = 0;
-        }
+        // MODIFICATION: The old double-tap logic for normal mode fullscreen has been removed.
 
+        // Reset state for the next gesture
         currentVideo = null;
         gestureType = null;
     }
@@ -544,10 +550,10 @@
     // --- Video Detection and Setup ---
     async function setupVideoGestures(video) {
         if (!video || video.duration < config.MIN_VIDEO_DURATION_SECONDS) return;
-        if (normalModeDoubleTapEnabled.has(video)) return; // Already processed
+        if (enhancedGesturesEnabled.has(video)) return; // Already processed
         
         if (!config.ENABLE_NORMAL_MODE_FULLSCREEN) {
-            normalModeDoubleTapEnabled.set(video, false);
+            enhancedGesturesEnabled.set(video, false);
             return;
         }
         
@@ -555,19 +561,19 @@
             const hasNative = await nativePlayerDetection.detectNativeDoubleTap(video);
             const enableGesture = !hasNative;
             
-            normalModeDoubleTapEnabled.set(video, enableGesture);
+            enhancedGesturesEnabled.set(video, enableGesture);
             
             // Show detection status
             setTimeout(() => {
                 showDetectionStatus(video, hasNative);
             }, config.FULLSCREEN_DETECTION_DELAY);
             
-            console.log(`Video gesture setup: ${enableGesture ? 'Enhanced' : 'Native'} double-tap for`, video);
+            console.log(`Video gesture setup: ${enableGesture ? 'Enhanced' : 'Native'} gestures for`, video);
             
         } catch (error) {
             console.warn('Error during native player detection:', error);
             // Default to disabled on error to avoid conflicts
-            normalModeDoubleTapEnabled.set(video, false);
+            enhancedGesturesEnabled.set(video, false);
         }
     }
 
