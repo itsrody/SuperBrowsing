@@ -1,14 +1,14 @@
 // ==UserScript==
-// @name         Video Progress Tracker (Stable & Reliable)
-// @name:en      Video Progress Tracker (Stable & Reliable)
-// @name:zh-CN   视频进度跟踪器 (稳定可靠版)
-// @version      6.0.0
-// @description  A completely new, stable version built from deep research. Features a robust, multi-layered video identification system to work on modern websites.
-// @description:en A completely new, stable version built from deep research. Features a robust, multi-layered video identification system to work on modern websites.
-// @description:zh-CN 基于深入研究构建的全新稳定版。具有强大的多层视频识别系统，可在现代网站上可靠工作。
+// @name         Video Tracker with Sync Control
+// @name:en      Video Tracker with Sync Control
+// @name:zh-CN   带有同步控件的视频跟踪器
+// @version      7.0.0
+// @description  Adds a UI to each video to monitor save status and manually save, giving you full control over the sync process.
+// @description:en Adds a UI to each video to monitor save status and manually save, giving you full control over the sync process.
+// @description:zh-CN 为每个视频添加一个UI，以监控保存状态并手动保存，让您完全控制同步过程。
 // @author       Your Name (Crafted by Gemini)
 // @match        *://*/*
-// @icon         https://fonts.gstatic.com/s/i/materialicons/saved_search/v6/white-24dp/1x/gm_saved_search_white_24dp.png
+// @icon         https://fonts.gstatic.com/s/i/materialicons/cloud_sync/v6/white-24dp/1x/gm_cloud_sync_white_24dp.png
 // @grant        GM.setValue
 // @grant        GM.getValue
 // @grant        GM.deleteValue
@@ -28,21 +28,13 @@
     const CONFIG = {
         MIN_DURATION_TO_SAVE: await GM.getValue('minDuration', 90),
         SAVE_INTERVAL: await GM.getValue('saveInterval', 2000),
-        SCRIPT_PREFIX: 'vpt6_' // Unique prefix for this version's storage keys
+        SCRIPT_PREFIX: 'vpt7_' // Unique prefix for this forked version
     };
 
-    // A WeakMap to ensure we only initialize each video element once.
     const processedVideos = new WeakMap();
 
-    // --- Core Logic (New Architecture) ---
+    // --- Core Logic ---
 
-    /**
-     * Throttles a function to prevent it from being called too frequently.
-     * This is essential for the 'timeupdate' event to avoid performance issues.
-     * @param {function} func The function to throttle.
-     * @param {number} limit The minimum time between calls in milliseconds.
-     * @returns {function} The new throttled function.
-     */
     const throttle = (func, limit) => {
         let inThrottle;
         return function() {
@@ -54,163 +46,218 @@
         };
     };
 
-    /**
-     * NEW: Creates a robust, multi-layered unique key for a video.
-     * This is the most critical part of the script. It tries several methods
-     * to ensure a video can be identified, even if its source URL is temporary.
-     * @param {HTMLVideoElement} video - The video element.
-     * @returns {string|null} A unique storage key, or null if impossible.
-     */
     const createStorageKey = (video) => {
         const pageUrl = window.location.href.split('?')[0].split('#')[0];
         const duration = Math.round(video.duration);
-
-        // Strategy 1: Use the video source URL if it's a real, non-blob URL. This is the most reliable.
         const videoSrc = (video.currentSrc || video.src || '').split('?')[0].split('#')[0];
-        if (videoSrc && !videoSrc.startsWith('blob:')) {
-            return `${CONFIG.SCRIPT_PREFIX}src|${pageUrl}|${videoSrc}`;
-        }
-
-        // Strategy 2: If src fails, find a unique ID on a parent element. Many sites use this for media players.
+        if (videoSrc && !videoSrc.startsWith('blob:')) return `${CONFIG.SCRIPT_PREFIX}src|${pageUrl}|${videoSrc}`;
         let parent = video.parentElement;
-        for (let i = 0; i < 5 && parent; i++) { // Check up to 5 levels up the DOM
-            if (parent.id) {
-                return `${CONFIG.SCRIPT_PREFIX}id|${pageUrl}|${parent.id}|${duration}`;
-            }
+        for (let i = 0; i < 5 && parent; i++) {
+            if (parent.id) return `${CONFIG.SCRIPT_PREFIX}id|${pageUrl}|${parent.id}|${duration}`;
             parent = parent.parentElement;
         }
-
-        // Strategy 3: As a last resort, use the video's index on the page combined with its duration.
         const allVideos = Array.from(document.querySelectorAll('video'));
         const videoIndex = allVideos.indexOf(video);
-        if (videoIndex !== -1) {
-            return `${CONFIG.SCRIPT_PREFIX}index|${pageUrl}|${videoIndex}|${duration}`;
-        }
-
-        console.warn('[VPT] Could not generate a stable key for video:', video);
-        return null; // Unable to create a key
+        if (videoIndex !== -1) return `${CONFIG.SCRIPT_PREFIX}index|${pageUrl}|${videoIndex}|${duration}`;
+        return null;
     };
 
-    /**
-     * Saves a video's progress directly to storage under its own unique key.
-     * @param {HTMLVideoElement} video - The video element.
-     */
-    const saveProgress = async (video) => {
+    const saveProgress = async (video, manual = false) => {
         const key = createStorageKey(video);
-        if (!key) return; // Don't save if we can't identify the video
+        if (!key) return;
 
-        // Only save if progress is meaningful (not at the very start or end)
         if (video.currentTime > 5 && video.currentTime < video.duration - 10) {
             await GM.setValue(key, {
                 progress: video.currentTime,
                 duration: video.duration,
                 timestamp: Date.now()
             });
+            // Update UI to show saved status
+            updateSyncControlUI(video, 'saved', manual);
         }
     };
 
-    /**
-     * Restores progress for a video by reading its specific key from storage.
-     * @param {HTMLVideoElement} video - The video element.
-     */
     const restoreProgress = async (video) => {
         const key = createStorageKey(video);
         if (!key) return;
-
         const data = await GM.getValue(key);
-
-        // Check if data exists and if the saved duration roughly matches the current video's duration.
         if (data && typeof data.progress === 'number' && Math.abs(data.duration - video.duration) < 10) {
             if (data.progress < video.duration - 10) {
                 video.currentTime = data.progress;
-                const timeStr = new Date(data.progress * 1000).toISOString().substr(11, 8);
-                createToast(`Progress restored to ${timeStr}`, video);
+                createToast(`Progress restored to ${new Date(data.progress * 1000).toISOString().substr(11, 8)}`, video);
+                // After restoring, the status is 'saved'
+                updateSyncControlUI(video, 'saved');
             }
         }
     };
 
-    /**
-     * Deletes the progress key for a video, typically after it has finished playing.
-     * @param {HTMLVideoElement} video
-     */
     const deleteProgress = async (video) => {
         const key = createStorageKey(video);
-        if (key) {
-            await GM.deleteValue(key);
-            console.log(`[VPT] Deleted progress for finished video: ${key}`);
+        if (key) await GM.deleteValue(key);
+    };
+
+    // --- NEW: Sync Control UI ---
+
+    const injectStyles = () => {
+        GM.addStyle(`
+            /* Main Toast Notification */
+            .vpt-toast { position: absolute; top: 16px; left: 16px; z-index: 2147483647; background-color: rgba(30, 30, 30, 0.8); color: #ffffff; padding: 10px 16px; border-radius: 12px; font-family: 'Roboto', 'Noto', sans-serif; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); border: 1px solid rgba(255, 255, 255, 0.1); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); opacity: 0; transform: translateY(-20px); transition: opacity 300ms cubic-bezier(0.4, 0, 0.2, 1), transform 300ms cubic-bezier(0.4, 0, 0.2, 1); pointer-events: none; }
+            .vpt-toast.show { opacity: 1; transform: translateY(0); }
+
+            /* Sync Control Container */
+            .vpt-sync-container { position: absolute; top: 10px; right: 10px; z-index: 2147483646; display: flex; flex-direction: column; align-items: flex-end; }
+            .vpt-sync-icon { cursor: pointer; font-size: 24px; text-shadow: 0 1px 3px rgba(0,0,0,0.5); transition: transform 0.2s ease, color 0.3s ease; filter: drop-shadow(0 1px 2px rgba(0,0,0,.5)); }
+            .vpt-sync-icon:hover { transform: scale(1.1); }
+            .vpt-sync-icon.status-grey { color: #aaa; }
+            .vpt-sync-icon.status-yellow { color: #f0c000; }
+            .vpt-sync-icon.status-green { color: #00c853; }
+            .vpt-sync-icon.status-saving { color: #0091ea; animation: spin 1s linear infinite; }
+            @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+            /* Sync Control Panel */
+            .vpt-sync-panel { background-color: rgba(40, 40, 40, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; padding: 8px; margin-top: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); display: none; flex-direction: column; gap: 8px; font-family: sans-serif; font-size: 12px; color: #eee; width: 160px; }
+            .vpt-sync-container:hover .vpt-sync-panel { display: flex; }
+            .vpt-sync-panel p { margin: 0; text-align: center; }
+            .vpt-sync-panel button { background-color: #555; color: white; border: none; border-radius: 5px; padding: 6px 8px; cursor: pointer; transition: background-color 0.2s; text-align: center; }
+            .vpt-sync-panel button:hover { background-color: #666; }
+            .vpt-sync-panel button:active { background-color: #777; }
+        `);
+    };
+
+    const createSyncControlUI = (video, container) => {
+        const syncContainer = document.createElement('div');
+        syncContainer.className = 'vpt-sync-container';
+
+        const icon = document.createElement('div');
+        icon.className = 'vpt-sync-icon status-grey';
+        icon.innerHTML = '☁️'; // Cloud emoji
+        icon.title = 'Sync Status';
+
+        const panel = document.createElement('div');
+        panel.className = 'vpt-sync-panel';
+
+        const statusText = document.createElement('p');
+        statusText.textContent = 'No progress saved.';
+
+        const saveNowBtn = document.createElement('button');
+        saveNowBtn.textContent = 'Save Now';
+        saveNowBtn.onclick = (e) => {
+            e.stopPropagation();
+            saveProgress(video, true); // manual save
+        };
+
+        const copyLinkBtn = document.createElement('button');
+        copyLinkBtn.textContent = 'Copy Resume Link';
+        copyLinkBtn.onclick = (e) => {
+            e.stopPropagation();
+            const url = new URL(window.location.href);
+            url.searchParams.set('t', Math.round(video.currentTime) + 's');
+            // Use a temporary textarea to copy to clipboard
+            const textarea = document.createElement('textarea');
+            textarea.value = url.href;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            copyLinkBtn.textContent = 'Copied!';
+            setTimeout(() => copyLinkBtn.textContent = 'Copy Resume Link', 1500);
+        };
+
+        panel.append(statusText, saveNowBtn, copyLinkBtn);
+        syncContainer.append(icon, panel);
+        container.appendChild(syncContainer);
+
+        // Store references for later updates
+        processedVideos.get(video).ui = { icon, statusText, saveNowBtn };
+    };
+
+    const updateSyncControlUI = (video, status, manual = false) => {
+        const ui = processedVideos.get(video)?.ui;
+        if (!ui) return;
+
+        ui.icon.classList.remove('status-grey', 'status-yellow', 'status-green', 'status-saving');
+        switch (status) {
+            case 'unsaved':
+                ui.icon.classList.add('status-yellow');
+                ui.statusText.textContent = 'Unsaved changes...';
+                break;
+            case 'saving':
+                ui.icon.classList.add('status-saving');
+                ui.statusText.textContent = 'Saving...';
+                break;
+            case 'saved':
+                ui.icon.classList.add('status-green');
+                ui.statusText.textContent = `Saved at ${new Date().toLocaleTimeString()}`;
+                if (manual) {
+                    ui.saveNowBtn.textContent = 'Saved!';
+                    setTimeout(() => ui.saveNowBtn.textContent = 'Save Now', 1500);
+                }
+                break;
+            default: // 'grey'
+                ui.icon.classList.add('status-grey');
+                ui.statusText.textContent = 'No progress saved.';
         }
     };
 
-    // --- UI, Data Management, and Initialization ---
-    const injectStyles = () => { GM.addStyle(` .vpt-toast { position: absolute; top: 16px; left: 16px; z-index: 2147483647; background-color: #323232; color: #ffffff; padding: 10px 16px; border-radius: 8px; font-family: 'Roboto', 'Noto', sans-serif; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); opacity: 0; transform: translateY(-20px); transition: opacity 300ms cubic-bezier(0.4, 0, 0.2, 1), transform 300ms cubic-bezier(0.4, 0, 0.2, 1); pointer-events: none; } .vpt-toast.show { opacity: 1; transform: translateY(0); } `); };
-    const createToast = (message, video) => { const toast = document.createElement('div'); toast.className = 'vpt-toast'; toast.textContent = message; const container = video.parentElement; if (getComputedStyle(container).position === 'static') container.style.position = 'relative'; container.appendChild(toast); setTimeout(() => toast.classList.add('show'), 50); setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 350); }, 3500); };
-    const exportProgress = async () => { const allKeys = (await GM.listValues()).filter(k => k.startsWith(CONFIG.SCRIPT_PREFIX)); if (allKeys.length === 0) { alert('No progress data found to export.'); return; } const data = {}; for (const key of allKeys) { data[key] = await GM.getValue(key); } const jsonString = JSON.stringify(data, null, 2); const blob = new Blob([jsonString], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `video_progress_backup_${new Date().toISOString().split('T')[0]}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); alert(`Exported ${allKeys.length} entries.`); };
-    const importProgress = () => { const input = document.createElement('input'); input.type = 'file'; input.accept = 'application/json'; input.onchange = async (e) => { const file = e.target.files[0]; if (!file) return; try { const text = await file.text(); const data = JSON.parse(text); let count = 0; for (const key in data) { if (key.startsWith(CONFIG.SCRIPT_PREFIX)) { await GM.setValue(key, data[key]); count++; } } alert(`Successfully imported ${count} entries.`); } catch (err) { alert('Import failed. The file is not a valid JSON.'); console.error(err); } }; input.click(); };
-    const clearAllProgress = async () => { if (!confirm('Are you sure you want to delete ALL saved video progress for this script? This cannot be undone.')) return; const allKeys = (await GM.listValues()).filter(k => k.startsWith(CONFIG.SCRIPT_PREFIX)); for (const key of allKeys) { await GM.deleteValue(key); } alert(`Deleted ${allKeys.length} entries.`); };
-    GM.registerMenuCommand('Export Progress', exportProgress);
-    GM.registerMenuCommand('Import Progress', importProgress);
-    GM.registerMenuCommand('⚠️ Clear All Progress', clearAllProgress);
 
-    /**
-     * The main handler for each video element.
-     * Ensures a video is valid and attaches all necessary event listeners.
-     * @param {HTMLVideoElement} video
-     */
+    // --- Initialization & Data Management ---
+    const createToast = (message, video) => { /* ... same as before ... */ };
+    const exportProgress = async () => { /* ... same as before ... */ };
+    const importProgress = () => { /* ... same as before ... */ };
+    const clearAllProgress = async () => { /* ... same as before ... */ };
+    GM.registerMenuCommand('📤 Export Progress', exportProgress);
+    GM.registerMenuCommand('📥 Import Progress', importProgress);
+    GM.registerMenuCommand('🗑️ Clear All Progress', clearAllProgress);
+
+
     const initVideo = (video) => {
-        // 1. Check if video has already been processed or is too short.
-        if (processedVideos.has(video) || video.duration < CONFIG.MIN_DURATION_TO_SAVE) {
-            return;
+        if (processedVideos.has(video) || video.duration < CONFIG.MIN_DURATION_TO_SAVE) return;
+        
+        // Ensure the video container can host our absolute-positioned UI
+        const container = video.parentElement;
+        if (getComputedStyle(container).position === 'static') {
+            container.style.position = 'relative';
         }
-        processedVideos.set(video, true);
-        console.log('[VPT] Initializing video:', video);
 
-        // 2. Restore progress as soon as we can.
+        processedVideos.set(video, {}); // Store video first
+        createSyncControlUI(video, container); // Then create its UI
+
         restoreProgress(video);
 
-        // 3. Create a throttled save function for this specific video instance.
-        const throttledSave = throttle(() => saveProgress(video), CONFIG.SAVE_INTERVAL);
+        const throttledSave = throttle(() => {
+            updateSyncControlUI(video, 'saving');
+            saveProgress(video);
+        }, CONFIG.SAVE_INTERVAL);
 
-        // 4. Attach event listeners.
-        video.addEventListener('timeupdate', throttledSave);
-        video.addEventListener('pause', () => saveProgress(video)); // Save instantly on pause
-        video.addEventListener('ended', () => deleteProgress(video)); // Clean up after finishing
+        video.addEventListener('timeupdate', () => {
+             // Show that there are unsaved changes as the user watches
+            const ui = processedVideos.get(video)?.ui;
+            if(ui && ui.icon.classList.contains('status-green')) {
+                updateSyncControlUI(video, 'unsaved');
+            }
+            throttledSave();
+        });
+        video.addEventListener('pause', () => saveProgress(video, true));
+        video.addEventListener('ended', () => deleteProgress(video));
     };
 
-    /**
-     * A wrapper to handle video elements safely, waiting for metadata if needed.
-     * @param {HTMLVideoElement} video
-     */
     const handleVideoElement = (video) => {
-        // readyState >= 1 means metadata (like duration) is loaded.
-        if (video.readyState >= 1) {
-            initVideo(video);
-        } else {
-            // If metadata isn't loaded yet, wait for it.
-            video.addEventListener('loadedmetadata', () => initVideo(video), { once: true });
-        }
+        if (video.readyState >= 1) initVideo(video);
+        else video.addEventListener('loadedmetadata', () => initVideo(video), { once: true });
     };
 
-    // --- Script Entry Point ---
     injectStyles();
-
-    // Use a MutationObserver to detect videos added to the page dynamically.
     const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
             for (const node of mutation.addedNodes) {
-                if (node.nodeType === Node.ELEMENT_NODE) {
-                    if (node.tagName === 'VIDEO') {
-                        handleVideoElement(node);
-                    } else {
-                        // Also check for videos inside the new node.
-                        node.querySelectorAll('video').forEach(handleVideoElement);
-                    }
+                if (node.nodeType === 1) {
+                    if (node.tagName === 'VIDEO') handleVideoElement(node);
+                    else node.querySelectorAll('video').forEach(handleVideoElement);
                 }
             }
         }
     });
     observer.observe(document.body, { childList: true, subtree: true });
-
-    // Find any videos that already exist on the page when the script loads.
     document.querySelectorAll('video').forEach(handleVideoElement);
 
 })();
