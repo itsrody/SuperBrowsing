@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      8.3
+// @version      8.4
 // @description  Adds a powerful, zoned gesture interface (seek, volume, playback speed, fullscreen) to most web videos using a robust state machine.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
@@ -66,10 +66,19 @@
             }
             .vg-indicator.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
             .vg-indicator svg { width: 24px; height: 24px; fill: #fff; }
-            #vg-fullscreen-wrapper video { /* Fix for zoom issue */
-                object-fit: contain !important;
-                height: 100% !important;
+            
+            /* *** FIX: Ensure player UI remains visible and video scales correctly *** */
+            #vg-fullscreen-wrapper > * {
                 width: 100% !important;
+                height: 100% !important;
+                max-width: none !important;
+                max-height: none !important;
+                top: 0 !important;
+                left: 0 !important;
+                transform: none !important;
+            }
+            #vg-fullscreen-wrapper video {
+                object-fit: contain !important;
             }
         `;
         document.head.appendChild(style);
@@ -263,7 +272,6 @@
                 alignItems: 'center', justifyContent: 'center', zIndex: '2147483646'
             });
 
-            // *** FIX: Find the *actual* player container, not just the video's parent ***
             playerContainer = video.closest('.html5-video-player, .player, .video-js, [data-vjs-player]') || video.parentElement;
 
             originalParent = playerContainer.parentElement;
@@ -278,11 +286,8 @@
                 zIndex: playerContainer.style.zIndex,
             };
 
-            Object.assign(playerContainer.style, {
-                width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%',
-                position: 'relative', zIndex: '1'
-            });
-
+            // We no longer need to apply inline styles here as the CSS rule handles it better
+            
             wrapper.appendChild(playerContainer);
             document.body.appendChild(wrapper);
 
@@ -352,6 +357,7 @@
         if (!document.fullscreenElement) {
             const wrapper = document.getElementById('vg-fullscreen-wrapper');
             if (wrapper && originalParent && playerContainer) {
+                // Restore original inline styles when exiting fullscreen
                 Object.assign(playerContainer.style, originalPlayerStyle);
                 originalParent.insertBefore(playerContainer, originalNextSibling);
                 wrapper.remove();
