@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Subtitle Uploader (Stable)
+// @name         Subtitle Uploader v2.0 (Shortcuts)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      1.0
-// @description  Upload, style, and sync local subtitles for any video.
+// @version      2.0
+// @description  Upload, style, and sync local subtitles for any video. Adds global keyboard shortcuts.
 // @author       Murtaza Salih (Rebuilt by Gemini)
 // @match        *://*/*
 // @grant        GM.setValue
@@ -32,7 +32,7 @@ let settings = await GM.getValue('subtitleSettings', defaultSettings);
 const videoDataMap = new Map();
 let globalIndicator = null;
 let settingsPanel = null;
-let activeVideo = null;
+let activeVideo = null; // The video the user is currently interacting with
 
 // --- Core Logic: Subtitle Processing & Rendering ---
 
@@ -83,6 +83,7 @@ function addSubtitleTrack(video, label, cues) {
         data.tracks.push({ label, cues });
         data.currentTrackIndex = data.tracks.length - 1;
     }
+    data.lastTrackIndex = data.currentTrackIndex; // Store the last active track
 
     updateTrackSelector(video);
     applySettings();
@@ -140,7 +141,7 @@ function createSubtitleControls(video, container) {
     container.addEventListener('mouseenter', () => container.classList.add('vgs-container-hover'));
     container.addEventListener('mouseleave', () => container.classList.remove('vgs-container-hover'));
 
-    const btnUpload = createButton('Upload Subtitle', `<svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/></svg>`, (e) => {
+    const btnUpload = createButton('Upload Subtitle (Ctrl+U)', `<svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/></svg>`, (e) => {
         e.stopPropagation();
         handleUploadClick(video);
     });
@@ -157,7 +158,11 @@ function createSubtitleControls(video, container) {
     trackSelector.onchange = (e) => {
         const data = videoDataMap.get(video);
         if (data) {
-            data.currentTrackIndex = parseInt(e.target.value, 10);
+            const newIndex = parseInt(e.target.value, 10);
+            data.currentTrackIndex = newIndex;
+            if (newIndex > -1) {
+                data.lastTrackIndex = newIndex; // Update last used track on manual change
+            }
             renderCustomSubtitle(video);
         }
     };
@@ -165,7 +170,7 @@ function createSubtitleControls(video, container) {
     controls.append(btnUpload, btnSettings, trackSelector);
     container.appendChild(controls);
 
-    videoDataMap.set(video, { controls, container, trackSelector, lastFile: null });
+    videoDataMap.set(video, { controls, container, trackSelector, lastFile: null, lastTrackIndex: -1 });
 }
 
 function updateTrackSelector(video) {
@@ -352,6 +357,10 @@ function initializeForVideo(video) {
         video.dataset.vgsHandled = 'true';
         
         createSubtitleControls(video, container);
+
+        container.addEventListener('mouseenter', () => {
+            activeVideo = video;
+        });
         
         const dropIconSVG = `<svg viewBox="0 0 24 24" style="width:1.5em; height:1.5em; stroke:currentColor; stroke-width:2; fill:none; stroke-linecap:round; stroke-linejoin:round;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`;
         container.addEventListener('dragover', e => {
@@ -661,6 +670,16 @@ function hideIndicator() {
     if (globalIndicator) globalIndicator.classList.remove('visible');
 }
 
+function adjustDelay(amount) {
+    settings.delay += amount;
+    GM.setValue('subtitleSettings', settings);
+    applySettings();
+    showIndicator(`Delay: ${settings.delay}ms`, 1000);
+    if (settingsPanel && settingsPanel.style.display !== 'none') {
+        settingsPanel.querySelector('#vgs-delay').value = settings.delay;
+    }
+}
+
 // --- Initialization ---
 
 function init() {
@@ -677,6 +696,54 @@ function init() {
     document.body.appendChild(globalIndicator);
 
     applySettings();
+
+    window.addEventListener('keydown', (e) => {
+        if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) {
+            return;
+        }
+        if (!activeVideo) {
+            return;
+        }
+
+        const data = videoDataMap.get(activeVideo);
+        if (!data) return;
+
+        let handled = false;
+
+        if (e.ctrlKey && e.key.toLowerCase() === 'u') {
+            handled = true;
+            handleUploadClick(activeVideo);
+        }
+        else if (!e.ctrlKey && !e.altKey) {
+             switch (e.key.toLowerCase()) {
+                case 's':
+                    handled = true;
+                    if (data.currentTrackIndex === -1) {
+                        data.currentTrackIndex = data.lastTrackIndex !== undefined ? data.lastTrackIndex : 0;
+                         if (!data.tracks || data.tracks.length === 0) data.currentTrackIndex = -1;
+                    } else {
+                        data.lastTrackIndex = data.currentTrackIndex;
+                        data.currentTrackIndex = -1;
+                    }
+                    updateTrackSelector(activeVideo);
+                    renderCustomSubtitle(activeVideo);
+                    break;
+                case '[':
+                    handled = true;
+                    adjustDelay(e.shiftKey ? -50 : -250);
+                    break;
+                case ']':
+                    handled = true;
+                    adjustDelay(e.shiftKey ? 50 : 250);
+                    break;
+            }
+        }
+
+        if (handled) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    });
 
     const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
