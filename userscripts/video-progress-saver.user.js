@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Progress Saver (UI-Matched Fork)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      8.4.0
+// @version      8.5.0
 // @description  Saves and restores video progress with a UI matched to Video Gestures Pro.
 // @author       Your Name (Crafted by Gemini)
 // @match        *://*/*
@@ -20,7 +20,7 @@
 
     // --- Configuration ---
     const CONFIG = {
-        MIN_DURATION_TO_SAVE: await GM.getValue('minDuration', 90),
+        MIN_DURATION_TO_SAVE: await GM.getValue('minDuration', 60), // Changed from 90 to 60
         SAVE_INTERVAL: await GM.getValue('saveInterval', 2000),
         CLEANUP_DAYS: await GM.getValue('cleanupDays', 60),
         SCRIPT_PREFIX: 'vps_fork_', // Unique prefix for this forked version
