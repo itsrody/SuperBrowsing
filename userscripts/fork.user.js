@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro (Long-Press Fork)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      9.7
+// @version      9.8
 // @description  Adds a powerful, zoned gesture interface, including long-press to speed up, brightness, and volume control, to most web videos.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
@@ -305,16 +305,12 @@
     function handleLongPress() {
         if (!activeGesture || activeGesture.isSwipe) return;
 
-        const rect = activeGesture.video.getBoundingClientRect();
-        const touchZoneX = (activeGesture.startX - rect.left) / rect.width;
-
-        if (touchZoneX > 0.33 && touchZoneX < 0.66) {
-            activeGesture.action = 'long-press-speed';
-            activeGesture.video.playbackRate = 2.0;
-            const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
-            showIndicator(`${speedIcon} <span>2.0x Speed</span>`, true);
-            triggerHapticFeedback();
-        }
+        // The zone check is removed, so it will always trigger on long-press
+        activeGesture.action = 'long-press-speed';
+        activeGesture.video.playbackRate = 2.0;
+        const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
+        showIndicator(`${speedIcon} <span>2.0x Speed</span>`, true);
+        triggerHapticFeedback();
     }
 
     function handleFullscreenToggle() {
