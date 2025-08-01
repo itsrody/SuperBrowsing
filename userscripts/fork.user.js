@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name          Video Gestures Pro (Long-Press Fork)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      9.8
-// @description  Adds a powerful, zoned gesture interface, including long-press to speed up, brightness, and volume control, to most web videos.
+// @version      9.9
+// @description  Adds a powerful, zoned gesture interface that works only in fullscreen mode.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
 // @exclude      *://*.netflix.com/*
@@ -91,14 +91,13 @@
             }
             #vg-global-indicator svg { width: 24px; height: 24px; fill: #fff; }
 
-            /* New Brightness Overlay for cross-browser compatibility */
             #vg-brightness-overlay {
                 position: fixed; top: 0; left: 0;
                 width: 100vw; height: 100vh;
                 background-color: black;
                 opacity: 0;
                 pointer-events: none;
-                z-index: 2147483646; /* Just below the indicator */
+                z-index: 2147483646;
                 transition: opacity 0.1s linear;
             }
         `;
@@ -197,7 +196,6 @@
             action: 'none',
             finalized: false,
             originalPlaybackRate: result.video.playbackRate,
-            // Calculate initial brightness from the overlay's opacity
             initialBrightness: 1 - parseFloat(brightnessOverlay.style.opacity || 0),
             initialVolume: result.video.volume,
         };
@@ -210,7 +208,10 @@
         lastTap.time = Date.now();
 
         clearTimeout(longPressTimeout);
-        longPressTimeout = setTimeout(() => handleLongPress(), config.LONG_PRESS_DURATION_MS);
+        // Only set long-press timeout if in fullscreen
+        if (document.fullscreenElement) {
+            longPressTimeout = setTimeout(() => handleLongPress(), config.LONG_PRESS_DURATION_MS);
+        }
     }
 
     function onTouchMove(e) {
@@ -232,15 +233,18 @@
 
             activeGesture.isSwipe = true;
             
-            const rect = activeGesture.video.getBoundingClientRect();
-            const touchZoneX = (activeGesture.startX - rect.left) / rect.width;
+            // *** NEW LOGIC: Only allow swipe gestures in fullscreen mode ***
+            if (document.fullscreenElement) {
+                const rect = activeGesture.video.getBoundingClientRect();
+                const touchZoneX = (activeGesture.startX - rect.left) / rect.width;
+                const isVertical = Math.abs(deltaY) > Math.abs(deltaX);
 
-            if (Math.abs(deltaX) > Math.abs(deltaY)) {
-                if (document.fullscreenElement) activeGesture.action = 'seeking';
-            } else {
-                if (touchZoneX < 0.33) activeGesture.action = 'brightness';
-                else if (touchZoneX > 0.66) activeGesture.action = 'volume';
-                else activeGesture.action = 'fullscreen';
+                if (isVertical) {
+                    if (touchZoneX < 0.33) activeGesture.action = 'brightness';
+                    else if (touchZoneX > 0.66) activeGesture.action = 'volume';
+                } else {
+                    activeGesture.action = 'seeking';
+                }
             }
         }
 
@@ -265,6 +269,7 @@
             activeGesture.video.playbackRate = activeGesture.originalPlaybackRate;
             hideIndicator();
         } else if (activeGesture.isSwipe) {
+            // This block will now only be entered if a swipe action was set, which only happens in fullscreen.
             if (activeGesture.action === 'seeking') {
                 const deltaX = e.changedTouches[0].clientX - activeGesture.startX;
                 const seekTime = deltaX * config.SEEK_SENSITIVITY;
@@ -272,13 +277,9 @@
                 triggerHapticFeedback();
             } else if (activeGesture.action === 'volume' || activeGesture.action === 'brightness') {
                 triggerHapticFeedback();
-            } else if (activeGesture.action === 'fullscreen') {
-                 const deltaY = e.changedTouches[0].clientY - activeGesture.startY;
-                 if (Math.abs(deltaY) > config.SWIPE_THRESHOLD) {
-                    handleFullscreenToggle();
-                 }
             }
         } else {
+            // This block handles taps
             if (lastTap.count >= 2) {
                 e.preventDefault();
                 if (document.fullscreenElement) {
@@ -303,9 +304,9 @@
 
     // --- Gesture Logic ---
     function handleLongPress() {
+        // This function is now only called if in fullscreen, so no extra check is needed here.
         if (!activeGesture || activeGesture.isSwipe) return;
 
-        // The zone check is removed, so it will always trigger on long-press
         activeGesture.action = 'long-press-speed';
         activeGesture.video.playbackRate = 2.0;
         const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
@@ -381,9 +382,8 @@
         } else if (type === 'brightness') {
             const change = -deltaY / config.BRIGHTNESS_SENSITIVITY;
             let newBrightness = activeGesture.initialBrightness + change;
-            newBrightness = Math.max(0.1, Math.min(1, newBrightness)); // Clamp brightness from 10% to 100%
+            newBrightness = Math.max(0.1, Math.min(1, newBrightness));
             
-            // Inversely map brightness to opacity: 100% brightness = 0% opacity. 10% brightness = 90% opacity.
             brightnessOverlay.style.opacity = 1 - newBrightness;
 
             const brightnessIcon = `<svg viewBox="0 0 24 24"><path d="M20 8.69V4h-4.69L12 0 8.69 4H4v4.69L0 12l4 3.31V20h4.69L12 24l3.31-4H20v-4.69L24 12l-4-3.31M12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/></svg>`;
