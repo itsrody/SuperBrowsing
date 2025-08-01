@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name          Video Gestures Pro (Long-Press Fork)
+// @name          Video Gestures Pro (with Progress Saving)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      10.0
-// @description  Adds a powerful, zoned gesture interface that works only in fullscreen mode.
+// @version      11.0
+// @description  Adds a powerful, zoned gesture interface and automatically saves/restores video progress.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
 // @exclude      *://*.netflix.com/*
@@ -21,9 +21,12 @@
 // @exclude      *://dailymotion.com/*
 // @exclude      *://*.hulu.com/*
 // @exclude      *://hulu.com/*
-// @grant        GM_getValue
-// @grant        GM_setValue
-// @grant        GM_registerMenuCommand
+// @grant        GM.setValue
+// @grant        GM.getValue
+// @grant        GM.deleteValue
+// @grant        GM.listValues
+// @grant        GM.addStyle
+// @grant        GM.registerMenuCommand
 // @run-at       document-start
 // ==/UserScript==
 
@@ -32,20 +35,25 @@
 
     // --- Central Configuration Panel ---
     const DEFAULTS = {
-        MIN_VIDEO_DURATION_SECONDS: 60,
+        MIN_DURATION_TO_SAVE: 60,
+        SAVE_INTERVAL: 2000,
+        CLEANUP_DAYS: 60,
         DOUBLE_TAP_SEEK_SECONDS: 10,
         SWIPE_THRESHOLD: 20,
         SEEK_SENSITIVITY: 0.3,
-        BRIGHTNESS_SENSITIVITY: 200, // Lower is more sensitive
-        VOLUME_SENSITIVITY: 250,     // Higher value means more gradual/smoother change
+        BRIGHTNESS_SENSITIVITY: 200,
+        VOLUME_SENSITIVITY: 250,
         ENABLE_HAPTIC_FEEDBACK: true,
         HAPTIC_FEEDBACK_DURATION_MS: 20,
         FORCE_LANDSCAPE: true,
         DOUBLE_TAP_TIMEOUT_MS: 350,
-        LONG_PRESS_DURATION_MS: 400, // Time to hold for long-press
+        LONG_PRESS_DURATION_MS: 400,
     };
 
-    let config = await GM_getValue('config', DEFAULTS);
+    const SCRIPT_PREFIX = 'vgs_'; // Video Gesture Saver prefix
+    const LAST_CLEANUP_KEY = `${SCRIPT_PREFIX}last_cleanup`;
+
+    let config = await GM.getValue('config', DEFAULTS);
 
     GM_registerMenuCommand('Configure Gestures', () => {
         const currentConfig = JSON.stringify(config, null, 2);
@@ -54,7 +62,7 @@
             try {
                 const newConfig = JSON.parse(newConfigStr);
                 config = { ...DEFAULTS, ...newConfig };
-                GM_setValue('config', config);
+                GM.setValue('config', config);
                 alert('Settings saved! Please reload the page for changes to take effect.');
             } catch (e) {
                 alert('Error parsing settings. Please ensure it is valid JSON.\n\n' + e);
@@ -68,12 +76,10 @@
     let indicatorTimeout = null;
     let brightnessOverlay = null;
 
-    function initializeOverlays() {
+    function initializeUI() {
         if (document.getElementById('vg-global-indicator')) return;
 
-        const style = document.createElement('style');
-        style.id = 'video-gesture-pro-styles';
-        style.innerHTML = `
+        GM.addStyle(`
             @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap');
             #vg-global-indicator {
                 position: fixed; top: 50%; left: 50%;
@@ -100,8 +106,9 @@
                 z-index: 2147483646;
                 transition: opacity 0.1s linear;
             }
-        `;
-        document.head.appendChild(style);
+            /* Styles for the Resume List Modal */
+            .vgs-modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 999999999; display: flex; align-items: center; justify-content: center; } .vgs-modal-content { background: #282c34; color: #eee; padding: 20px 30px; border-radius: 12px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.4); } .vgs-modal-close { position: absolute; top: 10px; right: 15px; font-size: 28px; font-weight: bold; cursor: pointer; color: #aaa; } .vgs-modal-close:hover { color: #fff; } .vgs-modal-content h2 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 10px; } .vgs-resume-list { display: flex; flex-direction: column; gap: 10px; } .vgs-resume-item { display: block; padding: 10px; background: #3a3f4b; border-radius: 8px; text-decoration: none; color: #eee; transition: background 0.2s ease; } .vgs-resume-item:hover { background: #4a4f5b; } .vgs-resume-title { display: block; font-weight: bold; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .vgs-resume-details { font-size: 0.9em; color: #ccc; }
+        `);
 
         globalIndicator = document.createElement('div');
         globalIndicator.id = 'vg-global-indicator';
@@ -116,6 +123,7 @@
     let activeGesture = null;
     let lastTap = { time: 0, count: 0 };
     let longPressTimeout = null;
+    const processedVideos = new WeakMap();
 
     // --- UI & Feedback ---
     function showIndicator(html, stayVisible = false) {
@@ -140,7 +148,7 @@
         }
     }
 
-    // --- Improved Video & Player Discovery ---
+    // --- Video & Player Discovery ---
     function findVideoAndPlayer(targetElement) {
         let video = null;
         if (document.fullscreenElement) {
@@ -175,12 +183,75 @@
         };
     }
 
+    // --- Progress Saving Logic ---
+    const throttle = (func, limit) => {
+        let inThrottle;
+        return function() {
+            if (!inThrottle) {
+                func.apply(this, arguments);
+                inThrottle = true;
+                setTimeout(() => inThrottle = false, limit);
+            }
+        };
+    };
 
-    // --- Event Handlers using State Machine ---
+    const createStorageKey = (video) => {
+        const pageUrl = window.location.href.split('?')[0].split('#')[0];
+        const duration = Math.round(video.duration);
+        const videoSrc = (video.currentSrc || video.src || '').split('?')[0].split('#')[0];
+        if (videoSrc && !videoSrc.startsWith('blob:')) return `${SCRIPT_PREFIX}src|${pageUrl}|${videoSrc}`;
+        let parent = video.parentElement;
+        for (let i = 0; i < 5 && parent; i++) {
+            if (parent.id) return `${SCRIPT_PREFIX}id|${pageUrl}|${parent.id}|${duration}`;
+            parent = parent.parentElement;
+        }
+        const allVideos = Array.from(document.querySelectorAll('video'));
+        const videoIndex = allVideos.indexOf(video);
+        if (videoIndex !== -1) return `${SCRIPT_PREFIX}index|${pageUrl}|${videoIndex}|${duration}`;
+        return null;
+    };
+
+    const saveProgress = async (video) => {
+        const key = createStorageKey(video);
+        if (!key) return;
+        if (video.currentTime > 5 && video.currentTime < video.duration - 10) {
+            const title = document.title;
+            await GM.setValue(key, {
+                progress: video.currentTime,
+                duration: video.duration,
+                timestamp: Date.now(),
+                title: title,
+                pageUrl: window.location.href
+            });
+        }
+    };
+
+    const restoreProgress = async (video) => {
+        const key = createStorageKey(video);
+        if (!key) return;
+        const data = await GM.getValue(key);
+        if (data && typeof data.progress === 'number' && Math.abs(data.duration - video.duration) < 10) {
+            if (data.progress < video.duration - 10) {
+                video.currentTime = data.progress;
+                // Use the main gesture indicator for the message
+                showIndicator(`Restored to ${formatTime(data.progress)}`);
+            }
+        }
+    };
+
+    const deleteProgress = async (video) => {
+        const key = createStorageKey(video);
+        if (key) {
+            await GM.deleteValue(key);
+        }
+    };
+
+
+    // --- Event Handlers ---
     function onTouchStart(e) {
         const result = findVideoAndPlayer(e.target);
 
-        if (!result || !result.video || result.video.duration < config.MIN_VIDEO_DURATION_SECONDS || e.touches.length > 1) {
+        if (!result || !result.video || result.video.duration < config.MIN_DURATION_TO_SAVE || e.touches.length > 1) {
             activeGesture = null;
             return;
         }
@@ -240,7 +311,7 @@
                 if (isVertical) {
                     if (touchZoneX < 0.33) activeGesture.action = 'brightness';
                     else if (touchZoneX > 0.66) activeGesture.action = 'volume';
-                    else activeGesture.action = 'fullscreen'; // *** FIX: Added back fullscreen action for middle swipe
+                    else activeGesture.action = 'fullscreen';
                 } else {
                     activeGesture.action = 'seeking';
                 }
@@ -275,7 +346,7 @@
                 triggerHapticFeedback();
             } else if (activeGesture.action === 'volume' || activeGesture.action === 'brightness') {
                 triggerHapticFeedback();
-            } else if (activeGesture.action === 'fullscreen') { // *** FIX: Added back handler for fullscreen swipe
+            } else if (activeGesture.action === 'fullscreen') {
                  const deltaY = e.changedTouches[0].clientY - activeGesture.startY;
                  if (Math.abs(deltaY) > config.SWIPE_THRESHOLD) {
                     handleFullscreenToggle();
@@ -413,14 +484,123 @@
         return hr > 0 ? `${hr}:${min}:${sec}` : `${min}:${sec}`;
     }
 
+    // --- Progress Saving Menu Command Functions ---
+    const showResumeList = async () => {
+        const allKeys = (await GM.listValues()).filter(k => k.startsWith(SCRIPT_PREFIX) && k !== LAST_CLEANUP_KEY);
+        if (allKeys.length === 0) {
+            alert('No saved video progress found.');
+            return;
+        }
+
+        let allProgress = [];
+        for (const key of allKeys) {
+            const data = await GM.getValue(key);
+            if (data && data.title && data.pageUrl) {
+                allProgress.push(data);
+            }
+        }
+
+        allProgress.sort((a, b) => b.timestamp - a.timestamp);
+
+        const modalOverlay = document.createElement('div');
+        modalOverlay.className = 'vgs-modal-overlay';
+        modalOverlay.innerHTML = `
+            <div class="vgs-modal-content">
+                <span class="vgs-modal-close">&times;</span>
+                <h2>Resume Watching</h2>
+                <div class="vgs-resume-list">
+                    ${allProgress.map(data => {
+                        const url = new URL(data.pageUrl);
+                        url.searchParams.set('t', Math.round(data.progress) + 's');
+                        const progressTime = formatTime(data.progress);
+                        const totalTime = formatTime(data.duration);
+                        return `<a href="${url.href}" class="vgs-resume-item">
+                                    <span class="vgs-resume-title">${data.title}</span>
+                                    <span class="vgs-resume-details">
+                                        At ${progressTime} / ${totalTime} on <strong>${url.hostname}</strong>
+                                    </span>
+                                </a>`;
+                    }).join('')}
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modalOverlay);
+
+        const closeModal = () => document.body.removeChild(modalOverlay);
+        modalOverlay.querySelector('.vgs-modal-close').onclick = closeModal;
+        modalOverlay.onclick = (e) => {
+            if (e.target === modalOverlay) closeModal();
+        };
+    };
+
+    const runCleanup = async () => {
+        if (config.CLEANUP_DAYS <= 0) return;
+        const lastCleanup = await GM.getValue(LAST_CLEANUP_KEY, 0);
+        const oneDay = 24 * 60 * 60 * 1000;
+        if (Date.now() - lastCleanup < oneDay) return;
+        const allKeys = (await GM.listValues()).filter(k => k.startsWith(SCRIPT_PREFIX) && k !== LAST_CLEANUP_KEY);
+        const cutoffTime = Date.now() - (config.CLEANUP_DAYS * oneDay);
+        for (const key of allKeys) {
+            const data = await GM.getValue(key);
+            if (data && data.timestamp < cutoffTime) {
+                await GM.deleteValue(key);
+            }
+        }
+        await GM.setValue(LAST_CLEANUP_KEY, Date.now());
+    };
+
+    const exportProgress = async () => { const allKeys = (await GM.listValues()).filter(k => k.startsWith(SCRIPT_PREFIX)); if (allKeys.length === 0) { alert('No progress data found to export.'); return; } const data = {}; for (const key of allKeys) { data[key] = await GM.getValue(key); } const jsonString = JSON.stringify(data, null, 2); const blob = new Blob([jsonString], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `video_progress_backup_${new Date().toISOString().split('T')[0]}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); };
+    const importProgress = () => { const input = document.createElement('input'); input.type = 'file'; input.accept = 'application/json'; input.onchange = async (e) => { const file = e.target.files[0]; if (!file) return; try { const text = await file.text(); const data = JSON.parse(text); let count = 0; for (const key in data) { if (key.startsWith(SCRIPT_PREFIX)) { await GM.setValue(key, data[key]); count++; } } alert(`Successfully imported ${count} entries.`); } catch (err) { alert('Import failed. The file is not a valid JSON.'); } }; input.click(); };
+    const clearAllProgress = async () => { if (!confirm('Are you sure you want to delete ALL saved video progress? This cannot be undone.')) return; const allKeys = (await GM.listValues()).filter(k => k.startsWith(SCRIPT_PREFIX)); for (const key of allKeys) { await GM.deleteValue(key); } alert(`Deleted ${allKeys.length} entries.`); };
+    
+
     // --- Initialization ---
     function initialize() {
-        initializeOverlays();
+        initializeUI();
+
+        // Register Menu Commands
+        GM.registerMenuCommand('▶️ Resume Watching', showResumeList);
+        GM.registerMenuCommand('📤 Export Progress', exportProgress);
+        GM.registerMenuCommand('📥 Import Progress', importProgress);
+        GM.registerMenuCommand('🗑️ Clear All Progress', clearAllProgress);
+
+        // Set up gesture listeners
         document.addEventListener('touchstart', onTouchStart, { passive: false, capture: true });
         document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
         document.addEventListener('touchend', onTouchEnd, { passive: false, capture: true });
         document.addEventListener('fullscreenchange', handleFullscreenChange);
         document.addEventListener('contextmenu', onContextMenu, { capture: true });
+        
+        // --- Progress Saving Initialization ---
+        runCleanup();
+
+        const initVideoForSaving = (video) => {
+            if (processedVideos.has(video) || video.duration < config.MIN_DURATION_TO_SAVE) return;
+            processedVideos.set(video, true);
+            restoreProgress(video);
+            const throttledSave = throttle(() => saveProgress(video), config.SAVE_INTERVAL);
+            video.addEventListener('timeupdate', throttledSave);
+            video.addEventListener('pause', () => saveProgress(video));
+            video.addEventListener('ended', () => deleteProgress(video));
+        };
+
+        const handleVideoElement = (video) => {
+            if (video.readyState >= 1) initVideoForSaving(video);
+            else video.addEventListener('loadedmetadata', () => initVideoForSaving(video), { once: true });
+        };
+
+        const observer = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                for (const node of mutation.addedNodes) {
+                    if (node.nodeType === 1) {
+                        if (node.tagName === 'VIDEO') handleVideoElement(node);
+                        else node.querySelectorAll('video').forEach(handleVideoElement);
+                    }
+                }
+            }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        document.querySelectorAll('video').forEach(handleVideoElement);
     }
 
     if (document.readyState === 'loading') {
