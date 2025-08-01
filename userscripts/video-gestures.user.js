@@ -2,7 +2,7 @@
 // @name          Video Gestures Pro (Long-Press Fork)
 // @namespace    https://github.com/itsrody/SuperBrowsing
 // @version      10.0
-// @description  Adds a powerful, zoned gesture interface, including long-press to speed up, brightness, and volume control, to most web videos.
+// @description  Adds a powerful, zoned gesture interface that works only in fullscreen mode.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
 // @exclude      *://*.netflix.com/*
@@ -32,11 +32,11 @@
 
     // --- Central Configuration Panel ---
     const DEFAULTS = {
-        MIN_VIDEO_DURATION_SECONDS: 90,
-        DOUBLE_TAP_SEEK_SECONDS: 5,
+        MIN_VIDEO_DURATION_SECONDS: 60,
+        DOUBLE_TAP_SEEK_SECONDS: 10,
         SWIPE_THRESHOLD: 20,
         SEEK_SENSITIVITY: 0.3,
-        BRIGHTNESS_SENSITIVITY: 250, // Lower is more sensitive
+        BRIGHTNESS_SENSITIVITY: 200, // Lower is more sensitive
         VOLUME_SENSITIVITY: 250,     // Higher value means more gradual/smoother change
         ENABLE_HAPTIC_FEEDBACK: true,
         HAPTIC_FEEDBACK_DURATION_MS: 20,
@@ -63,11 +63,12 @@
     });
 
 
-    // --- Styles & Global Indicator ---
+    // --- Styles, Indicator & Overlays ---
     let globalIndicator = null;
     let indicatorTimeout = null;
+    let brightnessOverlay = null;
 
-    function initializeIndicator() {
+    function initializeOverlays() {
         if (document.getElementById('vg-global-indicator')) return;
 
         const style = document.createElement('style');
@@ -75,36 +76,40 @@
         style.innerHTML = `
             @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap');
             #vg-global-indicator {
-                position: fixed;
-                top: 50%;
-                left: 50%;
+                position: fixed; top: 50%; left: 50%;
                 transform: translate(-50%, -50%) scale(0.9);
-                padding: 10px 16px;
-                background-color: rgba(30, 30, 30, 0.9);
-                color: #fff;
-                font-family: 'Roboto', sans-serif;
-                font-size: 16px;
-                border-radius: 20px;
-                z-index: 2147483647;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                opacity: 0;
-                pointer-events: none;
+                padding: 10px 16px; background-color: rgba(30, 30, 30, 0.9);
+                color: #fff; font-family: 'Roboto', sans-serif; font-size: 16px;
+                border-radius: 20px; z-index: 2147483647;
+                display: flex; align-items: center; gap: 8px;
+                opacity: 0; pointer-events: none;
                 transition: opacity 0.2s ease, transform 0.2s ease;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.3);
             }
             #vg-global-indicator.visible {
-                opacity: 1;
-                transform: translate(-50%, -50%) scale(1);
+                opacity: 1; transform: translate(-50%, -50%) scale(1);
             }
             #vg-global-indicator svg { width: 24px; height: 24px; fill: #fff; }
+
+            #vg-brightness-overlay {
+                position: fixed; top: 0; left: 0;
+                width: 100vw; height: 100vh;
+                background-color: black;
+                opacity: 0;
+                pointer-events: none;
+                z-index: 2147483646;
+                transition: opacity 0.1s linear;
+            }
         `;
         document.head.appendChild(style);
 
         globalIndicator = document.createElement('div');
         globalIndicator.id = 'vg-global-indicator';
         document.body.appendChild(globalIndicator);
+
+        brightnessOverlay = document.createElement('div');
+        brightnessOverlay.id = 'vg-brightness-overlay';
+        document.body.appendChild(brightnessOverlay);
     }
 
     // --- State Management ---
@@ -115,12 +120,9 @@
     // --- UI & Feedback ---
     function showIndicator(html, stayVisible = false) {
         if (!globalIndicator) return;
-
         globalIndicator.innerHTML = html;
         globalIndicator.classList.add('visible');
-
         if (indicatorTimeout) clearTimeout(indicatorTimeout);
-
         if (!stayVisible) {
             indicatorTimeout = setTimeout(() => {
                 globalIndicator.classList.remove('visible');
@@ -144,10 +146,7 @@
         if (document.fullscreenElement) {
             video = document.fullscreenElement.querySelector('video');
         }
-        if (!video) {
-            video = targetElement.closest('video');
-        }
-
+        if (!video) video = targetElement.closest('video');
         if (!video) {
             let largestVideo = null;
             let maxArea = 0;
@@ -197,7 +196,7 @@
             action: 'none',
             finalized: false,
             originalPlaybackRate: result.video.playbackRate,
-            initialBrightness: parseFloat(document.documentElement.style.filter.match(/brightness\((\d+\.?\d*)\)/)?.[1] || 1),
+            initialBrightness: 1 - parseFloat(brightnessOverlay.style.opacity || 0),
             initialVolume: result.video.volume,
         };
 
@@ -208,9 +207,10 @@
         }
         lastTap.time = Date.now();
 
-        // Start timer for long-press action
         clearTimeout(longPressTimeout);
-        longPressTimeout = setTimeout(() => handleLongPress(), config.LONG_PRESS_DURATION_MS);
+        if (document.fullscreenElement) {
+            longPressTimeout = setTimeout(() => handleLongPress(), config.LONG_PRESS_DURATION_MS);
+        }
     }
 
     function onTouchMove(e) {
@@ -232,15 +232,18 @@
 
             activeGesture.isSwipe = true;
             
-            const rect = activeGesture.video.getBoundingClientRect();
-            const touchZoneX = (activeGesture.startX - rect.left) / rect.width;
+            if (document.fullscreenElement) {
+                const rect = activeGesture.video.getBoundingClientRect();
+                const touchZoneX = (activeGesture.startX - rect.left) / rect.width;
+                const isVertical = Math.abs(deltaY) > Math.abs(deltaX);
 
-            if (Math.abs(deltaX) > Math.abs(deltaY)) {
-                if (document.fullscreenElement) activeGesture.action = 'seeking';
-            } else {
-                if (touchZoneX < 0.33) activeGesture.action = 'brightness';
-                else if (touchZoneX > 0.66) activeGesture.action = 'volume';
-                else activeGesture.action = 'fullscreen';
+                if (isVertical) {
+                    if (touchZoneX < 0.33) activeGesture.action = 'brightness';
+                    else if (touchZoneX > 0.66) activeGesture.action = 'volume';
+                    else activeGesture.action = 'fullscreen';
+                } else {
+                    activeGesture.action = 'seeking';
+                }
             }
         }
 
@@ -305,16 +308,11 @@
     function handleLongPress() {
         if (!activeGesture || activeGesture.isSwipe) return;
 
-        const rect = activeGesture.video.getBoundingClientRect();
-        const touchZoneX = (activeGesture.startX - rect.left) / rect.width;
-
-        if (touchZoneX > 0.33 && touchZoneX < 0.66) {
-            activeGesture.action = 'long-press-speed';
-            activeGesture.video.playbackRate = 2.0;
-            const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
-            showIndicator(`${speedIcon} <span>2.0x Speed</span>`, true);
-            triggerHapticFeedback();
-        }
+        activeGesture.action = 'long-press-speed';
+        activeGesture.video.playbackRate = 2.0;
+        const speedIcon = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
+        showIndicator(`${speedIcon} <span>2.0x Speed</span>`, true);
+        triggerHapticFeedback();
     }
 
     function handleFullscreenToggle() {
@@ -379,15 +377,17 @@
             const { video } = activeGesture;
             const change = -deltaY / config.VOLUME_SENSITIVITY;
             let newVolume = activeGesture.initialVolume + change;
-            newVolume = Math.max(0, Math.min(1, newVolume)); // Clamp between 0 and 1
+            newVolume = Math.max(0, Math.min(1, newVolume));
             video.volume = newVolume;
             showIndicator(`<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg> ${Math.round(video.volume * 100)}%`);
         } else if (type === 'brightness') {
             const change = -deltaY / config.BRIGHTNESS_SENSITIVITY;
             let newBrightness = activeGesture.initialBrightness + change;
-            newBrightness = Math.max(0.1, Math.min(2, newBrightness)); // Clamp between 10% and 200%
+            newBrightness = Math.max(0.1, Math.min(1, newBrightness));
+            
+            brightnessOverlay.style.opacity = 1 - newBrightness;
+
             const brightnessIcon = `<svg viewBox="0 0 24 24"><path d="M20 8.69V4h-4.69L12 0 8.69 4H4v4.69L0 12l4 3.31V20h4.69L12 24l3.31-4H20v-4.69L24 12l-4-3.31M12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/></svg>`;
-            document.documentElement.style.filter = `brightness(${newBrightness})`;
             showIndicator(`${brightnessIcon} ${Math.round(newBrightness * 100)}%`);
         }
     }
@@ -395,8 +395,10 @@
     function handleFullscreenChange() {
         if (document.fullscreenElement) {
             document.fullscreenElement.appendChild(globalIndicator);
+            document.fullscreenElement.appendChild(brightnessOverlay);
         } else {
             document.body.appendChild(globalIndicator);
+            document.body.appendChild(brightnessOverlay);
             if (screen.orientation && typeof screen.orientation.unlock === 'function') {
                 screen.orientation.unlock();
             }
@@ -413,7 +415,7 @@
 
     // --- Initialization ---
     function initialize() {
-        initializeIndicator();
+        initializeOverlays();
         document.addEventListener('touchstart', onTouchStart, { passive: false, capture: true });
         document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
         document.addEventListener('touchend', onTouchEnd, { passive: false, capture: true });
