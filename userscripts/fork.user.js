@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro (Long-Press Fork)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      9.9
+// @version      10.0
 // @description  Adds a powerful, zoned gesture interface that works only in fullscreen mode.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
@@ -208,7 +208,6 @@
         lastTap.time = Date.now();
 
         clearTimeout(longPressTimeout);
-        // Only set long-press timeout if in fullscreen
         if (document.fullscreenElement) {
             longPressTimeout = setTimeout(() => handleLongPress(), config.LONG_PRESS_DURATION_MS);
         }
@@ -233,7 +232,6 @@
 
             activeGesture.isSwipe = true;
             
-            // *** NEW LOGIC: Only allow swipe gestures in fullscreen mode ***
             if (document.fullscreenElement) {
                 const rect = activeGesture.video.getBoundingClientRect();
                 const touchZoneX = (activeGesture.startX - rect.left) / rect.width;
@@ -242,6 +240,7 @@
                 if (isVertical) {
                     if (touchZoneX < 0.33) activeGesture.action = 'brightness';
                     else if (touchZoneX > 0.66) activeGesture.action = 'volume';
+                    else activeGesture.action = 'fullscreen'; // *** FIX: Added back fullscreen action for middle swipe
                 } else {
                     activeGesture.action = 'seeking';
                 }
@@ -269,7 +268,6 @@
             activeGesture.video.playbackRate = activeGesture.originalPlaybackRate;
             hideIndicator();
         } else if (activeGesture.isSwipe) {
-            // This block will now only be entered if a swipe action was set, which only happens in fullscreen.
             if (activeGesture.action === 'seeking') {
                 const deltaX = e.changedTouches[0].clientX - activeGesture.startX;
                 const seekTime = deltaX * config.SEEK_SENSITIVITY;
@@ -277,9 +275,13 @@
                 triggerHapticFeedback();
             } else if (activeGesture.action === 'volume' || activeGesture.action === 'brightness') {
                 triggerHapticFeedback();
+            } else if (activeGesture.action === 'fullscreen') { // *** FIX: Added back handler for fullscreen swipe
+                 const deltaY = e.changedTouches[0].clientY - activeGesture.startY;
+                 if (Math.abs(deltaY) > config.SWIPE_THRESHOLD) {
+                    handleFullscreenToggle();
+                 }
             }
         } else {
-            // This block handles taps
             if (lastTap.count >= 2) {
                 e.preventDefault();
                 if (document.fullscreenElement) {
@@ -304,7 +306,6 @@
 
     // --- Gesture Logic ---
     function handleLongPress() {
-        // This function is now only called if in fullscreen, so no extra check is needed here.
         if (!activeGesture || activeGesture.isSwipe) return;
 
         activeGesture.action = 'long-press-speed';
