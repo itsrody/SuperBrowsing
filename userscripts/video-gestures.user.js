@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro (Long-Press Fork)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      10.0
+// @version      10.0.1
 // @description  Adds a powerful, zoned gesture interface that works only in fullscreen mode.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
@@ -33,7 +33,7 @@
     // --- Central Configuration Panel ---
     const DEFAULTS = {
         MIN_VIDEO_DURATION_SECONDS: 60,
-        DOUBLE_TAP_SEEK_SECONDS: 10,
+        DOUBLE_TAP_SEEK_SECONDS: 5,
         SWIPE_THRESHOLD: 20,
         SEEK_SENSITIVITY: 0.3,
         BRIGHTNESS_SENSITIVITY: 200, // Lower is more sensitive
@@ -47,17 +47,18 @@
 
     let config = await GM_getValue('config', DEFAULTS);
 
-    GM_registerMenuCommand('Configure Gestures', () => {
-        const currentConfig = JSON.stringify(config, null, 2);
-        const newConfigStr = prompt('Edit Gesture Settings:', currentConfig);
-        if (newConfigStr) {
-            try {
-                const newConfig = JSON.parse(newConfigStr);
-                config = { ...DEFAULTS, ...newConfig };
+    GM_registerMenuCommand('⏱️ Set Double-Tap Seek Time', () => {
+        const currentSeekTime = config.DOUBLE_TAP_SEEK_SECONDS;
+        const newSeekTimeStr = prompt('Enter the number of seconds to seek on double-tap:', currentSeekTime);
+
+        if (newSeekTimeStr) {
+            const newSeekTime = parseInt(newSeekTimeStr, 10);
+            if (!isNaN(newSeekTime) && newSeekTime > 0) {
+                config.DOUBLE_TAP_SEEK_SECONDS = newSeekTime;
                 GM_setValue('config', config);
-                alert('Settings saved! Please reload the page for changes to take effect.');
-            } catch (e) {
-                alert('Error parsing settings. Please ensure it is valid JSON.\n\n' + e);
+                alert(`Double-tap seek time set to ${newSeekTime} seconds.`);
+            } else {
+                alert('Invalid input. Please enter a positive number.');
             }
         }
     });
