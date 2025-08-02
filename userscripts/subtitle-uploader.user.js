@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Subtitle Uploader v2.0 (Shortcuts)
+// @name         Subtitle Uploader v2.3 (UI Polish)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      2.0
-// @description  Upload, style, and sync local subtitles for any video. Adds global keyboard shortcuts.
+// @version      2.3
+// @description  Upload, style, and sync local subtitles (VTT, SRT, ASS, SSA) for any video.
 // @author       Murtaza Salih (Rebuilt by Gemini)
 // @match        *://*/*
 // @grant        GM.setValue
@@ -26,13 +26,14 @@ const defaultSettings = {
     offsetY: 95,
     delay: 0,
     encoding: 'UTF-8',
+    rtlMode: false,
 };
 
 let settings = await GM.getValue('subtitleSettings', defaultSettings);
 const videoDataMap = new Map();
 let globalIndicator = null;
 let settingsPanel = null;
-let activeVideo = null; // The video the user is currently interacting with
+let activeVideo = null;
 
 // --- Core Logic: Subtitle Processing & Rendering ---
 
@@ -42,7 +43,12 @@ function processSubtitleFile(video, file, encoding = settings.encoding) {
     reader.onload = () => {
         try {
             let text = reader.result;
-            if (file.name.endsWith('.srt')) text = srtToVtt(text);
+            if (file.name.endsWith('.srt')) {
+                text = srtToVtt(text);
+            } else if (file.name.endsWith('.ass') || file.name.endsWith('.ssa')) {
+                text = assToVtt(text);
+            }
+
             const cues = parseVtt(text);
             if (cues.length === 0) throw new Error("No valid cues found.");
 
@@ -83,7 +89,7 @@ function addSubtitleTrack(video, label, cues) {
         data.tracks.push({ label, cues });
         data.currentTrackIndex = data.tracks.length - 1;
     }
-    data.lastTrackIndex = data.currentTrackIndex; // Store the last active track
+    data.lastTrackIndex = data.currentTrackIndex;
 
     updateTrackSelector(video);
     applySettings();
@@ -161,7 +167,7 @@ function createSubtitleControls(video, container) {
             const newIndex = parseInt(e.target.value, 10);
             data.currentTrackIndex = newIndex;
             if (newIndex > -1) {
-                data.lastTrackIndex = newIndex; // Update last used track on manual change
+                data.lastTrackIndex = newIndex;
             }
             renderCustomSubtitle(video);
         }
@@ -208,6 +214,11 @@ function createSettingsPanel() {
                     <select id="vgs-font-family" title="Font Family">
                         <option value="sans-serif">Sans-Serif</option><option value="serif">Serif</option><option value="monospace">Monospace</option>
                     </select>
+                </div>
+                <div class="vgs-setting-row full-width">
+                    <label class="vgs-checkbox-label-full" title="Enable for Arabic, Hebrew, etc.">
+                        <input type="checkbox" id="vgs-rtl-mode"> Right-to-Left (RTL) Mode
+                    </label>
                 </div>
                 <label for="vgs-font-size" class="vgs-label">Font Size</label>
                 <div class="vgs-input-group"><input type="range" id="vgs-font-size" min="12" max="48" step="1"><span id="vgs-font-size-value"></span></div>
@@ -316,6 +327,7 @@ function openSettingsPanel(video) {
     document.getElementById('vgs-offsetY').value = settings.offsetY;
     document.getElementById('vgs-delay').value = settings.delay;
     document.getElementById('vgs-encoding').value = settings.encoding;
+    document.getElementById('vgs-rtl-mode').checked = settings.rtlMode;
 
     updatePanelUI();
     settingsPanel.style.display = 'flex';
@@ -343,7 +355,7 @@ function updatePanelUI() {
 function handleUploadClick(video) {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.vtt,.srt';
+    input.accept = '.vtt,.srt,.ass,.ssa';
     input.multiple = true;
     input.onchange = () => Array.from(input.files).forEach(file => processSubtitleFile(video, file));
     input.click();
@@ -362,7 +374,7 @@ function initializeForVideo(video) {
             activeVideo = video;
         });
         
-        const dropIconSVG = `<svg viewBox="0 0 24 24" style="width:1.5em; height:1.5em; stroke:currentColor; stroke-width:2; fill:none; stroke-linecap:round; stroke-linejoin:round;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`;
+        const dropIconSVG = `<svg viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>`;
         container.addEventListener('dragover', e => {
             e.preventDefault();
             e.stopPropagation();
@@ -379,7 +391,7 @@ function initializeForVideo(video) {
             hideIndicator();
             if (e.dataTransfer.files.length > 0) {
                 Array.from(e.dataTransfer.files).forEach(file => {
-                    if (file.name.endsWith('.srt') || file.name.endsWith('.vtt')) {
+                    if (file.name.endsWith('.srt') || file.name.endsWith('.vtt') || file.name.endsWith('.ass') || file.name.endsWith('.ssa')) {
                         processSubtitleFile(video, file);
                     }
                 });
@@ -426,7 +438,7 @@ function updateAllPositions() {
 // --- Settings & Styles ---
 
 function applySettings() {
-    const { fontColor, fontSize, fontFamily, textOutline, bgToggle, bgColor, bgOpacity } = settings;
+    const { fontColor, fontSize, fontFamily, textOutline, bgToggle, bgColor, bgOpacity, rtlMode } = settings;
     const bg = bgToggle ? hexToRgba(bgColor, bgOpacity) : 'transparent';
     const shadow = textOutline ? '1px 1px 2px black, -1px -1px 2px black, 1px -1px 2px black, -1px 1px 2px black' : '1px 1px 2px rgba(0,0,0,0.7)';
     
@@ -437,6 +449,8 @@ function applySettings() {
             fontFamily: fontFamily,
             backgroundColor: bg,
             textShadow: shadow,
+            direction: rtlMode ? 'rtl' : 'ltr',
+            textAlign: rtlMode ? 'right' : 'center',
         });
     });
     
@@ -454,6 +468,7 @@ async function updateSettingsFromPanel() {
     settings.offsetY = parseInt(document.getElementById('vgs-offsetY').value, 10);
     settings.delay = parseInt(document.getElementById('vgs-delay').value, 10) || 0;
     settings.encoding = document.getElementById('vgs-encoding').value;
+    settings.rtlMode = document.getElementById('vgs-rtl-mode').checked;
     await GM.setValue('subtitleSettings', settings);
 }
 
@@ -522,6 +537,8 @@ function initializeStyles() {
         .vgs-input-group input[type="number"] { width: 60px; text-align: right; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; padding: 2px 4px;}
         .vgs-input-group span { min-width: 40px; text-align: right; font-size: 14px; color: #ccc; }
         .vgs-checkbox-label { font-weight: bold; border: 1px solid #aaa; border-radius: 4px; padding: 2px 4px; cursor: pointer; }
+        .vgs-checkbox-label-full { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid #555; border-radius: 4px; cursor: pointer; width: 100%; transition: background-color 0.2s ease; }
+        .vgs-checkbox-label-full:hover { background-color: rgba(255,255,255,0.1); }
         select#vgs-font-family { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; padding: 4px; width: 100%; }
         .delay-group { display: flex; align-items: center; }
         .delay-group button { background: rgba(255,255,255,0.1); border: none; color: #eee; border-radius: 8px; width: 30px; height: 30px; font-size: 18px; cursor: pointer; }
@@ -537,7 +554,7 @@ function initializeStyles() {
             padding: 10px 16px; background-color: rgba(30, 30, 30, 0.9);
             color: #fff; font-family: 'Roboto', sans-serif; font-size: 16px;
             border-radius: 12px; z-index: 2147483647;
-            display: flex; flex-direction: column; align-items: center; gap: 8px;
+            display: flex; align-items: center; gap: 8px;
             opacity: 0; pointer-events: none;
             transition: opacity 0.3s ease, transform 0.3s ease;
             box-shadow: 0 4px 12px rgba(0,0,0,0.4);
@@ -606,6 +623,49 @@ function findVideosRecursively(node) {
 
 function srtToVtt(srtText) {
     return 'WEBVTT\n\n' + srtText.replace(/\r+/g, '').replace(/(\d+)\n(\d{2}:\d{2}:\d{2}),(\d{3}) --> (\d{2}:\d{2}:\d{2}),(\d{3})/g, '$2.$3 --> $4.$5');
+}
+
+function assToVtt(assText) {
+    const lines = assText.split('\n');
+    let vtt = 'WEBVTT\n\n';
+    let inEventsSection = false;
+    let format = {};
+    
+    for(const line of lines) {
+        if (line.trim().toLowerCase() === '[events]') {
+            inEventsSection = true;
+            continue;
+        }
+        if (inEventsSection && line.trim().toLowerCase().startsWith('format:')) {
+            const fields = line.substring(line.indexOf(':') + 1).split(',').map(f => f.trim());
+            fields.forEach((field, i) => format[field] = i);
+            continue;
+        }
+        if (!inEventsSection || !line.trim().toLowerCase().startsWith('dialogue:')) continue;
+        
+        const parts = line.substring(line.indexOf(':') + 1).split(',');
+        const start = parts[format.Start];
+        const end = parts[format.End];
+        const text = parts.slice(format.Text).join(',');
+
+        if (start && end && text) {
+            const vttStart = assTimeToVtt(start);
+            const vttEnd = assTimeToVtt(end);
+            const vttText = text.replace(/\{.*?\}/g, '').replace(/\\N/g, '\n');
+            vtt += `${vttStart} --> ${vttEnd}\n${vttText}\n\n`;
+        }
+    }
+    return vtt;
+}
+
+function assTimeToVtt(assTime) {
+    const parts = assTime.split(':');
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    const s_ms = parts[2].split('.');
+    const s = parseInt(s_ms[0], 10);
+    const ms = parseInt(s_ms[1].padEnd(3, '0'), 10); // ASS uses centiseconds
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
 }
 
 function parseVtt(vttText) {
