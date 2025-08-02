@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Subtitle Uploader v2.3 (UI Polish)
+// @name         Subtitle Uploader v2.7 (Error Feedback)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      2.3
+// @version      2.7
 // @description  Upload, style, and sync local subtitles (VTT, SRT, ASS, SSA) for any video.
 // @author       Murtaza Salih (Rebuilt by Gemini)
 // @match        *://*/*
@@ -76,7 +76,7 @@ function addSubtitleTrack(video, label, cues) {
     Array.from(video.textTracks).forEach(track => track.mode = 'disabled');
 
     if (!data.display) {
-        data.display = getOrCreateSubtitleDisplay(data.container);
+        data.display = getOrCreateSubtitleDisplay(data.uiSandbox);
         video.addEventListener('timeupdate', () => renderCustomSubtitle(video));
     }
 
@@ -118,35 +118,22 @@ function renderCustomSubtitle(video) {
 
 // --- UI Creation & Management ---
 
-function getOrCreateSubtitleDisplay(container) {
-    const ytCaptionWindow = container.querySelector('.ytp-caption-window-container');
-    if (ytCaptionWindow) {
-        let vgsDisplay = ytCaptionWindow.querySelector('.custom-subtitle-display');
-        if (!vgsDisplay) {
-            vgsDisplay = document.createElement('div');
-            vgsDisplay.className = 'custom-subtitle-display vgs-youtube-subs';
-            ytCaptionWindow.appendChild(vgsDisplay);
-        }
-        return vgsDisplay;
-    }
-
-    let vgsDisplay = container.querySelector('.custom-subtitle-display');
+function getOrCreateSubtitleDisplay(uiSandbox) {
+    let vgsDisplay = uiSandbox.querySelector('.custom-subtitle-display');
     if (!vgsDisplay) {
         vgsDisplay = document.createElement('div');
-        vgsDisplay.className = 'custom-subtitle-display vgs-generic-subs';
-        container.appendChild(vgsDisplay);
+        vgsDisplay.className = 'custom-subtitle-display';
+        uiSandbox.appendChild(vgsDisplay);
     }
     return vgsDisplay;
 }
 
-function createSubtitleControls(video, container) {
-    if (videoDataMap.has(video) || !container) return;
+function createSubtitleControls(video, uiSandbox) {
+    if (videoDataMap.has(video) || !uiSandbox) return;
 
     const controls = document.createElement('div');
     controls.className = 'subtitle-controls-container';
-    container.addEventListener('mouseenter', () => container.classList.add('vgs-container-hover'));
-    container.addEventListener('mouseleave', () => container.classList.remove('vgs-container-hover'));
-
+    
     const btnUpload = createButton('Upload Subtitle (Ctrl+U)', `<svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/></svg>`, (e) => {
         e.stopPropagation();
         handleUploadClick(video);
@@ -174,9 +161,9 @@ function createSubtitleControls(video, container) {
     };
 
     controls.append(btnUpload, btnSettings, trackSelector);
-    container.appendChild(controls);
+    uiSandbox.appendChild(controls);
 
-    videoDataMap.set(video, { controls, container, trackSelector, lastFile: null, lastTrackIndex: -1 });
+    videoDataMap.set(video, { controls, uiSandbox, trackSelector, lastFile: null, lastTrackIndex: -1 });
 }
 
 function updateTrackSelector(video) {
@@ -357,7 +344,17 @@ function handleUploadClick(video) {
     input.type = 'file';
     input.accept = '.vtt,.srt,.ass,.ssa';
     input.multiple = true;
-    input.onchange = () => Array.from(input.files).forEach(file => processSubtitleFile(video, file));
+    input.onchange = () => {
+        Array.from(input.files).forEach(file => {
+            const supported = /\.(srt|vtt|ass|ssa)$/i.test(file.name);
+            if (supported) {
+                processSubtitleFile(video, file);
+            } else {
+                const errorIcon = `<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>`;
+                showIndicator(`${errorIcon} Unsupported File Format`, 3000);
+            }
+        });
+    };
     input.click();
 }
 
@@ -368,10 +365,18 @@ function initializeForVideo(video) {
         if (!container || video.dataset.vgsHandled) return;
         video.dataset.vgsHandled = 'true';
         
-        createSubtitleControls(video, container);
+        const uiSandbox = document.createElement('div');
+        uiSandbox.className = 'vgs-ui-sandbox';
+        container.appendChild(uiSandbox);
+
+        createSubtitleControls(video, uiSandbox);
 
         container.addEventListener('mouseenter', () => {
             activeVideo = video;
+            uiSandbox.classList.add('vgs-container-hover');
+        });
+        container.addEventListener('mouseleave', () => {
+            uiSandbox.classList.remove('vgs-container-hover');
         });
         
         const dropIconSVG = `<svg viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>`;
@@ -391,8 +396,12 @@ function initializeForVideo(video) {
             hideIndicator();
             if (e.dataTransfer.files.length > 0) {
                 Array.from(e.dataTransfer.files).forEach(file => {
-                    if (file.name.endsWith('.srt') || file.name.endsWith('.vtt') || file.name.endsWith('.ass') || file.name.endsWith('.ssa')) {
+                    const supported = /\.(srt|vtt|ass|ssa)$/i.test(file.name);
+                    if (supported) {
                         processSubtitleFile(video, file);
+                    } else {
+                        const errorIcon = `<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>`;
+                        showIndicator(`${errorIcon} Unsupported File Format`, 3000);
                     }
                 });
             }
@@ -401,15 +410,9 @@ function initializeForVideo(video) {
 }
 
 function updateSubtitlePosition(video, display) {
-    if (display.classList.contains('vgs-youtube-subs')) {
-        const bottomPercent = 100 - settings.offsetY;
-        display.style.bottom = `${bottomPercent}%`;
-        return;
-    }
-    
     const data = videoDataMap.get(video);
     if (!data) return;
-    const containerRect = data.container.getBoundingClientRect();
+    const containerRect = data.uiSandbox.getBoundingClientRect();
     
     const subtitleTop = (containerRect.height * (settings.offsetY / 100)) - display.offsetHeight;
     const subtitleLeft = containerRect.width / 2;
@@ -424,8 +427,7 @@ function updateSubtitlePosition(video, display) {
 function updateAllPositions() {
     for (const [video, data] of videoDataMap.entries()) {
         if (!document.body.contains(video)) {
-            data.controls.remove();
-            if (data.display) data.display.remove();
+            data.uiSandbox.remove();
             videoDataMap.delete(video);
         } else {
             if (data.display) {
@@ -474,15 +476,21 @@ async function updateSettingsFromPanel() {
 
 function initializeStyles() {
     GM.addStyle(`
-        .vgs-container { position: relative !important; overflow: hidden !important; }
+        .vgs-ui-sandbox {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 2147483630; /* Just below the controls */
+            pointer-events: none;
+        }
         .subtitle-controls-container {
-            position: absolute; top: 10px; left: 10px; z-index: 2147483640;
+            position: absolute; top: 10px; left: 10px;
             display: flex; gap: 8px; align-items: center;
             opacity: 0; transform: translateY(-10px);
             transition: opacity 0.3s ease, transform 0.3s ease;
-            pointer-events: none;
+            pointer-events: auto; /* Allow clicks on controls */
         }
-        .vgs-container-hover .subtitle-controls-container { opacity: 1; transform: translateY(0); pointer-events: auto; }
+        .vgs-container-hover .subtitle-controls-container { opacity: 1; transform: translateY(0); }
         .subtitle-controls-container button, .vgs-track-selector {
             background-color: rgba(30, 30, 30, 0.9); border: none; border-radius: 12px;
             height: 40px; cursor: pointer; padding: 8px;
@@ -500,18 +508,15 @@ function initializeStyles() {
         .vgs-track-selector option { background: #333; border: none; }
 
         .custom-subtitle-display {
-            width: max-content; max-width: 90%; text-align: center; pointer-events: none;
+            position: absolute;
+            transform: translateX(-50%);
+            width: max-content; max-width: 90%; text-align: center;
             padding: 5px 10px; border-radius: 4px; line-height: 1.4;
             word-wrap: break-word; white-space: pre-wrap;
             opacity: 0; visibility: hidden;
             transition: opacity 0.3s ease, visibility 0s linear 0.3s;
         }
         .custom-subtitle-display.visible { opacity: 1; visibility: visible; transition: opacity 0.3s ease; }
-        .vgs-generic-subs { position: absolute; transform: translateX(-50%); z-index: 2147483641; }
-        .vgs-youtube-subs {
-            position: absolute; left: 50%; transform: translateX(-50%);
-            width: fit-content;
-        }
 
         #vgs-settings-panel {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -545,9 +550,9 @@ function initializeStyles() {
         .delay-group input { width: 50px; text-align: center; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; margin: 0 5px; -moz-appearance: textfield; }
         .delay-group input::-webkit-outer-spin-button, .delay-group input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
         
-        .encoding-group { display: flex; gap: 10px; align-items: center; }
-        .encoding-group select { flex-grow: 1; min-width: 0; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; padding: 4px; }
-        .encoding-group button { flex-shrink: 0; background: rgba(255,255,255,0.1); border: none; color: #eee; border-radius: 4px; padding: 4px 8px; cursor: pointer; }
+        .encoding-group { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
+        .encoding-group select { min-width: 0; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; padding: 4px; }
+        .encoding-group button { background: rgba(255,255,255,0.1); border: none; color: #eee; border-radius: 4px; padding: 4px 8px; cursor: pointer; }
         
         #vgs-global-indicator {
             position: fixed; top: 30px; left: 50%; transform: translate(-50%, -10px);
@@ -586,27 +591,21 @@ function waitForElement(video, findFn, callback) {
 
 function findVideoContainer(video) {
     let container = video.closest('#movie_player');
-    if (container) {
-        container.classList.add('vgs-container');
-        return container;
-    }
+    if (container) return container;
+    
     container = video.closest('[class*="video-player"], [class*="player-container"], [class*="videoContainer"]');
-     if (container) {
-        container.classList.add('vgs-container');
-        return container;
-    }
+    if (container) return container;
+    
     let parent = video.parentElement;
     while (parent && parent !== document.body) {
         const style = window.getComputedStyle(parent);
         if (style.position === 'relative' || style.position === 'absolute' || style.position === 'fixed') {
             if (parent.clientHeight < window.innerHeight * 1.5 && parent.clientWidth < window.innerWidth * 1.5) {
-                parent.classList.add('vgs-container');
                 return parent;
             }
         }
         parent = parent.parentElement;
     }
-    video.parentElement.classList.add('vgs-container');
     return video.parentElement;
 }
 
@@ -837,12 +836,11 @@ function init() {
     window.addEventListener('scroll', throttledUpdate, true);
     window.addEventListener('resize', throttledUpdate, true);
     document.addEventListener('fullscreenchange', updateAllPositions);
-};
+}
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init, { once: true });
 } else {
     init();
 }
-
 })();
