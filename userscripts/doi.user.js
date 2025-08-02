@@ -1,21 +1,35 @@
 // ==UserScript==
-// @name                DOI/PMID to Sci-Hub Helper Enhanced
-// @name:zh-CN          DOI/PMID跳转Sci-Hub助手增强版
+// @name                DOI/PMID to Sci-Hub Helper Simplified
+// @name:zh-CN          DOI/PMID跳转Sci-Hub助手简化版
 // @namespace           https://greasyfork.org/users/enhanced
-// @version             3.0.0
-// @description         Enhanced version: Finds DOIs and PMIDs, adding hover buttons to open in Sci-Hub with improved reliability and features.
-// @description:zh-CN   增强版：查找页面上的DOI和PMID，添加悬停按钮以在Sci-Hub中打开，具有改进的可靠性和功能。
+// @version             5.0.1
+// @description         Simplified version: Click to open in Sci-Hub/PubMed, double-click to copy. Mobile-friendly with elegant feedback.
+// @description:zh-CN   简化版：单击打开Sci-Hub/PubMed，双击复制。支持移动设备，优雅反馈。
 // @author              Enhanced Version
 // @license             MIT
 // @match               *://*/*
 // @require             https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js
-// @require             https://cdn.jsdelivr.net/gh/sizzlemctwizzle/GM_config@2207c5c1322ebb56e401f03c2e581719f909762a/gm_config.js
 // @grant               GM_getValue
 // @grant               GM_setValue
 // @grant               GM_registerMenuCommand
 // @grant               GM.xmlHttpRequest
 // @grant               GM_addStyle
 // @grant               GM_notification
+// @grant               GM_setClipboard
+// @connect             sci-hub.se
+// @connect             sci-hub.st
+// @connect             sci-hub.ru
+// @connect             sci-hub.si
+// @connect             sci-hub.tw
+// @connect             sci-hub.ren
+// @connect             sci-hub.mksa.top
+// @connect             sci-hub.wf
+// @connect             sci-hub.41610.org
+// @connect             doi.org
+// @connect             dx.doi.org
+// @connect             pubmed.ncbi.nlm.nih.gov
+// @connect             arxiv.org
+// @connect             *
 // @downloadURL         https://update.greasyfork.org/scripts/enhanced/DOI%20to%20Sci-Hub%20Enhanced.user.js
 // @updateURL           https://update.greasyfork.org/scripts/enhanced/DOI%20to%20Sci-Hub%20Enhanced.meta.js
 // ==/UserScript==
@@ -28,16 +42,11 @@
     // ============================================================================
 
     const ICONS = {
-        scihub: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="display: inline-block; vertical-align: text-bottom; margin-right: 5px;">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
-            <path d="M12 12.5c-1.63 0-3.06.79-3.98 2H12v-2zm0-1H8.02c.92-1.21 2.35-2 3.98-2s3.06.79 3.98 2H12v-1z"/>
-            <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 6c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/>
-        </svg>`,
-        copy: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+        copy: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
         </svg>`,
-        external: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
+        success: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
         </svg>`
     };
 
@@ -47,23 +56,17 @@
     const ID_TYPES = {
         doi: {
             name: 'DOI',
-            // Improved DOI regex - more precise and handles edge cases
             regex: /\b(10\.\d{4,}(?:\.\d+)*\/[^\s<>"{}|\\^`\[\]]*[^\s<>"{}|\\^`\[\].,;!?])/gi,
-            buttonText: 'Open in Sci-Hub',
-            icon: ICONS.scihub,
             validateId: (id) => /^10\.\d{4,}/.test(id) && id.length > 7,
             normalizeId: (id) => id.trim(),
             color: '#2196F3',
-            checkAvailability: true, // Only DOI checks Sci-Hub availability
-            primaryUrl: (id) => `https://sci-hub.se/${id}`, // Will be replaced with actual Sci-Hub URL
+            checkAvailability: true,
+            primaryUrl: (id) => `https://sci-hub.se/${id}`,
             alternativeUrl: (id) => `https://doi.org/${id}`
         },
         pmid: {
             name: 'PMID',
-            // Fixed PMID regex - more flexible matching
             regex: /\b(?:PMID:?\s*)(\d{1,8})\b/gi,
-            buttonText: 'Open in PubMed',
-            icon: ICONS.external,
             extractId: (match) => {
                 const pmidMatch = match.match(/(\d{1,8})/);
                 return pmidMatch ? pmidMatch[1] : null;
@@ -71,16 +74,13 @@
             validateId: (id) => /^\d{1,8}$/.test(id) && parseInt(id) > 0,
             normalizeId: (id) => id.trim(),
             color: '#4CAF50',
-            checkAvailability: false, // PMID always shows button
+            checkAvailability: false,
             primaryUrl: (id) => `https://pubmed.ncbi.nlm.nih.gov/${id}/`,
-            alternativeUrl: (id) => `https://sci-hub.se/${id}` // Will be replaced with actual Sci-Hub URL
+            alternativeUrl: (id) => `https://sci-hub.se/${id}`
         },
-        // New: Support for arXiv IDs
         arxiv: {
             name: 'arXiv',
             regex: /\b(?:arXiv:?)(\d{4}\.\d{4,5}(?:v\d+)?)\b/gi,
-            buttonText: 'Open in Sci-Hub',
-            icon: ICONS.scihub,
             extractId: (match) => {
                 const arxivMatch = match.match(/(\d{4}\.\d{4,5}(?:v\d+)?)/);
                 return arxivMatch ? arxivMatch[1] : null;
@@ -88,8 +88,8 @@
             validateId: (id) => /^\d{4}\.\d{4,5}(?:v\d+)?$/.test(id),
             normalizeId: (id) => id.trim(),
             color: '#FF9800',
-            checkAvailability: true, // arXiv checks Sci-Hub availability
-            primaryUrl: (id) => `https://sci-hub.se/${id}`, // Will be replaced with actual Sci-Hub URL
+            checkAvailability: true,
+            primaryUrl: (id) => `https://sci-hub.se/${id}`,
             alternativeUrl: (id) => `https://arxiv.org/abs/${id}`
         }
     };
@@ -110,6 +110,7 @@
                 enableCache: true,
                 checkAvailability: true,
                 showStats: false,
+                debugMode: false,
                 theme: 'auto' // auto, light, dark
             };
         }
@@ -150,128 +151,95 @@
             --scihub-primary: #2196F3;
             --scihub-success: #4CAF50;
             --scihub-warning: #FF9800;
-            --scihub-light-bg: #f8f9fa;
-            --scihub-light-border: #e9ecef;
-            --scihub-light-text: #333;
-            --scihub-dark-bg: #2d3748;
-            --scihub-dark-border: #4a5568;
-            --scihub-dark-text: #f7fafc;
         }
 
         .scihub-id-wrapper {
             position: relative;
-            text-decoration: none !important;
-            color: inherit !important;
-            display: inline;
+            display: inline-block;
+            cursor: pointer;
             transition: all 0.2s ease;
+            border-radius: 4px;
+            padding: 2px 4px;
+            margin: 0 1px;
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            vertical-align: baseline;
+            line-height: 1.2;
         }
 
         .scihub-id-wrapper.scihub-active {
-            background: linear-gradient(90deg, transparent 0%, rgba(33, 150, 243, 0.1) 50%, transparent 100%);
-            background-size: 200% 100%;
-            background-position: -100% 0;
-            padding: 2px 4px;
-            border-radius: 4px;
-            cursor: pointer;
-            border-bottom: 2px dotted rgba(33, 150, 243, 0.5);
+            background: rgba(33, 150, 243, 0.15);
+            border: 1px solid rgba(33, 150, 243, 0.3);
         }
 
         .scihub-id-wrapper.scihub-active:hover {
-            background-position: 0 0;
-            border-bottom-style: solid;
-        }
-
-        .scihub-id-wrapper.scihub-checking {
-            animation: scihub-pulse 1.5s infinite;
-            opacity: 0.7;
+            background: rgba(33, 150, 243, 0.25);
+            border-color: rgba(33, 150, 243, 0.5);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(33, 150, 243, 0.2);
         }
 
         .scihub-id-wrapper.scihub-pmid.scihub-active {
-            border-bottom-color: rgba(76, 175, 80, 0.5);
-            background: linear-gradient(90deg, transparent 0%, rgba(76, 175, 80, 0.1) 50%, transparent 100%);
+            background: rgba(76, 175, 80, 0.15);
+            border-color: rgba(76, 175, 80, 0.3);
+        }
+
+        .scihub-id-wrapper.scihub-pmid.scihub-active:hover {
+            background: rgba(76, 175, 80, 0.25);
+            border-color: rgba(76, 175, 80, 0.5);
+            box-shadow: 0 2px 8px rgba(76, 175, 80, 0.2);
         }
 
         .scihub-id-wrapper.scihub-arxiv.scihub-active {
-            border-bottom-color: rgba(255, 152, 0, 0.5);
-            background: linear-gradient(90deg, transparent 0%, rgba(255, 152, 0, 0.1) 50%, transparent 100%);
+            background: rgba(255, 152, 0, 0.15);
+            border-color: rgba(255, 152, 0, 0.3);
         }
 
-        @keyframes scihub-pulse {
-            0%, 100% { opacity: 0.7; }
-            50% { opacity: 1; }
+        .scihub-id-wrapper.scihub-arxiv.scihub-active:hover {
+            background: rgba(255, 152, 0, 0.25);
+            border-color: rgba(255, 152, 0, 0.5);
+            box-shadow: 0 2px 8px rgba(255, 152, 0, 0.2);
         }
 
-        #scihub-floating-container {
+        .scihub-id-wrapper.scihub-checking {
+            opacity: 0.6;
+            background: #f0f0f0;
+            border: 1px solid #ddd;
+        }
+
+        /* Copy feedback icon */
+        .scihub-copy-feedback {
             position: absolute;
-            z-index: 2147483647;
-            opacity: 0;
-            visibility: hidden;
-            transform: translateY(10px);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            pointer-events: none;
-        }
-
-        #scihub-floating-container.scihub-visible {
-            opacity: 1;
-            visibility: visible;
-            transform: translateY(0);
-            pointer-events: auto;
-        }
-
-        .scihub-floating-btn {
-            display: inline-flex;
+            top: 50%;
+            right: -12px;
+            transform: translateY(-50%) scale(0.5);
+            background: var(--scihub-success);
+            color: white;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            display: flex;
             align-items: center;
-            padding: 8px 12px;
-            margin: 2px;
-            border-radius: 8px;
-            text-decoration: none !important;
-            font-size: 13px;
-            font-weight: 500;
-            line-height: 1.2;
-            border: 1px solid;
-            transition: all 0.2s ease;
-            white-space: nowrap;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            backdrop-filter: blur(10px);
+            justify-content: center;
+            font-size: 10px;
+            z-index: 1000;
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            pointer-events: none;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         }
 
-        .scihub-floating-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        .scihub-copy-feedback.show {
+            opacity: 1;
+            transform: translateY(-50%) scale(1);
         }
 
-        .scihub-floating-btn:active {
-            transform: translateY(0);
+        .scihub-copy-feedback.hide {
+            opacity: 0;
+            transform: translateY(-50%) scale(0.5) translateX(5px);
         }
-
-        /* Light theme */
-        .scihub-btn-light {
-            background: rgba(255, 255, 255, 0.95);
-            color: var(--scihub-light-text);
-            border-color: var(--scihub-light-border);
-        }
-
-        .scihub-btn-light:hover {
-            background: rgba(255, 255, 255, 1);
-            color: var(--scihub-primary);
-        }
-
-        /* Dark theme */
-        .scihub-btn-dark {
-            background: rgba(45, 55, 72, 0.95);
-            color: var(--scihub-dark-text);
-            border-color: var(--scihub-dark-border);
-        }
-
-        .scihub-btn-dark:hover {
-            background: rgba(45, 55, 72, 1);
-            color: var(--scihub-primary);
-        }
-
-        /* Button variants */
-        .scihub-btn-primary { border-left: 3px solid var(--scihub-primary); }
-        .scihub-btn-success { border-left: 3px solid var(--scihub-success); }
-        .scihub-btn-warning { border-left: 3px solid var(--scihub-warning); }
 
         /* Stats display */
         .scihub-stats {
@@ -286,13 +254,107 @@
             z-index: 2147483646;
         }
 
-        /* Responsive adjustments */
-        @media (max-width: 768px) {
-            .scihub-floating-btn {
-                padding: 6px 10px;
+        /* Mobile touch improvements */
+        @media (hover: none) and (pointer: coarse) {
+            .scihub-id-wrapper.scihub-active {
+                padding: 4px 6px;
+                border-width: 2px;
+                min-height: 24px;
+                touch-action: manipulation;
+                -webkit-touch-callout: none;
+                -webkit-user-select: none;
+                -khtml-user-select: none;
+                -moz-user-select: none;
+                -ms-user-select: none;
+                user-select: none;
+                line-height: 1.4;
+            }
+            
+            .scihub-id-wrapper.scihub-active:active {
+                transform: scale(0.95);
+                opacity: 0.8;
+            }
+            
+            .scihub-copy-feedback {
+                width: 20px;
+                height: 20px;
                 font-size: 12px;
+                right: -14px;
             }
         }
+
+        /* Touch feedback for all devices */
+        .scihub-id-wrapper.scihub-active {
+            -webkit-tap-highlight-color: rgba(33, 150, 243, 0.3);
+            tap-highlight-color: rgba(33, 150, 243, 0.3);
+        }
+
+        /* Custom context menu */
+        .scihub-context-menu {
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            min-width: 150px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            font-size: 14px;
+        }
+
+        .scihub-context-option {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+
+        .scihub-context-option:last-child {
+            border-bottom: none;
+        }
+
+        .scihub-context-option:hover {
+            background: #f5f5f5;
+        }
+
+        /* Mobile long press visual feedback */
+        @media (hover: none) and (pointer: coarse) {
+            .scihub-id-wrapper.scihub-active {
+                position: relative;
+            }
+
+            .scihub-id-wrapper.scihub-active::after {
+                content: '';
+                position: absolute;
+                top: -2px;
+                left: -2px;
+                right: -2px;
+                bottom: -2px;
+                border-radius: 6px;
+                background: linear-gradient(45deg, transparent, rgba(76, 175, 80, 0.3), transparent);
+                opacity: 0;
+                transition: opacity 0.3s ease;
+                pointer-events: none;
+                z-index: -1;
+            }
+
+            .scihub-id-wrapper.scihub-active.long-press-active::after {
+                opacity: 1;
+            }
+        }
+
+        /* Reduced motion support */
+        @media (prefers-reduced-motion: reduce) {
+            .scihub-id-wrapper, .scihub-copy-feedback {
+                transition: none;
+            }
+        }
+
+        /* High contrast mode support */
+        @media (prefers-contrast: high) {
+            .scihub-id-wrapper.scihub-active {
+                border-width: 2px;
+                background: rgba(33, 150, 243, 0.3);
+            }
+        }
+
     `;
 
     // ============================================================================
@@ -405,18 +467,89 @@
             }
         }
 
+        static isValidElement(element) {
+            return element && 
+                   element.nodeType === Node.ELEMENT_NODE && 
+                   element.parentNode && 
+                   document.contains(element);
+        }
+
+        static safeQuerySelector(selector, parent = document) {
+            try {
+                return parent.querySelector(selector);
+            } catch (error) {
+                console.warn('[Sci-Hub Helper] Invalid selector:', selector, error);
+                return null;
+            }
+        }
+
+        static safeQuerySelectorAll(selector, parent = document) {
+            try {
+                return Array.from(parent.querySelectorAll(selector));
+            } catch (error) {
+                console.warn('[Sci-Hub Helper] Invalid selector:', selector, error);
+                return [];
+            }
+        }
+
         static copyToClipboard(text) {
-            if (navigator.clipboard) {
+            // Try GM_setClipboard first (most reliable for userscripts)
+            if (typeof GM_setClipboard !== 'undefined') {
+                try {
+                    GM_setClipboard(text);
+                    return Promise.resolve();
+                } catch (error) {
+                    console.warn('[Sci-Hub Helper] GM_setClipboard failed:', error);
+                }
+            }
+            
+            // Try modern clipboard API
+            if (navigator.clipboard && navigator.clipboard.writeText) {
                 return navigator.clipboard.writeText(text);
             } else {
-                // Fallback for older browsers
-                const textArea = document.createElement('textarea');
-                textArea.value = text;
-                document.body.appendChild(textArea);
-                textArea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textArea);
-                return Promise.resolve();
+                // Improved fallback for older browsers and mobile devices
+                return new Promise((resolve, reject) => {
+                    try {
+                        const textArea = document.createElement('textarea');
+                        textArea.value = text;
+                        textArea.style.position = 'fixed';
+                        textArea.style.top = '-9999px';
+                        textArea.style.left = '-9999px';
+                        textArea.style.opacity = '0';
+                        textArea.style.pointerEvents = 'none';
+                        textArea.setAttribute('readonly', '');
+                        textArea.setAttribute('aria-hidden', 'true');
+                        
+                        document.body.appendChild(textArea);
+                        
+                        // For mobile devices, ensure the element is visible and focusable
+                        if (/Mobi|Android/i.test(navigator.userAgent)) {
+                            textArea.style.position = 'absolute';
+                            textArea.style.top = '0';
+                            textArea.style.left = '0';
+                            textArea.style.width = '1px';
+                            textArea.style.height = '1px';
+                            textArea.style.opacity = '0';
+                            textArea.contentEditable = true;
+                            textArea.readOnly = false;
+                        }
+                        
+                        textArea.focus();
+                        textArea.select();
+                        textArea.setSelectionRange(0, text.length);
+                        
+                        const successful = document.execCommand('copy');
+                        document.body.removeChild(textArea);
+                        
+                        if (successful) {
+                            resolve();
+                        } else {
+                            reject(new Error('Copy command failed'));
+                        }
+                    } catch (error) {
+                        reject(error);
+                    }
+                });
             }
         }
 
@@ -433,83 +566,79 @@
                 console.log(`[Sci-Hub Helper] ${message}`);
             }
         }
+
+        static debugLog(message, data = null) {
+            if (state.settings.debugMode) {
+                console.log(`[Sci-Hub Helper Debug] ${message}`, data);
+            }
+        }
+
+        static measurePerformance(operation, func) {
+            const start = performance.now();
+            const result = func();
+            const end = performance.now();
+            this.debugLog(`${operation} took ${end - start} milliseconds`);
+            return result;
+        }
+
+        static async measurePerformanceAsync(operation, asyncFunc) {
+            const start = performance.now();
+            const result = await asyncFunc();
+            const end = performance.now();
+            this.debugLog(`${operation} took ${end - start} milliseconds`);
+            return result;
+        }
+
+        static validateIdType(idType) {
+            const validTypes = Object.keys(ID_TYPES);
+            if (!validTypes.includes(idType)) {
+                throw new Error(`Invalid ID type: ${idType}. Valid types: ${validTypes.join(', ')}`);
+            }
+            return true;
+        }
+
+        static createSVGIcon(iconData) {
+            try {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(iconData, 'image/svg+xml');
+                const errorNode = doc.querySelector('parsererror');
+                
+                if (errorNode) {
+                    console.warn('[Sci-Hub Helper] Invalid SVG data:', iconData);
+                    return null;
+                }
+                
+                return document.importNode(doc.documentElement, true);
+            } catch (error) {
+                console.warn('[Sci-Hub Helper] Error creating SVG icon:', error);
+                return null;
+            }
+        }
     }
 
     // ============================================================================
-    // CONFIGURATION MANAGEMENT
+    // SIMPLIFIED SETTINGS MANAGEMENT  
     // ============================================================================
 
     class ConfigManager {
         static init() {
-            const fields = {
-                'UserDefinedBaseURL': {
-                    'label': 'Custom Sci-Hub URL',
-                    'type': 'text',
-                    'default': '',
-                    'title': 'Enter your preferred Sci-Hub domain (e.g., https://sci-hub.ee)'
-                },
-                'showNotifications': {
-                    'label': 'Show notifications',
-                    'type': 'checkbox',
-                    'default': true,
-                    'title': 'Show notifications for successful operations'
-                },
-                'enableCache': {
-                    'label': 'Enable availability cache',
-                    'type': 'checkbox',
-                    'default': true,
-                    'title': 'Cache availability checks to improve performance'
-                },
-                'checkAvailability': {
-                    'label': 'Check paper availability',
-                    'type': 'checkbox',
-                    'default': true,
-                    'title': 'Check if papers are available on Sci-Hub before showing buttons'
-                },
-                'showStats': {
-                    'label': 'Show statistics',
-                    'type': 'checkbox',
-                    'default': false,
-                    'title': 'Display statistics about found papers'
-                },
-                'theme': {
-                    'label': 'Theme',
-                    'type': 'select',
-                    'options': ['auto', 'light', 'dark'],
-                    'default': 'auto',
-                    'title': 'Choose the button theme'
-                }
-            };
-
-            GM_config.init({
-                'id': 'SciHub_Enhanced_Config',
-                'title': 'Sci-Hub Helper Enhanced Settings',
-                'fields': fields,
-                'events': {
-                    'save': () => {
-                        this.loadSettings();
-                        location.reload();
-                    }
-                }
-            });
-
             this.loadSettings();
         }
 
         static loadSettings() {
-            state.settings.showNotifications = GM_config.get('showNotifications');
-            state.settings.enableCache = GM_config.get('enableCache');
-            state.settings.checkAvailability = GM_config.get('checkAvailability');
-            state.settings.showStats = GM_config.get('showStats');
-            state.settings.theme = GM_config.get('theme');
-
-            if (!state.settings.enableCache) {
-                state.clearCache();
-            }
+            Object.keys(state.settings).forEach(key => {
+                const value = GM_getValue(key, state.settings[key]);
+                state.settings[key] = value;
+            });
         }
 
-        static openSettings() {
-            GM_config.open();
+        static setSetting(key, value) {
+            state.settings[key] = value;
+            GM_setValue(key, value);
+        }
+
+        static getSetting(key) {
+            return GM_getValue(key, state.settings[key]);
         }
     }
 
@@ -518,12 +647,15 @@
     // ============================================================================
 
     class SciHubManager {
+        static pendingRequests = new Map();
+        static abortControllers = new Map();
+
         static async getSciHubBaseURL() {
             if (state.sciHubBaseURL) {
                 return state.sciHubBaseURL;
             }
 
-            const userDefinedURL = GM_config.get('UserDefinedBaseURL')?.trim();
+            const userDefinedURL = ConfigManager.getSetting('UserDefinedBaseURL')?.trim();
             if (userDefinedURL) {
                 const sanitized = Utils.sanitizeUrl(userDefinedURL);
                 if (sanitized) {
@@ -573,6 +705,10 @@
         }
 
         static async checkAvailability(id, type) {
+            return this.checkAvailabilityWithRetry(id, type, 2);
+        }
+
+        static async checkAvailabilityWithRetry(id, type, maxRetries = 2) {
             const typeConfig = ID_TYPES[type];
             
             // Skip availability check for types that don't require it
@@ -590,11 +726,52 @@
                 return cached;
             }
 
+            // Check if request is already pending (deduplication)
+            if (this.pendingRequests.has(cacheKey)) {
+                return await this.pendingRequests.get(cacheKey);
+            }
+
+            // Create request promise
+            const requestPromise = this.performAvailabilityCheck(id, type, maxRetries);
+            this.pendingRequests.set(cacheKey, requestPromise);
+
+            try {
+                const result = await requestPromise;
+                return result;
+            } finally {
+                this.pendingRequests.delete(cacheKey);
+            }
+        }
+
+        static async performAvailabilityCheck(id, type, maxRetries) {
             const baseURL = await this.getSciHubBaseURL();
             
-            return new Promise((resolve) => {
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    const result = await this.singleAvailabilityCheck(baseURL, id, type);
+                    state.setCacheItem(`${type}:${id}`, result);
+                    return result;
+                } catch (error) {
+                    Utils.debugLog(`Availability check attempt ${attempt + 1} failed for ${id}:`, error);
+                    
+                    if (attempt === maxRetries - 1) {
+                        // Last attempt failed, cache as false and return false
+                        state.setCacheItem(`${type}:${id}`, false);
+                        return false;
+                    }
+                    
+                    // Wait before retry with exponential backoff
+                    await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+                }
+            }
+            
+            return false;
+        }
+
+        static singleAvailabilityCheck(baseURL, id, type) {
+            return new Promise((resolve, reject) => {
                 const timeout = setTimeout(() => {
-                    resolve(false);
+                    reject(new Error('Request timeout'));
                 }, 8000);
 
                 GM.xmlHttpRequest({
@@ -619,20 +796,18 @@
                                             html.includes('pdfobject');
                             }
                         } catch (error) {
-                            console.warn('[Sci-Hub Helper] Error checking availability:', error);
+                            Utils.debugLog('Error processing availability response:', error);
                         }
 
-                        state.setCacheItem(cacheKey, isAvailable);
                         resolve(isAvailable);
                     },
                     onerror: () => {
                         clearTimeout(timeout);
-                        state.setCacheItem(cacheKey, false);
-                        resolve(false);
+                        reject(new Error('Network error'));
                     },
                     ontimeout: () => {
                         clearTimeout(timeout);
-                        resolve(false);
+                        reject(new Error('Request timeout'));
                     }
                 });
             });
@@ -673,23 +848,21 @@
     }
 
     // ============================================================================
-    // UI COMPONENTS
+    // SIMPLIFIED UI INTERACTION
     // ============================================================================
 
     class UIManager {
         constructor() {
-            this.floatingContainer = null;
-            this.currentWrapper = null;
-            this.hideTimeout = null;
+            this.abortController = new AbortController();
             this.stats = {
                 found: { doi: 0, pmid: 0, arxiv: 0 },
                 available: { doi: 0, pmid: 0, arxiv: 0 }
             };
+            this.touchTimers = new Map(); // For mobile touch detection
         }
 
         init() {
             this.addStyles();
-            this.createFloatingContainer();
             this.setupEventListeners();
             
             if (state.settings.showStats) {
@@ -699,12 +872,6 @@
 
         addStyles() {
             GM_addStyle(CSS_STYLES);
-        }
-
-        createFloatingContainer() {
-            this.floatingContainer = document.createElement('div');
-            this.floatingContainer.id = 'scihub-floating-container';
-            document.body.appendChild(this.floatingContainer);
         }
 
         createStatsDisplay() {
@@ -722,184 +889,344 @@
             const total = Object.values(this.stats.found).reduce((a, b) => a + b, 0);
             const available = Object.values(this.stats.available).reduce((a, b) => a + b, 0);
 
-            statsDiv.innerHTML = `
-                <div><strong>Sci-Hub Helper Stats</strong></div>
-                <div>Found: ${total} papers</div>
-                <div>Available: ${available} papers</div>
-                <div>DOI: ${this.stats.available.doi}/${this.stats.found.doi}</div>
-                <div>PMID: ${this.stats.available.pmid}/${this.stats.found.pmid}</div>
-                <div>arXiv: ${this.stats.available.arxiv}/${this.stats.found.arxiv}</div>
-            `;
+            while (statsDiv.firstChild) {
+                statsDiv.removeChild(statsDiv.firstChild);
+            }
+
+            const createStatDiv = (text) => {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div;
+            };
+
+            const title = document.createElement('div');
+            const strong = document.createElement('strong');
+            strong.textContent = 'Sci-Hub Helper Stats';
+            title.appendChild(strong);
+
+            statsDiv.appendChild(title);
+            statsDiv.appendChild(createStatDiv(`Found: ${total} papers`));
+            statsDiv.appendChild(createStatDiv(`Available: ${available} papers`));
+            statsDiv.appendChild(createStatDiv(`DOI: ${this.stats.available.doi}/${this.stats.found.doi}`));
+            statsDiv.appendChild(createStatDiv(`PMID: ${this.stats.available.pmid}/${this.stats.found.pmid}`));
+            statsDiv.appendChild(createStatDiv(`arXiv: ${this.stats.available.arxiv}/${this.stats.found.arxiv}`));
         }
 
         setupEventListeners() {
-            // Hover events
-            document.body.addEventListener('mouseover', this.handleMouseOver.bind(this));
-            document.body.addEventListener('mouseout', this.handleMouseOut.bind(this));
-
-            // Container events
-            this.floatingContainer.addEventListener('mouseover', () => {
-                clearTimeout(this.hideTimeout);
+            const signal = this.abortController.signal;
+            
+            // Click/touch events for detected IDs
+            document.body.addEventListener('click', this.handleClick.bind(this), { signal });
+            document.body.addEventListener('touchstart', this.handleTouchStart.bind(this), { 
+                signal, 
+                passive: false 
             });
-
-            this.floatingContainer.addEventListener('mouseout', () => {
-                this.scheduleHide();
+            document.body.addEventListener('touchend', this.handleTouchEnd.bind(this), { 
+                signal, 
+                passive: false 
             });
+            document.body.addEventListener('touchmove', this.handleTouchMove.bind(this), { 
+                signal, 
+                passive: false 
+            });
+            
+            // Context menu event for long press detection
+            document.body.addEventListener('contextmenu', this.handleContextMenu.bind(this), { signal });
         }
 
-        handleMouseOver(event) {
+        handleClick(event) {
             const wrapper = event.target.closest('.scihub-id-wrapper.scihub-active[data-id-value]');
-            if (wrapper && wrapper !== this.currentWrapper) {
-                clearTimeout(this.hideTimeout);
-                this.showFloatingButtons(wrapper);
+            if (!wrapper) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            const id = wrapper.dataset.idValue;
+            const type = wrapper.dataset.idType;
+
+            // Single click always opens link (no double-click detection)
+            this.openLink(id, type);
+        }
+
+        handleTouchStart(event) {
+            const wrapper = event.target.closest('.scihub-id-wrapper.scihub-active[data-id-value]');
+            if (!wrapper) return;
+
+            const elementId = this.getElementId(wrapper);
+            const touchInfo = {
+                startTime: Date.now(),
+                wrapper: wrapper,
+                startX: event.touches[0].clientX,
+                startY: event.touches[0].clientY,
+                moved: false,
+                longPressTimer: null,
+                longPressFired: false
+            };
+            
+            // Set up shorter long press timer (300ms) to trigger before native context menu
+            touchInfo.longPressTimer = setTimeout(() => {
+                if (!touchInfo.moved && !touchInfo.longPressFired) {
+                    // This is a long press - copy ID
+                    touchInfo.longPressFired = true;
+                    const id = wrapper.dataset.idValue;
+                    const type = wrapper.dataset.idType;
+                    
+                    // Prevent native context menu
+                    event.preventDefault();
+                    
+                    // Haptic feedback for mobile devices
+                    this.provideMobileHapticFeedback();
+                    
+                    // Visual feedback for long press
+                    wrapper.style.transform = 'scale(0.95)';
+                    wrapper.style.background = 'rgba(76, 175, 80, 0.4)';
+                    
+                    setTimeout(() => {
+                        wrapper.style.transform = '';
+                        wrapper.style.background = '';
+                    }, 200);
+                    
+                    this.copyId(id, type, wrapper);
+                    
+                    // Clear the touch info to prevent normal tap handling
+                    this.touchTimers.delete(elementId);
+                }
+            }, 300); // 300ms - faster than native context menu
+            
+            this.touchTimers.set(elementId, touchInfo);
+        }
+
+        handleTouchMove(event) {
+            const wrapper = event.target.closest('.scihub-id-wrapper.scihub-active[data-id-value]');
+            if (!wrapper) return;
+
+            const elementId = this.getElementId(wrapper);
+            const touchInfo = this.touchTimers.get(elementId);
+            
+            if (touchInfo && event.touches.length > 0) {
+                const moveX = Math.abs(event.touches[0].clientX - touchInfo.startX);
+                const moveY = Math.abs(event.touches[0].clientY - touchInfo.startY);
+                
+                // If user moved more than 10px, consider it not a tap/long press
+                if (moveX > 10 || moveY > 10) {
+                    touchInfo.moved = true;
+                    if (touchInfo.longPressTimer) {
+                        clearTimeout(touchInfo.longPressTimer);
+                        touchInfo.longPressTimer = null;
+                    }
+                }
             }
         }
 
-        handleMouseOut(event) {
-            const wrapper = event.target.closest('.scihub-id-wrapper.scihub-active');
+        handleTouchEnd(event) {
+            const wrapper = event.target.closest('.scihub-id-wrapper.scihub-active[data-id-value]');
+            if (!wrapper) return;
+
+            const elementId = this.getElementId(wrapper);
+            const touchInfo = this.touchTimers.get(elementId);
+
+            if (!touchInfo) return;
+
+            // Clear long press timer
+            if (touchInfo.longPressTimer) {
+                clearTimeout(touchInfo.longPressTimer);
+                touchInfo.longPressTimer = null;
+            }
+
+            const touchDuration = Date.now() - touchInfo.startTime;
+            this.touchTimers.delete(elementId);
+
+            // Only handle as tap if it wasn't moved, wasn't a long press, and duration was short
+            if (!touchInfo.moved && !touchInfo.longPressFired && touchDuration < 300) {
+                event.preventDefault();
+                event.stopPropagation();
+                
+                const id = wrapper.dataset.idValue;
+                const type = wrapper.dataset.idType;
+
+                // Single tap - open link (no double tap detection)
+                this.openLink(id, type);
+            }
+        }
+
+        handleContextMenu(event) {
+            const wrapper = event.target.closest('.scihub-id-wrapper.scihub-active[data-id-value]');
             if (wrapper) {
-                this.scheduleHide();
+                // Smart context menu handling for mobile
+                if (this.isMobileDevice()) {
+                    // On mobile, prevent native context menu and provide our own functionality
+                    event.preventDefault();
+                    event.stopPropagation();
+                    
+                    // Check if this is after a long press (context menu triggered by long press)
+                    const elementId = this.getElementId(wrapper);
+                    const touchInfo = this.touchTimers.get(elementId);
+                    
+                    if (!touchInfo || !touchInfo.longPressFired) {
+                        // Context menu triggered without our long press handling - copy the ID
+                        const id = wrapper.dataset.idValue;
+                        const type = wrapper.dataset.idType;
+                        
+                        // Visual feedback
+                        wrapper.style.transform = 'scale(0.95)';
+                        wrapper.style.background = 'rgba(76, 175, 80, 0.4)';
+                        setTimeout(() => {
+                            wrapper.style.transform = '';
+                            wrapper.style.background = '';
+                        }, 200);
+                        
+                        this.copyId(id, type, wrapper);
+                        this.provideMobileHapticFeedback();
+                    }
+                    
+                    return false;
+                } else {
+                    // On desktop, show custom context menu with options
+                    event.preventDefault();
+                    this.showCustomContextMenu(event, wrapper);
+                    return false;
+                }
             }
         }
 
-        scheduleHide() {
-            this.hideTimeout = setTimeout(() => {
-                this.hideFloatingButtons();
-            }, 300);
+        isMobileDevice() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                   (navigator.maxTouchPoints && navigator.maxTouchPoints > 1);
         }
 
-        async showFloatingButtons(wrapper) {
-            this.currentWrapper = wrapper;
-            const idValue = wrapper.dataset.idValue;
-            const idType = wrapper.dataset.idType;
-            const typeConfig = ID_TYPES[idType];
+        provideMobileHapticFeedback() {
+            // Provide haptic feedback on mobile devices
+            if ('vibrate' in navigator) {
+                navigator.vibrate(50); // Short vibration
+            }
+        }
 
-            if (!typeConfig) return;
-
-            // Clear existing buttons
-            this.floatingContainer.innerHTML = '';
-
-            // Create main button (PubMed for PMID, Sci-Hub for others)
-            const mainButton = this.createButton({
-                text: typeConfig.buttonText,
-                icon: typeConfig.icon,
-                href: await SciHubManager.constructPrimaryURL(idValue, idType),
-                variant: idType,
-                primary: true
-            });
-
-            // Create copy button
-            const copyButton = this.createButton({
-                text: 'Copy ID',
-                icon: ICONS.copy,
-                onClick: () => this.copyId(idValue, idType),
-                variant: idType
-            });
-
-            this.floatingContainer.appendChild(mainButton);
-            this.floatingContainer.appendChild(copyButton);
-
-            // Create secondary button based on type
-            if (idType === 'pmid') {
-                // For PMID: Add Sci-Hub button as secondary option
-                const scihubButton = this.createButton({
-                    text: 'Try Sci-Hub',
-                    icon: ICONS.scihub,
-                    href: await SciHubManager.constructAlternativeURL(idValue, idType),
-                    variant: idType
-                });
-                this.floatingContainer.appendChild(scihubButton);
-            } else if (idType === 'doi') {
-                // For DOI: Add original DOI link button
-                const originalButton = this.createButton({
-                    text: 'Original',
-                    icon: ICONS.external,
-                    href: await SciHubManager.constructAlternativeURL(idValue, idType),
-                    variant: idType
-                });
-                this.floatingContainer.appendChild(originalButton);
-            } else if (idType === 'arxiv') {
-                // For arXiv: Add original arXiv link button
-                const originalButton = this.createButton({
-                    text: 'arXiv.org',
-                    icon: ICONS.external,
-                    href: await SciHubManager.constructAlternativeURL(idValue, idType),
-                    variant: idType
-                });
-                this.floatingContainer.appendChild(originalButton);
+        showCustomContextMenu(event, wrapper) {
+            // Remove any existing context menu
+            const existingMenu = document.getElementById('scihub-context-menu');
+            if (existingMenu) {
+                existingMenu.remove();
             }
 
-            // Position the container
-            this.positionFloatingContainer(wrapper);
+            const id = wrapper.dataset.idValue;
+            const type = wrapper.dataset.idType;
+            const typeConfig = ID_TYPES[type];
 
-            // Show the container
-            this.floatingContainer.classList.add('scihub-visible');
-        }
-
-        createButton({ text, icon, href, onClick, variant, primary = false }) {
-            const button = document.createElement(href ? 'a' : 'button');
+            // Create context menu
+            const menu = document.createElement('div');
+            menu.id = 'scihub-context-menu';
+            menu.className = 'scihub-context-menu';
             
-            if (href) {
-                button.href = href;
-                button.target = '_blank';
-                button.rel = 'noopener noreferrer';
-            }
-            
-            if (onClick) {
-                button.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    onClick();
-                });
-            }
+            const openOption = document.createElement('div');
+            openOption.className = 'scihub-context-option';
+            openOption.textContent = `Open ${typeConfig.name} in ${type === 'pmid' ? 'PubMed' : 'Sci-Hub'}`;
+            openOption.onclick = () => {
+                this.openLink(id, type);
+                menu.remove();
+            };
 
-            const theme = Utils.getTheme(this.currentWrapper);
-            button.className = `scihub-floating-btn scihub-btn-${theme} scihub-btn-${variant}`;
-            
-            button.innerHTML = `${icon}${text}`;
-            
-            return button;
+            const copyOption = document.createElement('div');
+            copyOption.className = 'scihub-context-option';
+            copyOption.textContent = `Copy ${typeConfig.name}: ${id}`;
+            copyOption.onclick = () => {
+                this.copyId(id, type, wrapper);
+                menu.remove();
+            };
+
+            menu.appendChild(openOption);
+            menu.appendChild(copyOption);
+
+            // Position menu
+            menu.style.position = 'absolute';
+            menu.style.left = event.pageX + 'px';
+            menu.style.top = event.pageY + 'px';
+            menu.style.zIndex = '10000';
+
+            document.body.appendChild(menu);
+
+            // Remove menu when clicking elsewhere
+            const removeMenu = (e) => {
+                if (!menu.contains(e.target)) {
+                    menu.remove();
+                    document.removeEventListener('click', removeMenu);
+                }
+            };
+            setTimeout(() => document.addEventListener('click', removeMenu), 10);
         }
 
-        positionFloatingContainer(wrapper) {
-            const rect = wrapper.getBoundingClientRect();
-            const containerRect = this.floatingContainer.getBoundingClientRect();
-            
-            let top = window.scrollY + rect.bottom + 8;
-            let left = window.scrollX + rect.left;
-
-            // Adjust if container would go off-screen
-            const viewportWidth = window.innerWidth;
-            const viewportHeight = window.innerHeight;
-
-            if (left + containerRect.width > viewportWidth - 10) {
-                left = viewportWidth - containerRect.width - 10;
-            }
-
-            if (left < 10) {
-                left = 10;
-            }
-
-            if (top + containerRect.height > window.scrollY + viewportHeight - 10) {
-                top = window.scrollY + rect.top - containerRect.height - 8;
-            }
-
-            this.floatingContainer.style.top = `${top}px`;
-            this.floatingContainer.style.left = `${left}px`;
+        getElementId(element) {
+            return element.dataset.idValue + '|' + element.dataset.idType;
         }
 
-        hideFloatingButtons() {
-            this.floatingContainer.classList.remove('scihub-visible');
-            this.currentWrapper = null;
-        }
-
-        async copyId(id, type) {
+        async openLink(id, type) {
             try {
-                await Utils.copyToClipboard(id);
-                Utils.showNotification(`${ID_TYPES[type].name} copied: ${id}`, 'success');
+                const typeConfig = ID_TYPES[type];
+                if (!typeConfig) return;
+
+                const url = await SciHubManager.constructPrimaryURL(id, type);
+                window.open(url, '_blank', 'noopener,noreferrer');
+
+                if (state.settings.showNotifications) {
+                    Utils.showNotification(`Opening ${typeConfig.name} in ${type === 'pmid' ? 'PubMed' : 'Sci-Hub'}`, 'success');
+                }
             } catch (error) {
-                console.error('[Sci-Hub Helper] Copy failed:', error);
+                console.error('[Sci-Hub Helper] Error opening link:', error);
+                Utils.showNotification('Failed to open link', 'error');
+            }
+        }
+
+        async copyId(id, type, wrapper) {
+            try {
+                Utils.validateIdType(type);
+                
+                await Utils.copyToClipboard(id);
+                
+                // Show elegant clipboard feedback
+                this.showClipboardFeedback(wrapper, type);
+                
+                if (state.settings.showNotifications) {
+                    Utils.showNotification(`${ID_TYPES[type].name} copied: ${id}`, 'success');
+                }
+            } catch (error) {
+                Utils.debugLog('Copy operation failed:', error);
                 Utils.showNotification('Failed to copy to clipboard', 'error');
             }
+        }
+
+        showClipboardFeedback(wrapper, type) {
+            // Remove any existing feedback
+            const existingFeedback = wrapper.querySelector('.scihub-copy-feedback');
+            if (existingFeedback) {
+                existingFeedback.remove();
+            }
+
+            // Create feedback element
+            const feedback = document.createElement('div');
+            feedback.className = 'scihub-copy-feedback';
+            feedback.innerHTML = ICONS.copy;
+            
+            // Position relative to wrapper
+            wrapper.style.position = 'relative';
+            wrapper.appendChild(feedback);
+
+            // Show animation
+            setTimeout(() => feedback.classList.add('show'), 10);
+
+            // Success animation after 500ms
+            setTimeout(() => {
+                feedback.innerHTML = ICONS.success;
+                feedback.style.background = 'var(--scihub-success)';
+            }, 500);
+
+            // Hide and remove after 2 seconds
+            setTimeout(() => {
+                feedback.classList.add('hide');
+                setTimeout(() => {
+                    if (feedback.parentNode) {
+                        feedback.parentNode.removeChild(feedback);
+                    }
+                }, 300);
+            }, 2000);
         }
 
         incrementStats(type, category) {
@@ -908,6 +1235,35 @@
                 if (state.settings.showStats) {
                     this.updateStatsDisplay();
                 }
+            }
+        }
+
+        cleanup() {
+            try {
+                this.abortController.abort();
+                
+                // Clear touch timers and their long press timers
+                this.touchTimers.forEach(touchInfo => {
+                    if (touchInfo.longPressTimer) {
+                        clearTimeout(touchInfo.longPressTimer);
+                    }
+                });
+                this.touchTimers.clear();
+                
+                // Remove any existing context menu
+                const existingMenu = document.getElementById('scihub-context-menu');
+                if (existingMenu && existingMenu.parentNode) {
+                    existingMenu.parentNode.removeChild(existingMenu);
+                }
+                
+                const statsDiv = document.getElementById('scihub-stats-display');
+                if (statsDiv && statsDiv.parentNode) {
+                    statsDiv.parentNode.removeChild(statsDiv);
+                }
+                
+                Utils.debugLog('UIManager cleanup completed');
+            } catch (error) {
+                console.warn('[Sci-Hub Helper] Error during UIManager cleanup:', error);
             }
         }
     }
@@ -921,6 +1277,8 @@
             this.uiManager = uiManager;
             this.processQueue = [];
             this.isProcessing = false;
+            this.intersectionObserver = null;
+            this.pendingElements = new Set();
         }
 
         async processPage() {
@@ -928,12 +1286,48 @@
             this.isProcessing = true;
 
             try {
-                await this.findAndProcessTextNodes();
-                await this.processExistingLinks();
+                await Utils.measurePerformanceAsync('Text nodes processing', async () => {
+                    await this.findAndProcessTextNodes();
+                });
+                
+                await Utils.measurePerformanceAsync('Existing links processing', async () => {
+                    await this.processExistingLinks();
+                });
+                
+                this.setupIntersectionObserver();
             } catch (error) {
                 console.error('[Sci-Hub Helper] Error processing page:', error);
             } finally {
                 this.isProcessing = false;
+            }
+        }
+
+        setupIntersectionObserver() {
+            if (this.intersectionObserver) {
+                this.intersectionObserver.disconnect();
+            }
+
+            this.intersectionObserver = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting && this.pendingElements.has(entry.target)) {
+                        this.processPendingElement(entry.target);
+                        this.pendingElements.delete(entry.target);
+                        this.intersectionObserver.unobserve(entry.target);
+                    }
+                });
+            }, {
+                rootMargin: '50px',
+                threshold: 0.1
+            });
+        }
+
+        processPendingElement(element) {
+            // Process elements that have come into view
+            const idValue = element.dataset.idValue;
+            const idType = element.dataset.idType;
+            
+            if (idValue && idType) {
+                this.checkAndUpdateAvailability(element, idValue, idType);
             }
         }
 
@@ -1021,6 +1415,13 @@
                 return;
             }
 
+            // For performance, defer availability checking for elements not in viewport
+            if (!this.isElementInViewport(wrapper)) {
+                this.pendingElements.add(wrapper);
+                this.intersectionObserver.observe(wrapper);
+                return;
+            }
+
             // For types that do check availability (like DOI, arXiv)
             try {
                 const isAvailable = await SciHubManager.checkAvailability(id, typeName);
@@ -1036,11 +1437,21 @@
                     wrapper.title += ' (Not available on Sci-Hub)';
                 }
             } catch (error) {
-                console.warn(`[Sci-Hub Helper] Error checking availability for ${id}:`, error);
+                Utils.debugLog(`Error checking availability for ${id}:`, error);
                 wrapper.classList.remove('scihub-checking');
                 // On error, assume available to not break functionality
                 wrapper.classList.add('scihub-active');
             }
+        }
+
+        isElementInViewport(element) {
+            const rect = element.getBoundingClientRect();
+            return (
+                rect.top >= 0 &&
+                rect.left >= 0 &&
+                rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+                rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+            );
         }
 
         async processExistingLinks() {
@@ -1051,10 +1462,10 @@
                 'a[href*="arxiv.org/"]'
             ];
 
-            const links = document.querySelectorAll(selectors.join(', '));
+            const links = Utils.safeQuerySelectorAll(selectors.join(', '));
 
             for (const link of links) {
-                if (state.processedElements.has(link)) continue;
+                if (state.processedElements.has(link) || !Utils.isValidElement(link)) continue;
                 await this.processExistingLink(link);
             }
         }
@@ -1099,6 +1510,23 @@
                 
                 default:
                     return null;
+            }
+        }
+
+        cleanup() {
+            try {
+                if (this.intersectionObserver) {
+                    this.intersectionObserver.disconnect();
+                    this.intersectionObserver = null;
+                }
+                
+                this.pendingElements.clear();
+                this.processQueue = [];
+                this.isProcessing = false;
+                
+                Utils.debugLog('ContentProcessor cleanup completed');
+            } catch (error) {
+                console.warn('[Sci-Hub Helper] Error during ContentProcessor cleanup:', error);
             }
         }
     }
@@ -1192,24 +1620,26 @@
         }
 
         registerMenuCommands() {
-            GM_registerMenuCommand('Settings', () => {
-                ConfigManager.openSettings();
+            GM_registerMenuCommand('🌐 Change Sci-Hub Domain', () => {
+                this.changeSciHubDomain();
             }, 's');
 
-            GM_registerMenuCommand('Clear Cache', () => {
+            GM_registerMenuCommand('🗑️ Clear Cache', () => {
                 state.clearCache();
                 Utils.showNotification('Cache cleared successfully');
             }, 'c');
 
-            GM_registerMenuCommand('Reprocess Page', () => {
+            GM_registerMenuCommand('🔄 Reprocess Page', () => {
                 // Clear processed elements to force reprocessing
                 state.processedElements = new WeakSet();
                 this.contentProcessor.processPage();
                 Utils.showNotification('Page reprocessed');
             }, 'r');
 
-            GM_registerMenuCommand('Toggle Stats', () => {
+            GM_registerMenuCommand('📊 Toggle Stats', () => {
                 state.settings.showStats = !state.settings.showStats;
+                ConfigManager.setSetting('showStats', state.settings.showStats);
+                
                 const statsDiv = document.getElementById('scihub-stats-display');
                 
                 if (state.settings.showStats) {
@@ -1224,22 +1654,108 @@
                 
                 Utils.showNotification(`Statistics ${state.settings.showStats ? 'enabled' : 'disabled'}`);
             }, 't');
+
+            GM_registerMenuCommand('🐛 Toggle Debug', () => {
+                state.settings.debugMode = !state.settings.debugMode;
+                ConfigManager.setSetting('debugMode', state.settings.debugMode);
+                Utils.showNotification(`Debug mode ${state.settings.debugMode ? 'enabled' : 'disabled'}`);
+            }, 'd');
+        }
+
+        changeSciHubDomain() {
+            const currentUrl = ConfigManager.getSetting('UserDefinedBaseURL') || state.sciHubBaseURL || DEFAULT_SCIHUB_URL;
+            
+            const commonMirrors = [
+                'https://sci-hub.se',
+                'https://sci-hub.st',
+                'https://sci-hub.ru',
+                'https://sci-hub.si',
+                'https://sci-hub.tw',
+                'https://sci-hub.ren',
+                'https://sci-hub.mksa.top',
+                'https://sci-hub.wf'
+            ];
+            
+            let message = `Current Sci-Hub domain: ${currentUrl}\n\n`;
+            message += 'Common Sci-Hub mirrors:\n';
+            commonMirrors.forEach((mirror, index) => {
+                message += `${index + 1}. ${mirror}\n`;
+            });
+            message += '\nEnter a new Sci-Hub URL (or leave empty to auto-detect):';
+            
+            const newUrl = prompt(message, currentUrl);
+            
+            if (newUrl === null) return; // User cancelled
+            
+            if (newUrl.trim() === '') {
+                // Clear custom URL to use auto-detection
+                ConfigManager.setSetting('UserDefinedBaseURL', '');
+                state.sciHubBaseURL = null;
+                Utils.showNotification('Sci-Hub domain reset to auto-detection');
+                
+                // Clear cache since we're changing domains
+                state.clearCache();
+                
+                // Reprocess page with new domain
+                state.processedElements = new WeakSet();
+                this.contentProcessor.processPage();
+            } else {
+                // Validate and set new URL
+                const sanitizedUrl = Utils.sanitizeUrl(newUrl.trim());
+                if (sanitizedUrl) {
+                    const finalUrl = sanitizedUrl.endsWith('/') ? sanitizedUrl : sanitizedUrl + '/';
+                    ConfigManager.setSetting('UserDefinedBaseURL', finalUrl);
+                    state.sciHubBaseURL = finalUrl;
+                    Utils.showNotification(`Sci-Hub domain changed to: ${finalUrl}`);
+                    
+                    // Clear cache since we're changing domains
+                    state.clearCache();
+                    
+                    // Reprocess page with new domain
+                    state.processedElements = new WeakSet();
+                    this.contentProcessor.processPage();
+                } else {
+                    Utils.showNotification('Invalid URL format. Please enter a valid HTTPS URL.', 'error');
+                }
+            }
         }
 
         destroy() {
-            if (this.mutationObserver) {
-                this.mutationObserver.disconnect();
-            }
-            
-            // Clean up UI elements
-            const container = document.getElementById('scihub-floating-container');
-            if (container) {
-                container.remove();
-            }
-
-            const stats = document.getElementById('scihub-stats-display');
-            if (stats) {
-                stats.remove();
+            try {
+                // Disconnect mutation observer
+                if (this.mutationObserver) {
+                    this.mutationObserver.disconnect();
+                    this.mutationObserver = null;
+                }
+                
+                // Cleanup UI manager
+                if (this.uiManager) {
+                    this.uiManager.cleanup();
+                }
+                
+                // Cleanup content processor
+                if (this.contentProcessor) {
+                    this.contentProcessor.cleanup();
+                }
+                
+                // Clear processed elements
+                state.processedElements = new WeakSet();
+                
+                // Clear any pending requests
+                if (SciHubManager.pendingRequests) {
+                    SciHubManager.pendingRequests.clear();
+                }
+                
+                // Abort any ongoing requests
+                if (SciHubManager.abortControllers) {
+                    SciHubManager.abortControllers.forEach(controller => controller.abort());
+                    SciHubManager.abortControllers.clear();
+                }
+                
+                Utils.debugLog('Application destroyed successfully');
+                
+            } catch (error) {
+                console.warn('[Sci-Hub Helper] Error during cleanup:', error);
             }
 
             state.isInitialized = false;
@@ -1282,5 +1798,4 @@
 
     // Start the application
     main();
-
-})();
+})()
