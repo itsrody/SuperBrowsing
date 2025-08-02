@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Subtitle Uploader v2.7 (Error Feedback)
-// @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      2.7
+// @name         Subtitle Uploader v2.8 (New Design)
+// @namespace    https://github.com/itsrody/SuperBrowse
+// @version      2.8
 // @description  Upload, style, and sync local subtitles (VTT, SRT, ASS, SSA) for any video.
 // @author       Murtaza Salih (Rebuilt by Gemini)
 // @match        *://*/*
@@ -26,7 +26,6 @@ const defaultSettings = {
     offsetY: 95,
     delay: 0,
     encoding: 'UTF-8',
-    rtlMode: false,
 };
 
 let settings = await GM.getValue('subtitleSettings', defaultSettings);
@@ -197,26 +196,29 @@ function createSettingsPanel() {
                 <span class="vgs-panel-close">&times;</span>
             </div>
             <div class="vgs-setting-grid">
-                <div class="vgs-setting-row full-width">
-                    <select id="vgs-font-family" title="Font Family">
-                        <option value="sans-serif">Sans-Serif</option><option value="serif">Serif</option><option value="monospace">Monospace</option>
+                <label class="vgs-label">Font</label>
+                <div class="font-group">
+                    <select id="vgs-font-family">
+                        <option value="sans-serif">Sans-Serif</option>
+                        <option value="serif">Serif</option>
+                        <option value="monospace">Monospace</option>
                     </select>
+                    <input type="number" id="vgs-font-size" min="12" max="48" class="vgs-font-size-input">
+                    <span>px</span>
+                    <input type="color" id="vgs-font-color">
+                    <label class="vgs-checkbox-label" title="Text Outline"><input type="checkbox" id="vgs-text-outline"> T</label>
                 </div>
-                <div class="vgs-setting-row full-width">
-                    <label class="vgs-checkbox-label-full" title="Enable for Arabic, Hebrew, etc.">
-                        <input type="checkbox" id="vgs-rtl-mode"> Right-to-Left (RTL) Mode
-                    </label>
-                </div>
-                <label for="vgs-font-size" class="vgs-label">Font Size</label>
-                <div class="vgs-input-group"><input type="range" id="vgs-font-size" min="12" max="48" step="1"><span id="vgs-font-size-value"></span></div>
-                <label class="vgs-label">Color & Style</label>
-                <div class="vgs-input-group"><input type="color" id="vgs-font-color" title="Font Color"><label class="vgs-checkbox-label" title="Text Outline"><input type="checkbox" id="vgs-text-outline"> T</label></div>
+
                 <label class="vgs-label">Background</label>
-                <div class="vgs-input-group"><input type="color" id="vgs-bg-color" title="Background Color"><input type="checkbox" id="vgs-bg-toggle" title="Toggle Background"></div>
-                <label for="vgs-bg-opacity" class="vgs-label">BG Opacity</label>
-                <div class="vgs-input-group"><input type="range" id="vgs-bg-opacity" min="0" max="1" step="0.1"><span id="vgs-bg-opacity-value"></span></div>
+                <div class="background-group">
+                    <input type="range" id="vgs-bg-opacity" min="0" max="1" step="0.1"><span id="vgs-bg-opacity-value"></span>
+                    <input type="color" id="vgs-bg-color">
+                    <input type="checkbox" id="vgs-bg-toggle" title="Toggle Background">
+                </div>
+
                 <label for="vgs-offsetY" class="vgs-label">V-Offset</label>
                 <div class="vgs-input-group"><input type="range" id="vgs-offsetY" min="50" max="100" step="1"><span id="vgs-offsetY-value"></span></div>
+                
                 <div class="vgs-setting-row full-width">
                     <div class="vgs-center-container">
                         <label for="vgs-delay" class="vgs-label">Delay</label>
@@ -314,7 +316,6 @@ function openSettingsPanel(video) {
     document.getElementById('vgs-offsetY').value = settings.offsetY;
     document.getElementById('vgs-delay').value = settings.delay;
     document.getElementById('vgs-encoding').value = settings.encoding;
-    document.getElementById('vgs-rtl-mode').checked = settings.rtlMode;
 
     updatePanelUI();
     settingsPanel.style.display = 'flex';
@@ -332,7 +333,6 @@ function closeSettingsPanel() {
 
 function updatePanelUI() {
     if (!settingsPanel) return;
-    document.getElementById('vgs-font-size-value').textContent = `${settings.fontSize}px`;
     document.getElementById('vgs-bg-opacity-value').textContent = `${Math.round(settings.bgOpacity * 100)}%`;
     document.getElementById('vgs-offsetY-value').textContent = `${settings.offsetY}%`;
 }
@@ -440,7 +440,7 @@ function updateAllPositions() {
 // --- Settings & Styles ---
 
 function applySettings() {
-    const { fontColor, fontSize, fontFamily, textOutline, bgToggle, bgColor, bgOpacity, rtlMode } = settings;
+    const { fontColor, fontSize, fontFamily, textOutline, bgToggle, bgColor, bgOpacity } = settings;
     const bg = bgToggle ? hexToRgba(bgColor, bgOpacity) : 'transparent';
     const shadow = textOutline ? '1px 1px 2px black, -1px -1px 2px black, 1px -1px 2px black, -1px 1px 2px black' : '1px 1px 2px rgba(0,0,0,0.7)';
     
@@ -451,8 +451,7 @@ function applySettings() {
             fontFamily: fontFamily,
             backgroundColor: bg,
             textShadow: shadow,
-            direction: rtlMode ? 'rtl' : 'ltr',
-            textAlign: rtlMode ? 'right' : 'center',
+            textAlign: 'center',
         });
     });
     
@@ -470,7 +469,6 @@ async function updateSettingsFromPanel() {
     settings.offsetY = parseInt(document.getElementById('vgs-offsetY').value, 10);
     settings.delay = parseInt(document.getElementById('vgs-delay').value, 10) || 0;
     settings.encoding = document.getElementById('vgs-encoding').value;
-    settings.rtlMode = document.getElementById('vgs-rtl-mode').checked;
     await GM.setValue('subtitleSettings', settings);
 }
 
@@ -480,7 +478,7 @@ function initializeStyles() {
             position: absolute;
             top: 0; left: 0;
             width: 100%; height: 100%;
-            z-index: 2147483630; /* Just below the controls */
+            z-index: 2147483630;
             pointer-events: none;
         }
         .subtitle-controls-container {
@@ -488,7 +486,7 @@ function initializeStyles() {
             display: flex; gap: 8px; align-items: center;
             opacity: 0; transform: translateY(-10px);
             transition: opacity 0.3s ease, transform 0.3s ease;
-            pointer-events: auto; /* Allow clicks on controls */
+            pointer-events: auto;
         }
         .vgs-container-hover .subtitle-controls-container { opacity: 1; transform: translateY(0); }
         .subtitle-controls-container button, .vgs-track-selector {
@@ -538,13 +536,9 @@ function initializeStyles() {
         .vgs-label { font-size: 14px; color: #ccc; justify-self: start; }
         .vgs-input-group { display: flex; align-items: center; gap: 10px; }
         .vgs-input-group input[type="range"] { flex-grow: 1; accent-color: #89cff0; }
-        .vgs-input-group input[type="color"] { border: none; background: none; padding: 0; width: 24px; height: 24px; cursor: pointer; }
         .vgs-input-group input[type="number"] { width: 60px; text-align: right; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; padding: 2px 4px;}
         .vgs-input-group span { min-width: 40px; text-align: right; font-size: 14px; color: #ccc; }
         .vgs-checkbox-label { font-weight: bold; border: 1px solid #aaa; border-radius: 4px; padding: 2px 4px; cursor: pointer; }
-        .vgs-checkbox-label-full { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid #555; border-radius: 4px; cursor: pointer; width: 100%; transition: background-color 0.2s ease; }
-        .vgs-checkbox-label-full:hover { background-color: rgba(255,255,255,0.1); }
-        select#vgs-font-family { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; padding: 4px; width: 100%; }
         .delay-group { display: flex; align-items: center; }
         .delay-group button { background: rgba(255,255,255,0.1); border: none; color: #eee; border-radius: 8px; width: 30px; height: 30px; font-size: 18px; cursor: pointer; }
         .delay-group input { width: 50px; text-align: center; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; margin: 0 5px; -moz-appearance: textfield; }
@@ -553,6 +547,16 @@ function initializeStyles() {
         .encoding-group { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
         .encoding-group select { min-width: 0; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; padding: 4px; }
         .encoding-group button { background: rgba(255,255,255,0.1); border: none; color: #eee; border-radius: 4px; padding: 4px 8px; cursor: pointer; }
+
+        .font-group, .background-group { display: flex; align-items: center; gap: 10px; }
+        .font-group select { flex: 1; min-width: 0; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; padding: 4px; }
+        .font-group .vgs-font-size-input { width: 50px; text-align: center; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; padding: 2px 4px; -moz-appearance: textfield; }
+        .font-group .vgs-font-size-input::-webkit-outer-spin-button, .font-group .vgs-font-size-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .font-group span { color: #ccc; font-size: 14px; }
+        .font-group input[type="color"] { border: none; background: none; padding: 0; width: 24px; height: 24px; cursor: pointer; }
+        .background-group input[type="range"] { flex-grow: 1; accent-color: #89cff0; }
+        .background-group span { min-width: 40px; text-align: right; font-size: 14px; color: #ccc; }
+        .background-group input[type="color"] { border: none; background: none; padding: 0; width: 24px; height: 24px; cursor: pointer; }
         
         #vgs-global-indicator {
             position: fixed; top: 30px; left: 50%; transform: translate(-50%, -10px);
@@ -663,7 +667,7 @@ function assTimeToVtt(assTime) {
     const m = parseInt(parts[1], 10);
     const s_ms = parts[2].split('.');
     const s = parseInt(s_ms[0], 10);
-    const ms = parseInt(s_ms[1].padEnd(3, '0'), 10); // ASS uses centiseconds
+    const ms = parseInt(s_ms[1].padEnd(3, '0'), 10);
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
 }
 
@@ -836,11 +840,12 @@ function init() {
     window.addEventListener('scroll', throttledUpdate, true);
     window.addEventListener('resize', throttledUpdate, true);
     document.addEventListener('fullscreenchange', updateAllPositions);
-}
+};
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init, { once: true });
 } else {
     init();
 }
+
 })();
