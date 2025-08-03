@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro Enhanced
 // @namespace     https://github.com/enhanced-userscripts/video-gestures
-// @version       11.5.2
+// @version       11.5.3
 // @description   High-performance video gesture controls with optimized UI/UX, reduced memory footprint, and enhanced accessibility
 // @author        Enhanced UserScripts Team
 // @match         *://*/*
