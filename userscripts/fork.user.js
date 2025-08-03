@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name          Video Gestures Pro Enhanced
 // @namespace     https://github.com/enhanced-userscripts/video-gestures
-// @version       12.0.0
-// @description   High-performance video gesture controls with optimized UI/UX, reduced memory footprint, enhanced accessibility, and comprehensive error handling
+// @version       12.1.0
+// @description   High-performance video gesture controls with optimized UI/UX, reduced memory footprint, enhanced accessibility, comprehensive error handling, and improved stability
 // @author        Enhanced UserScripts Team
 // @match         *://*/*
 // @grant         GM_getValue
@@ -74,6 +74,36 @@
             this.singleTapScheduled = false; // Add flag to prevent multiple single taps
             this.nativeControlsActive = false; // Track native player interaction
             this.lastNativeInteraction = 0; // Timestamp of last native control use
+        }
+
+        // Add state recovery method
+        recoverStuckState() {
+            const now = Date.now();
+            
+            // If processing for too long without active gesture, reset
+            if (this.isProcessing && !this.activeGesture && 
+                now - this.lastNativeInteraction > 3000) {
+                if (CONFIG.DEBUG_MODE) {
+                    console.log('🔄 Recovering stuck processing state');
+                }
+                this.isProcessing = false;
+            }
+            
+            // If native controls blocked for too long, reset
+            if (this.nativeControlsActive && now - this.lastNativeInteraction > 2000) {
+                if (CONFIG.DEBUG_MODE) {
+                    console.log('🔄 Recovering stuck native controls state');
+                }
+                this.nativeControlsActive = false;
+            }
+            
+            // If single tap scheduled but no recent tap activity, reset
+            if (this.singleTapScheduled && now - this.lastTap.time > 1000) {
+                if (CONFIG.DEBUG_MODE) {
+                    console.log('🔄 Recovering stuck single tap state');
+                }
+                this.singleTapScheduled = false;
+            }
         }
 
         clearTimeouts() {
@@ -173,19 +203,19 @@
                 console.log('🎮 Native controls detected - blocking gesture system');
             }
             
-            // Auto-reset after a short delay
+            // Auto-reset after a shorter delay to prevent permanent blocking
             this.addTimeout(() => {
                 this.nativeControlsActive = false;
                 if (CONFIG.DEBUG_MODE) {
                     console.log('🎮 Native controls cooldown finished');
                 }
-            }, 1500); // Increased to 1.5 seconds for better protection
+            }, 500); // Reduced from 1500ms to prevent long blocks
         }
 
         // Check if native controls were recently used
         isNativeControlsActive() {
             const timeSinceNative = Date.now() - this.lastNativeInteraction;
-            return this.nativeControlsActive || timeSinceNative < 750; // Increased to 750ms protection window
+            return this.nativeControlsActive || timeSinceNative < 300; // Reduced from 750ms
         }
     }
 
@@ -615,82 +645,61 @@
                 '.ytp-play-button',
                 '.jw-icon-playback',
                 '.plyr__control--overlaid',
-                '.player-play-button',
-                '.play-button',
-                '.pause-button',
-                '[data-testid*="play"]',
-                '[data-testid*="pause"]',
-                // Additional selectors for better detection
-                '.video-stream ~ div button',
-                '[role="button"][aria-label*="Play"]',
-                '[role="button"][aria-label*="Pause"]',
-                '.controls button',
-                '.player-controls button'
+                '.player-play-button'
             ];
 
-            // Enhanced click detection with more aggressive selectors
+            // Less aggressive click detection to avoid false positives
             document.addEventListener('click', (e) => {
-                // Check multiple levels up the DOM tree
-                let element = e.target;
-                let depth = 0;
-                const maxDepth = 5;
+                // Only check direct click targets, not parent elements
+                const element = e.target;
                 
-                while (element && depth < maxDepth) {
-                    // Check if this element or its attributes suggest it's a play/pause control
-                    if (element.matches && element.matches(controlSelectors.join(','))) {
-                        if (CONFIG.DEBUG_MODE) {
-                            console.log('🎮 Native control clicked (matched):', element);
-                        }
-                        gestureState.markNativeControlsActive();
-                        return;
+                // Check if this element matches known control selectors
+                if (element.matches && element.matches(controlSelectors.join(','))) {
+                    if (CONFIG.DEBUG_MODE) {
+                        console.log('🎮 Native control clicked (direct match):', element);
                     }
-                    
-                    // Check for common patterns in text content or attributes
-                    const text = element.textContent?.toLowerCase() || '';
-                    const ariaLabel = element.getAttribute?.('aria-label')?.toLowerCase() || '';
-                    const title = element.getAttribute?.('title')?.toLowerCase() || '';
-                    const className = element.className?.toLowerCase() || '';
-                    
-                    if ((text.includes('play') || text.includes('pause') ||
-                         ariaLabel.includes('play') || ariaLabel.includes('pause') ||
-                         title.includes('play') || title.includes('pause') ||
-                         className.includes('play') || className.includes('pause')) &&
-                        (element.tagName === 'BUTTON' || element.tagName === 'DIV' || element.role === 'button')) {
-                        if (CONFIG.DEBUG_MODE) {
-                            console.log('🎮 Native control clicked (pattern):', element);
-                        }
-                        gestureState.markNativeControlsActive();
-                        return;
+                    gestureState.markNativeControlsActive();
+                    return;
+                }
+                
+                // Check for play/pause buttons with specific attributes only
+                const ariaLabel = element.getAttribute?.('aria-label')?.toLowerCase() || '';
+                const title = element.getAttribute?.('title')?.toLowerCase() || '';
+                
+                if (element.tagName === 'BUTTON' && 
+                    (ariaLabel.includes('play') || ariaLabel.includes('pause') ||
+                     title.includes('play') || title.includes('pause'))) {
+                    if (CONFIG.DEBUG_MODE) {
+                        console.log('🎮 Native control button clicked:', element);
                     }
-                    
-                    element = element.parentElement;
-                    depth++;
+                    gestureState.markNativeControlsActive();
                 }
             }, true);
 
-            // Listen for video play/pause events to detect native control usage
+            // Listen for video events but be more selective
             document.addEventListener('play', (e) => {
-                if (e.target.tagName === 'VIDEO' && !gestureState.activeGesture) {
+                if (e.target.tagName === 'VIDEO' && !gestureState.activeGesture && !gestureState.isProcessing) {
                     if (CONFIG.DEBUG_MODE) {
-                        console.log('🎮 Video play event without gesture - likely native control');
+                        console.log('🎮 Video play event without active gesture');
                     }
                     gestureState.markNativeControlsActive();
                 }
             }, true);
 
             document.addEventListener('pause', (e) => {
-                if (e.target.tagName === 'VIDEO' && !gestureState.activeGesture) {
+                if (e.target.tagName === 'VIDEO' && !gestureState.activeGesture && !gestureState.isProcessing) {
                     if (CONFIG.DEBUG_MODE) {
-                        console.log('🎮 Video pause event without gesture - likely native control');
+                        console.log('🎮 Video pause event without active gesture');
                     }
                     gestureState.markNativeControlsActive();
                 }
             }, true);
 
-            // Listen for keyboard controls (spacebar, k key)
+            // Listen for keyboard controls but only when not in input fields
             document.addEventListener('keydown', (e) => {
                 if ((e.code === 'Space' || e.key === 'k') && 
-                    !e.target.matches('input, textarea, [contenteditable]')) {
+                    !e.target.matches('input, textarea, [contenteditable]') &&
+                    !gestureState.isProcessing) {
                     if (CONFIG.DEBUG_MODE) {
                         console.log('🎮 Keyboard control detected:', e.key);
                     }
@@ -830,7 +839,9 @@
             }
 
             try {
-                const options = { passive: false, capture: true };
+                // Use passive: false only when necessary for preventDefault
+                const passiveOptions = { passive: true, capture: true };
+                const activeOptions = { passive: false, capture: true };
                 
                 // Bind methods to preserve 'this' context
                 this.handleTouchStart = this.handleTouchStart.bind(this);
@@ -838,10 +849,21 @@
                 this.handleTouchEnd = this.handleTouchEnd.bind(this);
                 this.handleContextMenu = this.handleContextMenu.bind(this);
                 
-                document.addEventListener('touchstart', this.handleTouchStart, options);
-                document.addEventListener('touchmove', this.handleTouchMove, options);
-                document.addEventListener('touchend', this.handleTouchEnd, options);
-                document.addEventListener('contextmenu', this.handleContextMenu, options);
+                // Use passive listeners for better performance
+                document.addEventListener('touchstart', this.handleTouchStart, passiveOptions);
+                document.addEventListener('touchmove', this.handleTouchMove, activeOptions); // Need preventDefault for swipes
+                document.addEventListener('touchend', this.handleTouchEnd, passiveOptions);
+                document.addEventListener('contextmenu', this.handleContextMenu, activeOptions);
+                
+                // Add recovery mechanism - reset stuck states periodically
+                setInterval(() => {
+                    if (gestureState.isProcessing && !gestureState.activeGesture) {
+                        if (CONFIG.DEBUG_MODE) {
+                            console.log('🔄 Recovering from stuck processing state');
+                        }
+                        gestureState.isProcessing = false;
+                    }
+                }, 5000);
                 
                 this.initialized = true;
                 
@@ -859,15 +881,7 @@
                     console.log('👆 Touch start detected', e.touches.length, 'touches');
                 }
 
-                // Check if native controls are active
-                if (gestureState.isNativeControlsActive()) {
-                    if (CONFIG.DEBUG_MODE) {
-                        console.log('🎮 Native controls active - blocking gesture');
-                    }
-                    return;
-                }
-
-                // Allow gesture processing
+                // Allow gesture processing immediately - don't block on native controls check initially
                 if (e.touches.length > 1) {
                     if (CONFIG.DEBUG_MODE) {
                         console.log('❌ Multi-touch, ignoring');
@@ -876,8 +890,8 @@
                     return;
                 }
 
-                // Don't prevent single touch processing
-                gestureState.isProcessing = false;
+                // Reset processing state
+                gestureState.isProcessing = true;
 
                 const startTime = performance.now();
                 this.touchStartTime = startTime;
@@ -896,15 +910,15 @@
                     if (CONFIG.DEBUG_MODE) {
                         console.log('❌ No video data found');
                     }
-                    this.cleanup();
-                    return;
+                    gestureState.isProcessing = false;
+                    return; // Don't cleanup, just exit
                 }
                 
                 if (!videoData.element) {
                     if (CONFIG.DEBUG_MODE) {
                         console.log('❌ No video element in data');
                     }
-                    this.cleanup();
+                    gestureState.isProcessing = false;
                     return;
                 }
                 
@@ -912,7 +926,7 @@
                     if (CONFIG.DEBUG_MODE) {
                         console.log('❌ Video too short:', videoData.element.duration);
                     }
-                    this.cleanup();
+                    gestureState.isProcessing = false;
                     return;
                 }
                 
@@ -920,7 +934,16 @@
                     if (CONFIG.DEBUG_MODE) {
                         console.log('❌ Invalid tap area');
                     }
-                    this.cleanup();
+                    gestureState.isProcessing = false;
+                    return;
+                }
+
+                // Check native controls AFTER validating the gesture area
+                if (gestureState.isNativeControlsActive()) {
+                    if (CONFIG.DEBUG_MODE) {
+                        console.log('🎮 Native controls active - blocking gesture');
+                    }
+                    gestureState.isProcessing = false;
                     return;
                 }
 
@@ -949,7 +972,7 @@
                     };
                 } catch (error) {
                     console.error('Error initializing gesture state:', error);
-                    this.cleanup();
+                    gestureState.isProcessing = false;
                     return;
                 }
 
@@ -957,7 +980,7 @@
                 this.scheduleLongPress();
             } catch (error) {
                 console.error('Error in handleTouchStart:', error);
-                this.cleanup();
+                gestureState.isProcessing = false;
             }
         }
 
@@ -1010,67 +1033,77 @@
         }
 
         handleTouchEnd(e) {
-            if (CONFIG.DEBUG_MODE) {
-                console.log('👆 Touch end detected');
-            }
-
-            if (!gestureState.activeGesture || gestureState.activeGesture.finalized) {
+            try {
                 if (CONFIG.DEBUG_MODE) {
-                    console.log('❌ No active gesture or already finalized');
+                    console.log('👆 Touch end detected');
                 }
-                return;
-            }
 
-            const endTime = performance.now();
-            const gesture = gestureState.activeGesture;
-            gesture.finalized = true;
+                // Always reset processing state
+                gestureState.isProcessing = false;
 
-            if (CONFIG.DEBUG_MODE) {
-                console.log('⏱️ Gesture duration:', endTime - gesture.startTime, 'ms');
-                console.log('🎬 Current action:', gesture.action);
-            }
+                if (!gestureState.activeGesture || gestureState.activeGesture.finalized) {
+                    if (CONFIG.DEBUG_MODE) {
+                        console.log('❌ No active gesture or already finalized');
+                    }
+                    return;
+                }
 
-            // Performance tracking
-            if (CONFIG.PERFORMANCE_MONITORING) {
-                const responseTime = endTime - gesture.startTime;
-                const metrics = gestureState.performanceMetrics;
-                metrics.averageResponseTime = 
-                    (metrics.averageResponseTime + responseTime) / 2;
-            }
+                const endTime = performance.now();
+                const gesture = gestureState.activeGesture;
+                gesture.finalized = true;
 
-            const deltaX = gesture.currentPoint.x - gesture.startPoint.x;
-            const deltaY = gesture.currentPoint.y - gesture.startPoint.y;
-            const movement = Math.hypot(deltaX, deltaY);
-
-            if (CONFIG.DEBUG_MODE) {
-                console.log('📏 Movement distance:', movement);
-                console.log('🎯 Delta X/Y:', deltaX, deltaY);
-                console.log('🔄 Is swipe:', gesture.isSwipe);
-            }
-
-            // Handle different gesture types
-            if (gesture.action === 'long-press-speed') {
                 if (CONFIG.DEBUG_MODE) {
-                    console.log('⚡ Finalizing long press');
+                    console.log('⏱️ Gesture duration:', endTime - gesture.startTime, 'ms');
+                    console.log('🎬 Current action:', gesture.action);
                 }
-                this.finalizeLongPress();
-                this.cleanup();
-            } else if (gesture.isSwipe) {
+
+                // Performance tracking
+                if (CONFIG.PERFORMANCE_MONITORING) {
+                    const responseTime = endTime - gesture.startTime;
+                    const metrics = gestureState.performanceMetrics;
+                    metrics.averageResponseTime = 
+                        (metrics.averageResponseTime + responseTime) / 2;
+                }
+
+                const deltaX = gesture.currentPoint.x - gesture.startPoint.x;
+                const deltaY = gesture.currentPoint.y - gesture.startPoint.y;
+                const movement = Math.hypot(deltaX, deltaY);
+
                 if (CONFIG.DEBUG_MODE) {
-                    console.log('👋 Finalizing swipe');
+                    console.log('📏 Movement distance:', movement);
+                    console.log('🎯 Delta X/Y:', deltaX, deltaY);
+                    console.log('🔄 Is swipe:', gesture.isSwipe);
                 }
-                this.finalizeSwipe(deltaX, deltaY, e);
-                this.cleanup();
-            } else if (movement < 30) { // Tap detection
-                if (CONFIG.DEBUG_MODE) {
-                    console.log('👆 Handling tap - movement:', movement);
+
+                // Handle different gesture types
+                if (gesture.action === 'long-press-speed') {
+                    if (CONFIG.DEBUG_MODE) {
+                        console.log('⚡ Finalizing long press');
+                    }
+                    this.finalizeLongPress();
+                    this.cleanup();
+                } else if (gesture.isSwipe) {
+                    if (CONFIG.DEBUG_MODE) {
+                        console.log('👋 Finalizing swipe');
+                    }
+                    this.finalizeSwipe(deltaX, deltaY, e);
+                    this.cleanup();
+                } else if (movement < 30) { // Tap detection
+                    if (CONFIG.DEBUG_MODE) {
+                        console.log('👆 Handling tap - movement:', movement);
+                    }
+                    this.handleTap(e);
+                    // Don't cleanup immediately for taps - let handleTap manage it
+                } else {
+                    if (CONFIG.DEBUG_MODE) {
+                        console.log('❌ Movement too large for tap:', movement);
+                    }
+                    this.cleanup();
                 }
-                this.handleTap(e);
-                // Don't cleanup immediately for taps - let handleTap manage it
-            } else {
-                if (CONFIG.DEBUG_MODE) {
-                    console.log('❌ Movement too large for tap:', movement);
-                }
+            } catch (error) {
+                console.error('Error in handleTouchEnd:', error);
+                // Force cleanup on error
+                gestureState.isProcessing = false;
                 this.cleanup();
             }
         }
@@ -1531,7 +1564,17 @@
         }
 
         cleanup() {
-            gestureState.reset();
+            // Don't reset everything - preserve state for next gesture
+            if (this.activeGesture) {
+                this.activeGesture = null;
+            }
+            
+            // Clear timeouts but don't reset other state unnecessarily
+            this.clearTimeouts();
+            this.isProcessing = false;
+            this.singleTapScheduled = false;
+            
+            // Don't reset native control state - let it timeout naturally
         }
     }
 
@@ -1693,10 +1736,20 @@ Memory Usage: ${stats.memoryUsage} cached videos`);
             setInterval(() => {
                 try {
                     gestureState?.performCleanup();
+                    gestureState?.recoverStuckState(); // Add state recovery
                 } catch (error) {
                     console.error('Error in periodic cleanup:', error);
                 }
             }, CONFIG.CLEANUP_INTERVAL_MS);
+
+            // More frequent state recovery check
+            setInterval(() => {
+                try {
+                    gestureState?.recoverStuckState();
+                } catch (error) {
+                    console.error('Error in state recovery:', error);
+                }
+            }, 5000); // Every 5 seconds
 
             // Discover existing videos with error handling
             try {
