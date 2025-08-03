@@ -1,19 +1,38 @@
 // ==UserScript==
-// @name          Video Gestures Pro Enhanced
-// @namespace     https://github.com/enhanced-userscripts/video-gestures
-// @version       12.1.0
-// @description   High-performance video gesture controls with optimized UI/UX, reduced memory footprint, enhanced accessibility, comprehensive error handling, and improved stability
-// @author        Enhanced UserScripts Team
-// @match         *://*/*
-// @grant         GM_getValue
-// @grant         GM_setValue
-// @grant         GM_registerMenuCommand
-// @grant         GM_addStyle
-// @run-at        document-start
+// @name         Video Gestures Pro Enhanced
+// @namespace    https://github.com/enhanced-userscripts/video-gestures
+// @version      12.2.0
+// @description  High-performance video gesture controls with optimized UI/UX, reduced memory footprint, enhanced accessibility, comprehensive error handling, and improved stability
+// @author       Enhanced UserScripts Team
+// @match        *://*/*
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_registerMenuCommand
+// @grant        GM_addStyle
+// @run-at       document-start
 // ==/UserScript==
 
 (function() {
     'use strict';
+
+    console.log('🚀 Video Gestures Enhanced v12.1.0 - Script starting...');
+    
+    // Immediate test
+    setTimeout(() => {
+        console.log('🧪 5-second test check...');
+        console.log('🧪 Videos on page:', document.querySelectorAll('video').length);
+        console.log('🧪 VGE object exists:', !!window.VGE);
+        console.log('🧪 Touch events supported:', 'ontouchstart' in window);
+        
+        // Try to add a simple touch listener to test basic functionality
+        if (document.body) {
+            const testHandler = (e) => {
+                console.log('🧪 Touch detected by test handler!', e.type);
+            };
+            document.body.addEventListener('touchstart', testHandler, { passive: true });
+            console.log('🧪 Test touch handler added to body');
+        }
+    }, 5000);
 
     // --- Performance-Optimized Configuration ---
     const CONFIG = {
@@ -49,8 +68,8 @@
         REDUCED_MOTION: false,
         
         // Debug
-        DEBUG_MODE: false, // Changed to false by default for production
-        PERFORMANCE_MONITORING: false // Changed to false by default for production
+        DEBUG_MODE: true, // Enable by default for troubleshooting
+        PERFORMANCE_MONITORING: true
     };
 
     // --- Enhanced State Management ---
@@ -1681,16 +1700,18 @@ Memory Usage: ${stats.memoryUsage} cached videos`);
     let initializationStarted = false;
 
     async function initialize() {
-        if (initializationStarted) return;
+        if (initializationStarted) {
+            console.log('🔄 Initialization already started, skipping...');
+            return;
+        }
         initializationStarted = true;
         
         try {
-            if (CONFIG.DEBUG_MODE) {
-                console.log('🚀 Starting Video Gestures Pro Enhanced initialization...');
-            }
+            console.log('🚀 Starting Video Gestures Pro Enhanced initialization...');
 
             // Wait for DOM to be fully ready
             if (document.readyState === 'loading') {
+                console.log('⏳ Waiting for DOM to load...');
                 await new Promise(resolve => {
                     document.addEventListener('DOMContentLoaded', resolve, { once: true });
                 });
@@ -1699,6 +1720,7 @@ Memory Usage: ${stats.memoryUsage} cached videos`);
             // Additional wait for body to ensure it exists
             let retries = 0;
             while (!document.body && retries < 50) {
+                console.log(`⏳ Waiting for document.body... (attempt ${retries + 1})`);
                 await new Promise(resolve => setTimeout(resolve, 100));
                 retries++;
             }
@@ -1707,20 +1729,27 @@ Memory Usage: ${stats.memoryUsage} cached videos`);
                 throw new Error('Document body not available after timeout');
             }
 
+            console.log('✅ DOM ready, initializing components...');
+
             // Initialize in correct order to avoid dependencies
+            console.log('🔧 Creating GestureState...');
             gestureState = new GestureState();
             await new Promise(resolve => setTimeout(resolve, 50)); // Small delay
             
+            console.log('🎨 Creating UIManager...');
             uiManager = new UIManager();
             await new Promise(resolve => setTimeout(resolve, 50)); // Small delay
             
+            console.log('📹 Creating VideoManager...');
             videoManager = new VideoManager();
             await new Promise(resolve => setTimeout(resolve, 50)); // Small delay
             
+            console.log('⚙️ Creating ConfigManager...');
             configManager = new ConfigManager();
             await new Promise(resolve => setTimeout(resolve, 50)); // Small delay
             
             // Initialize gesture engine last (needs other components)
+            console.log('👆 Creating GestureEngine...');
             gestureEngine = new GestureEngine();
 
             // Setup fullscreen change handler
@@ -1753,7 +1782,9 @@ Memory Usage: ${stats.memoryUsage} cached videos`);
 
             // Discover existing videos with error handling
             try {
-                document.querySelectorAll('video').forEach(video => {
+                const videos = document.querySelectorAll('video');
+                console.log(`📹 Found ${videos.length} videos on page`);
+                videos.forEach(video => {
                     try {
                         videoManager.registerVideo(video);
                     } catch (error) {
@@ -1764,41 +1795,40 @@ Memory Usage: ${stats.memoryUsage} cached videos`);
                 console.warn('Error discovering existing videos:', error);
             }
 
-            if (CONFIG.DEBUG_MODE) {
-                console.log('✅ Video Gestures Pro Enhanced initialized successfully');
-                window.VGE = { gestureState, uiManager, videoManager, gestureEngine, CONFIG };
-                
-                // Add enhanced test functions
-                window.VGE.test = {
-                    showIndicator: (text) => {
-                        try {
-                            uiManager.showIndicator({ type: 'play', text: text || 'Test' });
-                        } catch (error) {
-                            console.error('Test showIndicator error:', error);
-                        }
-                    },
-                    showAllIcons: () => {
-                        const icons = ['play', 'pause', 'seekForward', 'seekBackward', 'speed', 'volume', 'volumeMute', 'brightness', 'fullscreen', 'exitFullscreen'];
-                        let index = 0;
-                        const showNext = () => {
-                            if (index < icons.length) {
-                                try {
-                                    uiManager.showIndicator({ type: icons[index], text: icons[index] });
-                                    index++;
-                                    setTimeout(showNext, 1500);
-                                } catch (error) {
-                                    console.error('Error showing icon:', error);
-                                }
+            console.log('✅ Video Gestures Pro Enhanced initialized successfully');
+            window.VGE = { gestureState, uiManager, videoManager, gestureEngine, CONFIG };
+            
+            // Add enhanced test functions
+            window.VGE.test = {
+                showIndicator: (text) => {
+                    try {
+                        uiManager.showIndicator({ type: 'play', text: text || 'Test' });
+                    } catch (error) {
+                        console.error('Test showIndicator error:', error);
+                    }
+                },
+                showAllIcons: () => {
+                    const icons = ['play', 'pause', 'seekForward', 'seekBackward', 'speed', 'volume', 'volumeMute', 'brightness', 'fullscreen', 'exitFullscreen'];
+                    let index = 0;
+                    const showNext = () => {
+                        if (index < icons.length) {
+                            try {
+                                uiManager.showIndicator({ type: icons[index], text: icons[index] });
+                                index++;
+                                setTimeout(showNext, 1500);
+                            } catch (error) {
+                                console.error('Error showing icon:', error);
                             }
-                        };
-                        showNext();
-                    },
-                    findVideos: () => document.querySelectorAll('video'),
-                    getActiveVideo: () => {
-                        const videos = document.querySelectorAll('video');
-                        console.log('📹 Found videos:', videos.length);
-                        return videos[0];
-                    },
+                        }
+                    };
+                    showNext();
+                },
+                findVideos: () => document.querySelectorAll('video'),
+                getActiveVideo: () => {
+                    const videos = document.querySelectorAll('video');
+                    console.log('📹 Found videos:', videos.length);
+                    return videos[0];
+                },
                     simulateTap: () => {
                         const video = document.querySelector('video');
                         if (video) {
@@ -1916,7 +1946,6 @@ Memory Usage: ${stats.memoryUsage} cached videos`);
                 console.log('Try: VGE.test.showAllIcons()');
                 console.log('Try: VGE.test.simulateTap()');
                 console.log('Try: VGE.test.simulateSwipe("right")');
-            }
 
         } catch (error) {
             console.error('❌ Failed to initialize Video Gestures Enhanced:', error);
@@ -1927,21 +1956,44 @@ Memory Usage: ${stats.memoryUsage} cached videos`);
 
     // Enhanced initialization with better timing and retry logic
     function startInitialization() {
+        console.log('🔧 startInitialization called, readyState:', document.readyState);
+        
         if (document.readyState === 'loading') {
+            console.log('⏳ Document loading, waiting for DOMContentLoaded...');
             document.addEventListener('DOMContentLoaded', () => {
+                console.log('✅ DOMContentLoaded fired');
                 setTimeout(() => initialize(), 100);
             }, { once: true });
         } else if (document.readyState === 'interactive') {
+            console.log('⏳ Document interactive, waiting 150ms...');
             // DOM ready but resources still loading
             setTimeout(() => initialize(), 150);
         } else {
+            console.log('✅ Document complete, initializing immediately...');
             // Document fully loaded
             setTimeout(() => initialize(), 50);
         }
     }
 
     // Start initialization
+    console.log('🚀 Starting Video Gestures Enhanced initialization process...');
     startInitialization();
+
+    // Fallback initialization if primary doesn't work
+    setTimeout(() => {
+        if (!window.VGE) {
+            console.log('🔄 Fallback initialization triggered...');
+            initialize();
+        }
+    }, 3000);
+
+    // Another fallback on window load
+    window.addEventListener('load', () => {
+        if (!window.VGE) {
+            console.log('🔄 Window load fallback initialization...');
+            setTimeout(() => initialize(), 500);
+        }
+    });
 
     // Enhanced cleanup on page unload
     window.addEventListener('beforeunload', () => {
@@ -2004,5 +2056,20 @@ Memory Usage: ${stats.memoryUsage} cached videos`);
             }
         };
     }
+
+    // Immediate availability test
+    window.VGE_TEST = {
+        version: '12.1.0',
+        loaded: true,
+        test: () => {
+            console.log('🧪 VGE_TEST: Script loaded successfully!');
+            console.log('🧪 Videos found:', document.querySelectorAll('video').length);
+            console.log('🧪 Body exists:', !!document.body);
+            console.log('🧪 ReadyState:', document.readyState);
+            return true;
+        }
+    };
+    
+    console.log('✅ VGE_TEST object available. Run VGE_TEST.test() to check basic functionality.');
 
 })();
