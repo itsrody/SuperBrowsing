@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro (Long-Press Fork)
 // @namespace    https://github.com/itsrody/SuperBrowsing
-// @version      10.0.1
+// @version      10.0.2
 // @description  Adds a powerful, zoned gesture interface that works only in fullscreen mode.
 // @author       Murtaza Salih (with Gemini improvements)
 // @match        *://*/*
@@ -47,18 +47,50 @@
 
     let config = await GM_getValue('config', DEFAULTS);
 
+    // --- Error Handling Utility (Non-Breaking Addition) ---
+    class ErrorHandler {
+        static handleError(error, context = '') {
+            console.warn(`[VideoGestures] Error in ${context}:`, error);
+            
+            // Reset gesture state on critical errors to prevent stuck states
+            if (context.includes('gesture') || context.includes('touch')) {
+                activeGesture = null;
+                if (longPressTimeout) {
+                    clearTimeout(longPressTimeout);
+                    longPressTimeout = null;
+                }
+            }
+        }
+        
+        static wrapFunction(fn, context) {
+            return function(...args) {
+                try {
+                    return fn.apply(this, args);
+                } catch (error) {
+                    ErrorHandler.handleError(error, context);
+                    return null; // Safe fallback
+                }
+            };
+        }
+    }
+
     GM_registerMenuCommand('⏱️ Set Double-Tap Seek Time', () => {
         const currentSeekTime = config.DOUBLE_TAP_SEEK_SECONDS;
-        const newSeekTimeStr = prompt('Enter the number of seconds to seek on double-tap:', currentSeekTime);
+        const newSeekTimeStr = prompt(
+            `Enter seconds to seek on double-tap (1-60):\nCurrent: ${currentSeekTime}s`, 
+            currentSeekTime
+        );
 
-        if (newSeekTimeStr) {
+        if (newSeekTimeStr !== null) { // User didn't cancel
             const newSeekTime = parseInt(newSeekTimeStr, 10);
-            if (!isNaN(newSeekTime) && newSeekTime > 0) {
+            
+            // Enhanced validation with better user feedback
+            if (!isNaN(newSeekTime) && newSeekTime > 0 && newSeekTime <= 60) {
                 config.DOUBLE_TAP_SEEK_SECONDS = newSeekTime;
                 GM_setValue('config', config);
                 alert(`Double-tap seek time set to ${newSeekTime} seconds.`);
             } else {
-                alert('Invalid input. Please enter a positive number.');
+                alert(`Invalid input "${newSeekTimeStr}". Please enter a number between 1-60 seconds.\nCurrent value (${currentSeekTime}s) unchanged.`);
             }
         }
     });
@@ -118,15 +150,63 @@
     let lastTap = { time: 0, count: 0 };
     let longPressTimeout = null;
 
+    // --- Memory Management (Non-Breaking Addition) ---
+    function cleanup() {
+        // Clear all timeouts to prevent memory leaks
+        if (longPressTimeout) {
+            clearTimeout(longPressTimeout);
+            longPressTimeout = null;
+        }
+        
+        if (indicatorTimeout) {
+            clearTimeout(indicatorTimeout);
+            indicatorTimeout = null;
+        }
+        
+        // Reset gesture state
+        activeGesture = null;
+        lastTap = { time: 0, count: 0 };
+        
+        // Clean up UI elements safely
+        try {
+            if (globalIndicator && globalIndicator.parentElement) {
+                globalIndicator.remove();
+                globalIndicator = null;
+            }
+            
+            if (brightnessOverlay && brightnessOverlay.parentElement) {
+                brightnessOverlay.remove();
+                brightnessOverlay = null;
+            }
+            
+            // Remove style element
+            const styleEl = document.getElementById('video-gesture-pro-styles');
+            if (styleEl) {
+                styleEl.remove();
+            }
+        } catch (e) {
+            console.warn('[VideoGestures] Cleanup warning:', e);
+        }
+    }
+
     // --- UI & Feedback ---
     function showIndicator(html, stayVisible = false) {
         if (!globalIndicator) return;
         globalIndicator.innerHTML = html;
         globalIndicator.classList.add('visible');
-        if (indicatorTimeout) clearTimeout(indicatorTimeout);
+        
+        // Always clear existing timeout to prevent leaks
+        if (indicatorTimeout) {
+            clearTimeout(indicatorTimeout);
+            indicatorTimeout = null;
+        }
+        
         if (!stayVisible) {
             indicatorTimeout = setTimeout(() => {
-                globalIndicator.classList.remove('visible');
+                if (globalIndicator) {
+                    globalIndicator.classList.remove('visible');
+                }
+                indicatorTimeout = null;
             }, 800);
         }
     }
@@ -143,158 +223,212 @@
 
     // --- Improved Video & Player Discovery ---
     function findVideoAndPlayer(targetElement) {
-        let video = null;
-        if (document.fullscreenElement) {
-            video = document.fullscreenElement.querySelector('video');
-        }
-        if (!video) video = targetElement.closest('video');
-        if (!video) {
-            let largestVideo = null;
-            let maxArea = 0;
-            document.querySelectorAll('video').forEach(v => {
-                if (v.paused || v.readyState < 1) return;
-                const rect = v.getBoundingClientRect();
-                if (rect.width > 0 && rect.height > 0) {
-                    const area = rect.width * rect.height;
-                    if (area > maxArea) {
-                        maxArea = area;
-                        largestVideo = v;
+        try {
+            let video = null;
+            
+            // Safe fullscreen check
+            if (document.fullscreenElement) {
+                video = document.fullscreenElement.querySelector('video');
+            }
+            
+            // Safe closest video check
+            if (!video && targetElement && typeof targetElement.closest === 'function') {
+                video = targetElement.closest('video');
+            }
+            
+            // Safe video search with validation
+            if (!video) {
+                let largestVideo = null;
+                let maxArea = 0;
+                document.querySelectorAll('video').forEach(v => {
+                    try {
+                        if (!v || v.paused || v.readyState < 1) return;
+                        const rect = v.getBoundingClientRect();
+                        if (rect && rect.width > 0 && rect.height > 0) {
+                            const area = rect.width * rect.height;
+                            if (area > maxArea) {
+                                maxArea = area;
+                                largestVideo = v;
+                            }
+                        }
+                    } catch (e) {
+                        // Skip problematic video elements silently
                     }
-                }
-            });
-            video = largestVideo;
+                });
+                video = largestVideo;
+            }
+
+            if (!video) return null;
+
+            // Safe container search
+            let container = null;
+            try {
+                const playerSelectors = '.html5-video-player, .player, .video-js, [data-vjs-player], .jwplayer';
+                container = video.closest(playerSelectors);
+            } catch (e) {
+                // Fallback to parent element
+            }
+
+            return {
+                video: video,
+                container: container || video.parentElement
+            };
+        } catch (error) {
+            ErrorHandler.handleError(error, 'video-discovery');
+            return null;
         }
-
-        if (!video) return null;
-
-        const playerSelectors = '.html5-video-player, .player, .video-js, [data-vjs-player], .jwplayer';
-        const playerContainer = video.closest(playerSelectors);
-
-        return {
-            video: video,
-            container: playerContainer || video.parentElement
-        };
     }
 
 
     // --- Event Handlers using State Machine ---
     function onTouchStart(e) {
-        const result = findVideoAndPlayer(e.target);
+        try {
+            const result = findVideoAndPlayer(e.target);
 
-        if (!result || !result.video || result.video.duration < config.MIN_VIDEO_DURATION_SECONDS || e.touches.length > 1) {
-            activeGesture = null;
-            return;
-        }
-        
-        e.stopPropagation();
+            if (!result || !result.video || result.video.duration < config.MIN_VIDEO_DURATION_SECONDS || e.touches.length > 1) {
+                activeGesture = null;
+                return;
+            }
+            
+            e.stopPropagation();
 
-        activeGesture = {
-            video: result.video,
-            container: result.container,
-            startX: e.touches[0].clientX,
-            startY: e.touches[0].clientY,
-            isSwipe: false,
-            action: 'none',
-            finalized: false,
-            originalPlaybackRate: result.video.playbackRate,
-            initialBrightness: 1 - parseFloat(brightnessOverlay.style.opacity || 0),
-            initialVolume: result.video.volume,
-        };
+            activeGesture = {
+                video: result.video,
+                container: result.container,
+                startX: e.touches[0].clientX,
+                startY: e.touches[0].clientY,
+                isSwipe: false,
+                action: 'none',
+                finalized: false,
+                originalPlaybackRate: result.video.playbackRate,
+                initialBrightness: 1 - parseFloat(brightnessOverlay.style.opacity || 0),
+                initialVolume: result.video.volume,
+            };
 
-        if (Date.now() - lastTap.time < config.DOUBLE_TAP_TIMEOUT_MS) {
-            lastTap.count++;
-        } else {
-            lastTap.count = 1;
-        }
-        lastTap.time = Date.now();
+            if (Date.now() - lastTap.time < config.DOUBLE_TAP_TIMEOUT_MS) {
+                lastTap.count++;
+            } else {
+                lastTap.count = 1;
+            }
+            lastTap.time = Date.now();
 
-        clearTimeout(longPressTimeout);
-        if (document.fullscreenElement) {
-            longPressTimeout = setTimeout(() => handleLongPress(), config.LONG_PRESS_DURATION_MS);
+            // Always clear existing timeout before setting new one
+            if (longPressTimeout) {
+                clearTimeout(longPressTimeout);
+                longPressTimeout = null;
+            }
+            
+            if (document.fullscreenElement) {
+                longPressTimeout = setTimeout(() => {
+                    try {
+                        handleLongPress();
+                    } catch (error) {
+                        ErrorHandler.handleError(error, 'long-press');
+                    }
+                }, config.LONG_PRESS_DURATION_MS);
+            }
+        } catch (error) {
+            ErrorHandler.handleError(error, 'touchstart');
         }
     }
 
     function onTouchMove(e) {
-        if (!activeGesture || e.touches.length > 1) return;
-        
-        e.stopPropagation();
-        
-        const deltaX = e.touches[0].clientX - activeGesture.startX;
-        const deltaY = e.touches[0].clientY - activeGesture.startY;
-
-        if (!activeGesture.isSwipe && Math.hypot(deltaX, deltaY) > config.SWIPE_THRESHOLD) {
-            clearTimeout(longPressTimeout);
-            lastTap.count = 0;
+        try {
+            if (!activeGesture || e.touches.length > 1) return;
             
-            if (activeGesture.action === 'long-press-speed') {
-                activeGesture.video.playbackRate = activeGesture.originalPlaybackRate;
-                hideIndicator();
-            }
-
-            activeGesture.isSwipe = true;
+            e.stopPropagation();
             
-            if (document.fullscreenElement) {
-                const rect = activeGesture.video.getBoundingClientRect();
-                const touchZoneX = (activeGesture.startX - rect.left) / rect.width;
-                const isVertical = Math.abs(deltaY) > Math.abs(deltaX);
+            const deltaX = e.touches[0].clientX - activeGesture.startX;
+            const deltaY = e.touches[0].clientY - activeGesture.startY;
 
-                if (isVertical) {
-                    if (touchZoneX < 0.33) activeGesture.action = 'brightness';
-                    else if (touchZoneX > 0.66) activeGesture.action = 'volume';
-                    else activeGesture.action = 'fullscreen';
-                } else {
-                    activeGesture.action = 'seeking';
+            if (!activeGesture.isSwipe && Math.hypot(deltaX, deltaY) > config.SWIPE_THRESHOLD) {
+                if (longPressTimeout) {
+                    clearTimeout(longPressTimeout);
+                    longPressTimeout = null;
+                }
+                lastTap.count = 0;
+                
+                if (activeGesture.action === 'long-press-speed') {
+                    activeGesture.video.playbackRate = activeGesture.originalPlaybackRate;
+                    hideIndicator();
+                }
+
+                activeGesture.isSwipe = true;
+                
+                if (document.fullscreenElement) {
+                    const rect = activeGesture.video.getBoundingClientRect();
+                    const touchZoneX = (activeGesture.startX - rect.left) / rect.width;
+                    const isVertical = Math.abs(deltaY) > Math.abs(deltaX);
+
+                    if (isVertical) {
+                        if (touchZoneX < 0.33) activeGesture.action = 'brightness';
+                        else if (touchZoneX > 0.66) activeGesture.action = 'volume';
+                        else activeGesture.action = 'fullscreen';
+                    } else {
+                        activeGesture.action = 'seeking';
+                    }
                 }
             }
-        }
 
-        if (activeGesture.isSwipe) {
-            e.preventDefault();
-            switch (activeGesture.action) {
-                case 'seeking': handleHorizontalSwipe(deltaX); break;
-                case 'volume': handleVerticalSwipe(deltaY, 'volume'); break;
-                case 'brightness': handleVerticalSwipe(deltaY, 'brightness'); break;
+            if (activeGesture.isSwipe) {
+                e.preventDefault();
+                switch (activeGesture.action) {
+                    case 'seeking': handleHorizontalSwipe(deltaX); break;
+                    case 'volume': handleVerticalSwipe(deltaY, 'volume'); break;
+                    case 'brightness': handleVerticalSwipe(deltaY, 'brightness'); break;
+                }
             }
+        } catch (error) {
+            ErrorHandler.handleError(error, 'touchmove');
         }
     }
 
     function onTouchEnd(e) {
-        if (!activeGesture || activeGesture.finalized) return;
-        
-        clearTimeout(longPressTimeout);
-        e.stopPropagation();
-        activeGesture.finalized = true;
-
-        if (activeGesture.action === 'long-press-speed') {
-            activeGesture.video.playbackRate = activeGesture.originalPlaybackRate;
-            hideIndicator();
-        } else if (activeGesture.isSwipe) {
-            if (activeGesture.action === 'seeking') {
-                const deltaX = e.changedTouches[0].clientX - activeGesture.startX;
-                const seekTime = deltaX * config.SEEK_SENSITIVITY;
-                activeGesture.video.currentTime += seekTime;
-                triggerHapticFeedback();
-            } else if (activeGesture.action === 'volume' || activeGesture.action === 'brightness') {
-                triggerHapticFeedback();
-            } else if (activeGesture.action === 'fullscreen') {
-                 const deltaY = e.changedTouches[0].clientY - activeGesture.startY;
-                 if (Math.abs(deltaY) > config.SWIPE_THRESHOLD) {
-                    handleFullscreenToggle();
-                 }
+        try {
+            if (!activeGesture || activeGesture.finalized) return;
+            
+            if (longPressTimeout) {
+                clearTimeout(longPressTimeout);
+                longPressTimeout = null;
             }
-        } else {
-            if (lastTap.count >= 2) {
-                e.preventDefault();
-                if (document.fullscreenElement) {
-                    handleDoubleTapSeek(activeGesture.video, activeGesture.startX);
-                } else {
-                    handleFullscreenToggle();
+            e.stopPropagation();
+            activeGesture.finalized = true;
+
+            if (activeGesture.action === 'long-press-speed') {
+                activeGesture.video.playbackRate = activeGesture.originalPlaybackRate;
+                hideIndicator();
+            } else if (activeGesture.isSwipe) {
+                if (activeGesture.action === 'seeking') {
+                    const deltaX = e.changedTouches[0].clientX - activeGesture.startX;
+                    const seekTime = deltaX * config.SEEK_SENSITIVITY;
+                    activeGesture.video.currentTime += seekTime;
+                    triggerHapticFeedback();
+                } else if (activeGesture.action === 'volume' || activeGesture.action === 'brightness') {
+                    triggerHapticFeedback();
+                } else if (activeGesture.action === 'fullscreen') {
+                     const deltaY = e.changedTouches[0].clientY - activeGesture.startY;
+                     if (Math.abs(deltaY) > config.SWIPE_THRESHOLD) {
+                        handleFullscreenToggle();
+                     }
                 }
-                lastTap = { time: 0, count: 0 };
+            } else {
+                if (lastTap.count >= 2) {
+                    e.preventDefault();
+                    if (document.fullscreenElement) {
+                        handleDoubleTapSeek(activeGesture.video, activeGesture.startX);
+                    } else {
+                        handleFullscreenToggle();
+                    }
+                    lastTap = { time: 0, count: 0 };
+                }
             }
-        }
 
-        activeGesture = null;
+            activeGesture = null;
+        } catch (error) {
+            ErrorHandler.handleError(error, 'touchend');
+            // Always reset state on error
+            activeGesture = null;
+        }
     }
 
     function onContextMenu(e) {
@@ -422,6 +556,10 @@
         document.addEventListener('touchend', onTouchEnd, { passive: false, capture: true });
         document.addEventListener('fullscreenchange', handleFullscreenChange);
         document.addEventListener('contextmenu', onContextMenu, { capture: true });
+        
+        // Add cleanup handlers to prevent memory leaks
+        window.addEventListener('beforeunload', cleanup);
+        window.addEventListener('pagehide', cleanup);
     }
 
     if (document.readyState === 'loading') {
