@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Gestures Pro Enhanced
 // @namespace     https://github.com/enhanced-userscripts/video-gestures
-// @version       11.5.1
+// @version       11.5.2
 // @description   High-performance video gesture controls with optimized UI/UX, reduced memory footprint, and enhanced accessibility
 // @author        Enhanced UserScripts Team
 // @match         *://*/*
@@ -1060,7 +1060,7 @@
 
         scheduleLongPress() {
             const gesture = gestureState.activeGesture;
-            if (!gesture || gesture.videoData.element.paused) {
+            if (!gesture) {
                 return;
             }
 
@@ -1159,7 +1159,7 @@
 
         handleLongPress() {
             const gesture = gestureState.activeGesture;
-            if (!gesture || gesture.isSwipe || gesture.videoData.element.paused) return;
+            if (!gesture || gesture.isSwipe) return;
 
             gesture.action = 'long-press-speed';
             const video = gesture.videoData.element;
