@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Advanced Video Gesture Controls
 // @namespace    http://tampermonkey.net/
-// @version      2.5
+// @version      2.6
 // @description  Adds distinct gesture sets for normal and fullscreen viewing modes for maximum compatibility and intuitive control.
 // @author       Your Name
 // @match        *://*/*
@@ -203,7 +203,7 @@
                         } else if (touch.clientX > rect.left + rect.width * 2 / 3) {
                             this.dragMode = 'volume';
                         } else {
-                            this.dragMode = 'exit'; // Middle zone for exiting
+                            this.dragMode = 'exit';
                         }
                     }
                 }
@@ -229,7 +229,7 @@
                             FeedbackManager.show(this.activeVideo, 'brightness', `${Math.round((1-newBright) * 100)}%`);
                             break;
                         case 'exit':
-                            if (deltaY > 30) { // Swipe down to exit
+                            if (deltaY > 30) {
                                 document.exitFullscreen();
                             }
                             break;
@@ -263,6 +263,11 @@
                 FeedbackManager.hide();
             }
             
+            if (!this.isDragging && e.changedTouches.length === 2) {
+                this.togglePlay();
+                this.vibrate();
+            }
+
             if (this.dragMode === 'volume' || this.dragMode === 'brightness' || this.dragMode === 'none') {
                 FeedbackManager.hideWithDelay(500);
             }
@@ -273,6 +278,16 @@
             this.container = null;
         }
         
+        togglePlay() {
+            if (this.activeVideo.paused) {
+                this.activeVideo.play().catch(e => log("Play interrupted:", e));
+                FeedbackManager.show(this.activeVideo, 'play');
+            } else {
+                this.activeVideo.pause();
+                FeedbackManager.show(this.activeVideo, 'pause');
+            }
+        }
+
         getPinchDistance(e) {
             const t1 = e.touches[0];
             const t2 = e.touches[1];
@@ -291,7 +306,6 @@
     async function toggleFullscreen(video, container) {
         if (!document.fullscreenElement) {
             try {
-                // Always go landscape from normal mode
                 if (screen.orientation && screen.orientation.lock) {
                     await screen.orientation.lock('landscape');
                 }
@@ -325,7 +339,7 @@
         while(target && target.nodeName !== 'BODY') {
             if (target.nodeName === 'VIDEO' && videoMap.has(target)) {
                 const container = videoMap.get(target);
-                if (document.fullscreenElement === container || container.contains(document.fullscreenElement)) {
+                if (document.fullscreenElement === container || (document.fullscreenElement && document.fullscreenElement.contains(target))) {
                     gestureController.start(e, target, container);
                 }
                 return;
@@ -346,13 +360,13 @@
             return;
         }
 
-        // Normal mode gesture handling (double tap to fullscreen)
         let target = e.target;
         while(target && target.nodeName !== 'BODY') {
             if (target.nodeName === 'VIDEO' && videoMap.has(target)) {
                 const now = new Date().getTime();
-                const timeSinceLastTap = now - lastTap;
-                if (timeSinceLastTap < 300) {
+                if (now - lastTap < 300) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     lastTap = 0;
                     const container = videoMap.get(target);
                     toggleFullscreen(target, container);
