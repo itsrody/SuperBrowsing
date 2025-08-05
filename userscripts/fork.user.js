@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Advanced Video Gesture Controls
 // @namespace    http://tampermonkey.net/
-// @version      2.1
-// @description  Adds intuitive, contextual touch gesture controls with a conflict-free, independent feedback layer.
+// @version      2.2
+// @description  Adds intuitive, contextual touch gesture controls with a conflict-free, Shadow DOM-based feedback layer.
 // @author       Your Name
 // @match        *://*/*
 // @grant        none
@@ -13,7 +13,7 @@
     'use strict';
 
     const DEBUG = false; // Set to true for detailed console logs
-    const NATIVE_CONTROLS_HEIGHT_PERCENT = 15; // Percentage of video height at the bottom to reserve for native controls
+    const NATIVE_CONTROLS_HEIGHT_PERCENT = 15;
 
     function log(...args) {
         if (DEBUG) {
@@ -23,33 +23,57 @@
 
     /**
      * @class FeedbackManager
-     * @description A singleton to manage a single, global feedback UI layer.
+     * @description A singleton to manage a single, global feedback UI layer inside a Shadow DOM for conflict-free display.
      */
     const FeedbackManager = {
+        host: null,
+        shadowRoot: null,
         indicator: null,
         timer: null,
 
         init() {
-            if (this.indicator) return;
+            if (this.host) return;
+            
+            this.host = document.createElement('div');
+            this.host.id = 'video-gesture-feedback-host';
+            document.body.appendChild(this.host);
+
+            this.shadowRoot = this.host.attachShadow({ mode: 'open' });
+
+            const style = document.createElement('style');
+            style.textContent = `
+                :host {
+                    pointer-events: none;
+                }
+                #indicator {
+                    position: fixed;
+                    z-index: 2147483647;
+                    padding: 20px;
+                    border-radius: 15px;
+                    background-color: rgba(20, 20, 20, 0.7);
+                    backdrop-filter: blur(12px) saturate(150%);
+                    -webkit-backdrop-filter: blur(12px) saturate(150%);
+                    color: white;
+                    text-align: center;
+                    display: none;
+                    transition: opacity 0.2s ease;
+                    opacity: 0;
+                }
+                #indicator.visible {
+                    display: block;
+                    opacity: 1;
+                }
+            `;
+            this.shadowRoot.appendChild(style);
+
             this.indicator = document.createElement('div');
-            this.indicator.style.position = 'fixed'; // Use fixed positioning to overlay everything
-            this.indicator.style.zIndex = '2147483647';
-            this.indicator.style.padding = '20px';
-            this.indicator.style.borderRadius = '15px';
-            this.indicator.style.backgroundColor = 'rgba(20, 20, 20, 0.7)';
-            this.indicator.style.backdropFilter = 'blur(12px) saturate(150%)';
-            this.indicator.style.webkitBackdropFilter = 'blur(12px) saturate(150%)';
-            this.indicator.style.color = 'white';
-            this.indicator.style.textAlign = 'center';
-            this.indicator.style.display = 'none';
-            this.indicator.style.pointerEvents = 'none'; // Clicks pass through the indicator
-            document.body.appendChild(this.indicator);
+            this.indicator.id = 'indicator';
+            this.shadowRoot.appendChild(this.indicator);
         },
 
         show(video, iconType, text = '') {
             if (!this.indicator) this.init();
             
-            // Calculate position based on the target video's viewport coordinates
             const rect = video.getBoundingClientRect();
             this.indicator.style.left = `${rect.left + rect.width / 2}px`;
             this.indicator.style.top = `${rect.top + rect.height / 2}px`;
@@ -69,7 +93,7 @@
                 error: `<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`
             };
             this.indicator.innerHTML = `${icons[iconType] || ''}${text ? `<br><span style="font-size: 16px; font-weight: bold;">${text}</span>` : ''}`;
-            this.indicator.style.display = 'block';
+            this.indicator.classList.add('visible');
             
             if (this.timer) clearTimeout(this.timer);
             this.timer = setTimeout(() => this.hide(), 800);
@@ -77,7 +101,7 @@
 
         hide() {
             if (this.indicator) {
-                this.indicator.style.display = 'none';
+                this.indicator.classList.remove('visible');
             }
         },
 
@@ -87,10 +111,6 @@
         }
     };
 
-    /**
-     * @class VideoGestureControl
-     * @description Manages gesture controls for a single video element.
-     */
     class VideoGestureControl {
         constructor(video) {
             this.video = video;
@@ -99,7 +119,6 @@
             this.resizeObserver = null;
             this.brightnessOverlay = null;
 
-            // Gesture state
             this.touchStartX = 0;
             this.touchStartY = 0;
             this.lastTap = 0;
@@ -354,13 +373,16 @@
         }
 
         handleFullscreenChange() {
-            if (document.fullscreenElement === (this.container || this.video)) {
+            const fullscreenEl = document.fullscreenElement;
+            const isOurVideoFullscreen = fullscreenEl && (fullscreenEl === this.container || fullscreenEl.contains(this.video));
+
+            if (isOurVideoFullscreen) {
                  FeedbackManager.show(this.video, 'fullscreen-enter');
-            } else if (!document.fullscreenElement) {
+            } else {
                 if (screen.orientation && screen.orientation.unlock) {
                     screen.orientation.unlock();
                 }
-                FeedbackManager.show(this.video, 'fullscreen-exit');
+                FeedbackManager.hide();
             }
         }
 
@@ -409,7 +431,7 @@
 
     function main() {
         log('Script loaded. Scanning for videos.');
-        FeedbackManager.init(); // Initialize the global feedback UI
+        FeedbackManager.init();
         scanNodeForVideos(document.body);
 
         const observer = new MutationObserver((mutations) => {
