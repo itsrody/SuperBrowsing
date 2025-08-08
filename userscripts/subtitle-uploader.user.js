@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Subtitle Uploader v2.8 (New Design)
+// @name         Subtitle Uploader
 // @namespace    https://github.com/itsrody/SuperBrowse
-// @version      2.8
+// @version      2.8.5
 // @description  Upload, style, and sync local subtitles (VTT, SRT, ASS, SSA) for any video.
-// @author       Murtaza Salih (Rebuilt by Gemini)
+// @author       Murtaza Salih
 // @match        *://*/*
 // @grant        GM.setValue
 // @grant        GM.getValue
@@ -105,6 +105,7 @@ function renderCustomSubtitle(video) {
     if (activeCue) {
         if (activeCue !== data.lastCue) {
             data.display.innerHTML = activeCue.text;
+            data.display.classList.remove('fade-out');
             data.lastCue = activeCue;
         }
         data.display.classList.add('visible');
@@ -127,64 +128,6 @@ function getOrCreateSubtitleDisplay(uiSandbox) {
     return vgsDisplay;
 }
 
-function createSubtitleControls(video, uiSandbox) {
-    if (videoDataMap.has(video) || !uiSandbox) return;
-
-    const controls = document.createElement('div');
-    controls.className = 'subtitle-controls-container';
-    
-    const btnUpload = createButton('Upload Subtitle (Ctrl+U)', `<svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/></svg>`, (e) => {
-        e.stopPropagation();
-        handleUploadClick(video);
-    });
-
-    const btnSettings = createButton('Subtitle Settings', `<svg viewBox="0 0 24 24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>`, (e) => {
-        e.stopPropagation();
-        openSettingsPanel(video);
-    });
-    
-    const trackSelector = document.createElement('select');
-    trackSelector.className = 'vgs-track-selector';
-    trackSelector.title = "Select Subtitle Track";
-    trackSelector.style.display = 'none';
-    trackSelector.onchange = (e) => {
-        const data = videoDataMap.get(video);
-        if (data) {
-            const newIndex = parseInt(e.target.value, 10);
-            data.currentTrackIndex = newIndex;
-            if (newIndex > -1) {
-                data.lastTrackIndex = newIndex;
-            }
-            renderCustomSubtitle(video);
-        }
-    };
-
-    controls.append(btnUpload, btnSettings, trackSelector);
-    uiSandbox.appendChild(controls);
-
-    videoDataMap.set(video, { controls, uiSandbox, trackSelector, lastFile: null, lastTrackIndex: -1 });
-}
-
-function updateTrackSelector(video) {
-    const data = videoDataMap.get(video);
-    if (!data || !data.trackSelector) return;
-
-    const selector = data.trackSelector;
-    selector.innerHTML = '';
-    const offOption = new Option('Subtitles Off', -1);
-    selector.add(offOption);
-
-    if (data.tracks && data.tracks.length > 0) {
-        data.tracks.forEach((track, index) => {
-            selector.add(new Option(track.label, index));
-        });
-        selector.value = data.currentTrackIndex;
-        selector.style.display = 'inline-block';
-    } else {
-        selector.style.display = 'none';
-    }
-}
-
 function createSettingsPanel() {
     if (document.getElementById('vgs-settings-panel')) return;
     settingsPanel = document.createElement('div');
@@ -193,7 +136,7 @@ function createSettingsPanel() {
         <div class="vgs-panel-content">
             <div class="vgs-panel-header">
                 <h3>Subtitle Settings</h3>
-                <span class="vgs-panel-close">&times;</span>
+                <button type="button" class="vgs-panel-close" aria-label="Close settings">&times;</button>
             </div>
             <div class="vgs-setting-grid">
                 <label class="vgs-label">Font</label>
@@ -300,6 +243,77 @@ function createSettingsPanel() {
     });
 }
 
+function createSubtitleControls(video, uiSandbox) {
+    if (videoDataMap.has(video) || !uiSandbox) return;
+
+    const controls = document.createElement('div');
+    controls.className = 'subtitle-controls-container';
+    
+    const btnUpload = createButton('Upload Subtitle (Ctrl+U)', `<svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/></svg>`, (e) => {
+        e.stopPropagation();
+        handleUploadClick(video);
+    });
+
+    const btnSettings = createButton('Subtitle Settings', `<svg viewBox="0 0 24 24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>`, (e) => {
+        e.stopPropagation();
+        openSettingsPanel(video);
+    });
+    
+    const trackSelector = document.createElement('select');
+    trackSelector.className = 'vgs-track-selector';
+    trackSelector.title = "Select Subtitle Track";
+    trackSelector.setAttribute('aria-label', 'Select Subtitle Track');
+    trackSelector.style.display = 'none';
+    trackSelector.onchange = (e) => {
+        const data = videoDataMap.get(video);
+        if (data) {
+            const newIndex = parseInt(e.target.value, 10);
+            data.currentTrackIndex = newIndex;
+            if (newIndex > -1) {
+                data.lastTrackIndex = newIndex;
+            }
+            renderCustomSubtitle(video);
+        }
+    };
+
+    controls.append(btnUpload, btnSettings, trackSelector);
+    uiSandbox.appendChild(controls);
+
+    videoDataMap.set(video, { controls, uiSandbox, trackSelector, lastFile: null, lastTrackIndex: -1 });
+}
+
+function updateTrackSelector(video) {
+    const data = videoDataMap.get(video);
+    if (!data || !data.trackSelector) return;
+
+    const selector = data.trackSelector;
+    selector.innerHTML = '';
+    const offOption = new Option('Subtitles Off', -1);
+    selector.add(offOption);
+
+    if (data.tracks && data.tracks.length > 0) {
+        data.tracks.forEach((track, index) => {
+            selector.add(new Option(track.label, index));
+        });
+        selector.value = data.currentTrackIndex;
+        selector.style.display = 'inline-block';
+    } else {
+        selector.style.display = 'none';
+    }
+}
+
+function createButton(title, svg, onClick) {
+    const btn = document.createElement('button');
+    btn.title = title;
+    btn.setAttribute('aria-label', title);
+    btn.classList.add('vgs-btn');
+    btn.innerHTML = svg;
+    btn.onclick = onClick;
+    return btn;
+}
+
+// --- UI Panel for Settings ---
+
 function openSettingsPanel(video) {
     if (!settingsPanel) return;
     activeVideo = video;
@@ -359,7 +373,7 @@ function handleUploadClick(video) {
 }
 
 function initializeForVideo(video) {
-    if (!video || video.dataset.vgsHandled || video.duration < 30 || video.videoWidth < 200) return;
+    if (!video || video.dataset.vgsHandled) return;
     
     waitForElement(video, findVideoContainer, (container) => {
         if (!container || video.dataset.vgsHandled) return;
@@ -370,6 +384,12 @@ function initializeForVideo(video) {
         container.appendChild(uiSandbox);
 
         createSubtitleControls(video, uiSandbox);
+
+        // Make this video the default active target if none selected yet
+        if (!activeVideo) activeVideo = video;
+        // Briefly reveal controls to indicate availability
+        uiSandbox.classList.add('vgs-container-hover');
+        setTimeout(() => uiSandbox.classList.remove('vgs-container-hover'), 1500);
 
         container.addEventListener('mouseenter', () => {
             activeVideo = video;
@@ -474,6 +494,18 @@ async function updateSettingsFromPanel() {
 
 function initializeStyles() {
     GM.addStyle(`
+        :root {
+            --vg-bg: rgba(18,18,18,0.35);
+            --vg-bg-strong: rgba(18,18,18,0.5);
+            --vg-border: rgba(255,255,255,0.12);
+            --vg-fg: rgba(255,255,255,0.95);
+            --vg-blur: 12px;
+            --vg-sat: 140%;
+            --vg-shadow: 0 8px 30px rgba(0,0,0,.45), inset 0 1px 1px rgba(255,255,255,.06);
+            --vg-radius: 16px;
+            --vg-focus: 0 0 0 2px rgba(137,207,240,.85);
+        }
+
         .vgs-ui-sandbox {
             position: absolute;
             top: 0; left: 0;
@@ -485,91 +517,121 @@ function initializeStyles() {
             position: absolute; top: 10px; left: 10px;
             display: flex; gap: 8px; align-items: center;
             opacity: 0; transform: translateY(-10px);
-            transition: opacity 0.3s ease, transform 0.3s ease;
+            transition: opacity .18s ease, transform .18s ease;
             pointer-events: auto;
+            font: 500 15px/1 Roboto, system-ui, sans-serif;
         }
         .vgs-container-hover .subtitle-controls-container { opacity: 1; transform: translateY(0); }
-        .subtitle-controls-container button, .vgs-track-selector {
-            background-color: rgba(30, 30, 30, 0.9); border: none; border-radius: 12px;
-            height: 40px; cursor: pointer; padding: 8px;
-            display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3); box-sizing: border-box;
-            transition: all 0.2s ease;
-            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-            color: #fff;
+
+        /* Buttons and select share the glass style */
+        .subtitle-controls-container .vgs-btn, .vgs-track-selector {
+            background: var(--vg-bg);
+            border: 1px solid var(--vg-border);
+            backdrop-filter: blur(var(--vg-blur)) saturate(var(--vg-sat));
+            -webkit-backdrop-filter: blur(var(--vg-blur)) saturate(var(--vg-sat));
+            color: var(--vg-fg);
+            border-radius: 12px;
+            height: 40px; cursor: pointer; padding: 8px 12px;
+            display: inline-flex; align-items: center; justify-content: center;
+            box-shadow: var(--vg-shadow);
+            transition: opacity .18s ease, transform .18s ease, background .18s ease, box-shadow .18s ease;
         }
-        .subtitle-controls-container button { width: 40px; }
-        .subtitle-controls-container button:hover { background-color: rgba(50, 50, 50, 0.95); transform: translateY(-2px); }
-        .subtitle-controls-container button svg { width: 100%; height: 100%; fill: #fff; }
-        .vgs-track-selector { padding: 0 10px; font-size: 14px; }
-        .vgs-track-selector:hover { background-color: rgba(50, 50, 50, 0.95); }
-        .vgs-track-selector option { background: #333; border: none; }
+        .subtitle-controls-container .vgs-btn { width: 40px; padding: 8px; }
+        .subtitle-controls-container .vgs-btn:hover, .vgs-track-selector:hover { background: var(--vg-bg-strong); transform: translateY(-2px) scale(1.03); }
+        .subtitle-controls-container .vgs-btn:focus-visible, .vgs-track-selector:focus-visible { outline: none; box-shadow: var(--vg-shadow), var(--vg-focus); }
+        .subtitle-controls-container .vgs-btn svg { width: 24px; height: 24px; fill: var(--vg-fg); filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }
+        .vgs-track-selector { padding: 0 12px; font: 500 14px/1 Roboto, system-ui, sans-serif; appearance: none; -webkit-appearance: none; }
+        .vgs-track-selector option { background: #222; color: #fff; }
 
         .custom-subtitle-display {
             position: absolute;
             transform: translateX(-50%);
             width: max-content; max-width: 90%; text-align: center;
-            padding: 5px 10px; border-radius: 4px; line-height: 1.4;
+            padding: 6px 12px; border-radius: 8px; line-height: 1.4;
             word-wrap: break-word; white-space: pre-wrap;
             opacity: 0; visibility: hidden;
-            transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+            transition: opacity .18s ease, visibility 0s linear .18s;
         }
-        .custom-subtitle-display.visible { opacity: 1; visibility: visible; transition: opacity 0.3s ease; }
+        .custom-subtitle-display.visible { opacity: 1; visibility: visible; transition: opacity .18s ease; }
 
         #vgs-settings-panel {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            position: fixed; inset: 0;
             background: rgba(0, 0, 0, 0.5); z-index: 2147483647;
-            display: none; align-items: center; justify-content: center; font-family: sans-serif;
+            display: none; align-items: center; justify-content: center;
+            font: 500 15px/1 Roboto, system-ui, sans-serif;
         }
         .vgs-panel-content {
-            background: rgba(30, 30, 30, 0.9); backdrop-filter: blur(8px);
-            color: #eee; padding: 20px; border-radius: 12px;
-            width: calc(100% - 40px); max-width: 450px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.4); border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--vg-bg);
+            border: 1px solid var(--vg-border);
+            backdrop-filter: blur(var(--vg-blur)) saturate(var(--vg-sat));
+            -webkit-backdrop-filter: blur(var(--vg-blur)) saturate(var(--vg-sat));
+            color: var(--vg-fg); padding: 20px; border-radius: var(--vg-radius);
+            width: calc(100% - 40px); max-width: 520px;
+            box-shadow: var(--vg-shadow);
         }
-        .vgs-panel-header { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 20px; }
-        .vgs-panel-header h3 { margin: 0; font-size: 18px; text-align: center; flex-grow: 1; }
-        .vgs-panel-close { font-size: 28px; font-weight: bold; cursor: pointer; color: #aaa; line-height: 1; padding: 0 5px; }
-        .vgs-setting-grid { display: grid; grid-template-columns: auto 1fr; gap: 15px 10px; width: 100%; align-items: center;}
+        .vgs-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+        .vgs-panel-header h3 { margin: 0; font-size: 18px; text-align: center; flex: 1; }
+        .vgs-panel-close {
+            background: transparent; border: 1px solid transparent; color: #ddd; cursor: pointer;
+            width: 32px; height: 32px; border-radius: 8px; font-size: 22px; padding: 0;
+            display: inline-flex; align-items: center; justify-content: center;
+            transition: background .18s ease, transform .18s ease;
+        }
+        .vgs-panel-close:hover { background: var(--vg-bg-strong); transform: scale(1.06); }
+        .vgs-panel-close:focus-visible { outline: none; box-shadow: var(--vg-focus); }
+
+        .vgs-setting-grid { display: grid; grid-template-columns: auto 1fr; gap: 14px 12px; width: 100%; align-items: center; }
         .vgs-setting-row.full-width { grid-column: 1 / -1; }
         .vgs-center-container { display: flex; justify-content: center; align-items: center; gap: 10px; }
         .vgs-label { font-size: 14px; color: #ccc; justify-self: start; }
-        .vgs-input-group { display: flex; align-items: center; gap: 10px; }
-        .vgs-input-group input[type="range"] { flex-grow: 1; accent-color: #89cff0; }
-        .vgs-input-group input[type="number"] { width: 60px; text-align: right; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; padding: 2px 4px;}
-        .vgs-input-group span { min-width: 40px; text-align: right; font-size: 14px; color: #ccc; }
-        .vgs-checkbox-label { font-weight: bold; border: 1px solid #aaa; border-radius: 4px; padding: 2px 4px; cursor: pointer; }
-        .delay-group { display: flex; align-items: center; }
-        .delay-group button { background: rgba(255,255,255,0.1); border: none; color: #eee; border-radius: 8px; width: 30px; height: 30px; font-size: 18px; cursor: pointer; }
-        .delay-group input { width: 50px; text-align: center; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; margin: 0 5px; -moz-appearance: textfield; }
-        .delay-group input::-webkit-outer-spin-button, .delay-group input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-        
-        .encoding-group { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
-        .encoding-group select { min-width: 0; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; padding: 4px; }
-        .encoding-group button { background: rgba(255,255,255,0.1); border: none; color: #eee; border-radius: 4px; padding: 4px 8px; cursor: pointer; }
 
-        .font-group, .background-group { display: flex; align-items: center; gap: 10px; }
-        .font-group select { flex: 1; min-width: 0; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; padding: 4px; }
-        .font-group .vgs-font-size-input { width: 50px; text-align: center; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #eee; border-radius: 4px; padding: 2px 4px; -moz-appearance: textfield; }
+        /* Inputs */
+        .vgs-input-group, .font-group, .background-group, .encoding-group { display: flex; align-items: center; gap: 10px; }
+        select, .vgs-panel-content input[type="number"], .vgs-panel-content input[type="color"], .vgs-panel-content button {
+            background: var(--vg-bg-strong);
+            border: 1px solid var(--vg-border);
+            color: var(--vg-fg);
+            border-radius: 8px;
+        }
+        .vgs-panel-content select, .vgs-panel-content input[type="number"] { padding: 6px 8px; }
+        .vgs-panel-content input[type="number"] { width: 64px; text-align: center; }
+        .vgs-panel-content input[type="color"] { width: 28px; height: 28px; padding: 0; cursor: pointer; }
+        .vgs-panel-content input[type="range"] { flex: 1; accent-color: #89cff0; }
+        .vgs-panel-content button { padding: 6px 10px; cursor: pointer; transition: background .18s ease, transform .18s ease; }
+        .vgs-panel-content button:hover { background: rgba(255,255,255,0.12); transform: translateY(-1px); }
+        .vgs-checkbox-label { font-weight: 600; border: 1px solid var(--vg-border); border-radius: 6px; padding: 2px 6px; cursor: pointer; }
+        .font-group .vgs-font-size-input { -moz-appearance: textfield; }
         .font-group .vgs-font-size-input::-webkit-outer-spin-button, .font-group .vgs-font-size-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-        .font-group span { color: #ccc; font-size: 14px; }
-        .font-group input[type="color"] { border: none; background: none; padding: 0; width: 24px; height: 24px; cursor: pointer; }
-        .background-group input[type="range"] { flex-grow: 1; accent-color: #89cff0; }
-        .background-group span { min-width: 40px; text-align: right; font-size: 14px; color: #ccc; }
-        .background-group input[type="color"] { border: none; background: none; padding: 0; width: 24px; height: 24px; cursor: pointer; }
-        
+
+        .delay-group { display: flex; align-items: center; }
+        .delay-group button { width: 32px; height: 32px; border-radius: 8px; font-size: 18px; }
+        .delay-group input { width: 60px; text-align: center; }
+
+        .encoding-group { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
+
+        /* Global indicator (drag-and-drop, status) */
         #vgs-global-indicator {
             position: fixed; top: 30px; left: 50%; transform: translate(-50%, -10px);
-            padding: 10px 16px; background-color: rgba(30, 30, 30, 0.9);
-            color: #fff; font-family: 'Roboto', sans-serif; font-size: 16px;
-            border-radius: 12px; z-index: 2147483647;
-            display: flex; align-items: center; gap: 8px;
+            padding: 12px 16px;
+            background: var(--vg-bg);
+            border: 1px solid var(--vg-border);
+            backdrop-filter: blur(var(--vg-blur)) saturate(var(--vg-sat));
+            -webkit-backdrop-filter: blur(var(--vg-blur)) saturate(var(--vg-sat));
+            color: var(--vg-fg);
+            border-radius: var(--vg-radius);
+            z-index: 2147483647;
+            display: inline-flex; align-items: center; gap: 10px;
+            font: 500 15px/1 Roboto, system-ui, sans-serif;
             opacity: 0; pointer-events: none;
-            transition: opacity 0.3s ease, transform 0.3s ease;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            transition: opacity .18s ease, transform .18s ease;
+            box-shadow: var(--vg-shadow);
         }
         #vgs-global-indicator.visible { opacity: 1; transform: translate(-50%, 0); }
-        #vgs-global-indicator svg { width: 1.2em; height: 1.2em; fill: #fff; }
+        #vgs-global-indicator svg { width: 24px; height: 24px; fill: var(--vg-fg); filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }
+
+        @media (prefers-reduced-motion: reduce) {
+            .subtitle-controls-container, .subtitle-controls-container .vgs-btn, .vgs-track-selector, .custom-subtitle-display, #vgs-settings-panel *, .vgs-panel-close, #vgs-global-indicator { transition: none !important; }
+        }
     `);
 }
 
@@ -713,17 +775,10 @@ function hexToRgba(hex, alpha) {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-function createButton(title, svg, onClick) {
-    const btn = document.createElement('button');
-    btn.title = title;
-    btn.innerHTML = svg;
-    btn.onclick = onClick;
-    return btn;
-}
-
 let indicatorTimeout = null;
 function showIndicator(html, duration = 2000) {
     if (!globalIndicator) return;
+    ensureIndicatorParent();
     globalIndicator.innerHTML = html;
     globalIndicator.classList.add('visible');
     if (indicatorTimeout) clearTimeout(indicatorTimeout);
@@ -743,14 +798,18 @@ function adjustDelay(amount) {
     }
 }
 
+function ensureIndicatorParent() {
+    if (!globalIndicator) return;
+    const fs = document.fullscreenElement;
+    const targetParent = fs || document.body;
+    if (globalIndicator.parentElement !== targetParent) {
+        try { targetParent.appendChild(globalIndicator); } catch (e) { /* noop */ }
+    }
+}
+
 // --- Initialization ---
 
 function init() {
-    if (window.innerWidth <= 768) {
-        console.log("Subtitle Uploader: Mobile view detected, script disabled.");
-        return;
-    }
-
     initializeStyles();
     createSettingsPanel();
     
@@ -839,7 +898,7 @@ function init() {
     
     window.addEventListener('scroll', throttledUpdate, true);
     window.addEventListener('resize', throttledUpdate, true);
-    document.addEventListener('fullscreenchange', updateAllPositions);
+    document.addEventListener('fullscreenchange', () => { updateAllPositions(); ensureIndicatorParent(); });
 };
 
 if (document.readyState === 'loading') {
