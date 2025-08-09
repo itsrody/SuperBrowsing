@@ -1,15 +1,15 @@
 ! Title: 🧙‍♂Web Wizard
-! Version: 1.3
+! Version: 1.4
 ! Description: Filters for cleaning websites.
 ! Maintainer: Murtaza Salih
 ! Expires: 7 days
 ! Homepage: https://github.com/itsrody/Lists
 
 ! faselhd
-faselhds.xyz##.breakNews, .accBtn, .promoLink, .promoTab, .social, .slider
-faselhds.xyz###pr, #footer, #scroll-to-top
-faselhds.xyz##.blockMovieMeta,.slideMeta, .posTop, .seasonMeta
-faselhds.xyz##.singleBtns, .singleStar, .shortLink, .downloadLinks, #Teamwork, .ralatedMovies, .social-block
+faselhds.life##.breakNews, .accBtn, .promoLink, .promoTab, .social, .slider
+faselhds.file###pr, #footer, #scroll-to-top
+faselhds.file##.blockMovieMeta,.slideMeta, .posTop, .seasonMeta
+faselhds.file##.singleBtns, .singleStar, .shortLink, .downloadLinks, #Teamwork, .ralatedMovies, .social-block
 
 ! wecima
 wecima.video###menu-item-273056, #menu-item-273057, .LeftSideFlex, .ProductionsListButton, .LeftUI, footer
@@ -29,7 +29,7 @@ towhtch.spotnews.buzz##server--title, .entry-header,  .entry-content, .comment-r
 ! quillbot
 quillbot.com##.MuiButton-root, .css-fl7web, .css-1dkvnan, #qb-footer
 
-! ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+! -----------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 ! supjav
 supjav.com##.menu-item-62, .menu-item-103868, .menu-item-232365, .menu-item-104594, .menu-item-328572, .menu-item-73429, .menu-item-135, .menu-item-123731, .menu-item-74331, .menu-item-18
