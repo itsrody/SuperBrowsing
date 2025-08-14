@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name          Video Touch Gestures
 // @namespace     https://github.com/itsrody/SuperBrowsing
-// @version       2.0.4
+// @version       2.2.0
 // @icon          data:image/svg+xml;base64, PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NDAgNjQwIj48IS0tIUZvbnQgQXdlc29tZSBGcmVlIDcuMC4wIGJ5IEBmb250YXdlc29tZSAtIGh0dHBzOi8vZm9udGF3ZXNvbWUuY29tIExpY2Vuc2UgLSBodHRwczovL2ZvbnRhd2Vzb21lLmNvbS9saWNlbnNlL2ZyZWUgQ29weXJpZ2h0IDIwMjUgRm9udGljb25zLCBJbmMuLS0+PHBhdGggZmlsbD0iIzc0QzBGQyIgZD0iTTY0IDMyMEM2NCAxNzguNiAxNzguNiA2NCAzMjAgNjRDNDYxLjQgNjQgNTc2IDE3OC42IDU3NiAzMjBDNTc2IDQ2MS40IDQ2MS40IDU3NiAzMjAgNTc2QzE3OC42IDU3NiA2NCA0NjEuNCA2NCAzMjB6TTI1Mi4zIDIxMS4xQzI0NC43IDIxNS4zIDI0MCAyMjMuNCAyNDAgMjMyTDI0MCA0MDhDMjQwIDQxNi43IDI0NC43IDQyNC43IDI1Mi4zIDQyOC45QzI1OS45IDQzMy4xIDI2OS4xIDQzMyAyNzYuNiA0MjguNEw0MjAuNiAzNDAuNEM0MjcuNyAzMzYgNDMyLjEgMzI4LjMgNDMyLjEgMzE5LjlDNDMyLjEgMzExLjUgNDI3LjcgMzAzLjggNDIwLjYgMjk5LjRMMjc2LjYgMjExLjRDMjY5LjIgMjA2LjkgMjU5LjkgMjA2LjcgMjUyLjMgMjEwLjl6Ii8+PC9zdmc+
-// @description   Optimized video gesture interface with Font Awesome icons and improved performance
+// @description   Optimized video gesture interface with Font Awesome icons, improved performance, and pinch-to-zoom aspect ratio control
 // @author        Murtaza Salih
 // @match         *://*/*
 // @exclude       *://*.netflix.com/*
@@ -43,12 +43,13 @@
     return;
   }
 
-  console.log('[VideoGestures] Starting initialization...');
+  console.log('[VideoGestures] Starting initialization with pinch gesture support...');
 
   // Constants
   const STYLE_ID = 'vg-styles';
   const INDICATOR_ID = 'vg-indicator';
   const TOAST_ID = 'vg-toast';
+  const INACTIVE_TIMEOUT = 5000; // 5 seconds
 
   // Default configuration
   const CONFIG = {
@@ -62,7 +63,9 @@
     FORCE_LANDSCAPE: true,
     DOUBLE_TAP_TIMEOUT: 300,
     LONG_PRESS_DURATION: 450,
-    LONG_PRESS_SPEED: 2.0
+    LONG_PRESS_SPEED: 2.0,
+    DEAD_ZONE_SIZE: 30, // pixels from edges
+    GESTURE_TIMEOUT: 10000 // 10 seconds
   };
 
   // Load saved config
@@ -166,7 +169,7 @@
         gap: 10px !important;
         opacity: 0 !important;
         pointer-events: none !important;
-        transition: opacity 0.18s ease, transform 0.18s ease !important;
+        transition: opacity 0.28s cubic-bezier(0.23, 1, 0.32, 1), transform 0.28s cubic-bezier(0.23, 1, 0.32, 1) !important;
         box-shadow:  0 18px 44px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255,255,255,.06) !important;
         text-shadow:  0 1px 1px rgba(0,0,0,.35) !important;
         user-select: none !important;
@@ -205,6 +208,12 @@
         border: 1px solid rgba(255, 255, 255, 0.12) !important;
       }
 
+      #${INDICATOR_ID}.aspect {
+        background: rgba(74, 144, 226, 0.15) !important;
+        border: 1px solid rgba(74, 144, 226, 0.3) !important;
+        color: rgba(255, 255, 255, 0.98) !important;
+      }
+
       @media (prefers-reduced-motion: reduce) {
         #${INDICATOR_ID}, #${TOAST_ID} {
           transition: none !important;
@@ -213,7 +222,7 @@
     `;
     
     document.head.appendChild(style);
-    console.log('[VideoGestures] Styles created');
+    console.log('[VideoGestures] Styles created with pinch gesture support');
   };
 
   // UI elements
@@ -221,6 +230,12 @@
   let toast = null;
   let hideTimer = null;
   let toastTimer = null;
+  
+  // Memory management
+  let activeVideos = new WeakSet();
+  let videoTimers = new WeakMap();
+  let gestureTimers = new Map();
+  let lastActiveTime = Date.now();
 
   const createElements = () => {
     if (!indicator) {
@@ -241,19 +256,43 @@
   const showIndicator = (iconClass, text, type = '', sticky = false) => {
     if (!indicator) return;
 
+    // Smooth transition by checking if already visible
+    const wasVisible = indicator.classList.contains('visible');
+    
     indicator.innerHTML = `<i class="${iconClass}"></i><span>${text}</span>`;
     indicator.className = `visible ${type}`;
+    
+    // Add a small delay for content change if was already visible
+    if (wasVisible) {
+      indicator.style.opacity = '0.7';
+      setTimeout(() => {
+        if (indicator) indicator.style.opacity = '';
+      }, 50);
+    }
 
     clearTimeout(hideTimer);
     if (!sticky) {
       hideTimer = setTimeout(() => {
-        if (indicator) indicator.classList.remove('visible');
+        if (indicator) {
+          indicator.style.opacity = '0';
+          setTimeout(() => {
+            if (indicator) indicator.classList.remove('visible');
+          }, 280); // Match CSS transition duration
+        }
       }, 1000);
     }
   };
 
   const hideIndicator = () => {
-    if (indicator) indicator.classList.remove('visible');
+    if (indicator) {
+      indicator.style.opacity = '0';
+      setTimeout(() => {
+        if (indicator) {
+          indicator.classList.remove('visible');
+          indicator.style.opacity = '';
+        }
+      }, 280); // Match CSS transition duration
+    }
   };
 
   const showToast = (iconClass, text, duration = 1500) => {
@@ -264,7 +303,15 @@
 
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
-      if (toast) toast.classList.remove('visible');
+      if (toast) {
+        toast.style.opacity = '0';
+        setTimeout(() => {
+          if (toast) {
+            toast.classList.remove('visible');
+            toast.style.opacity = '';
+          }
+        }, 280); // Match CSS transition duration
+      }
     }, duration);
   };
 
@@ -279,6 +326,79 @@
         document.body.appendChild(indicator);
       }
     }
+  };
+
+  // Dead zone detection
+  const isInDeadZone = (x, y) => {
+    const deadZone = settings.DEAD_ZONE_SIZE;
+    const screenWidth = window.innerWidth;
+    const screenHeight = window.innerHeight;
+    
+    return x < deadZone || 
+           x > screenWidth - deadZone || 
+           y < deadZone || 
+           y > screenHeight - deadZone;
+  };
+
+  // Video activity tracking
+  const trackVideoActivity = (video) => {
+    if (!video || activeVideos.has(video)) return;
+    
+    activeVideos.add(video);
+    lastActiveTime = Date.now();
+    
+    // Clear existing timer
+    if (videoTimers.has(video)) {
+      clearTimeout(videoTimers.get(video));
+    }
+    
+    // Set cleanup timer
+    const timer = setTimeout(() => {
+      cleanupVideoTracking(video);
+    }, settings.GESTURE_TIMEOUT);
+    
+    videoTimers.set(video, timer);
+    
+    console.log('[VideoGestures] Video activity tracked');
+  };
+  
+  const cleanupVideoTracking = (video) => {
+    activeVideos.delete(video);
+    if (videoTimers.has(video)) {
+      clearTimeout(videoTimers.get(video));
+      videoTimers.delete(video);
+    }
+    console.log('[VideoGestures] Video tracking cleaned up');
+  };
+  
+  // Inactivity timer management
+  const resetInactivityTimer = () => {
+    lastActiveTime = Date.now();
+    clearTimeout(inactivityTimer);
+    
+    inactivityTimer = setTimeout(() => {
+      console.log('[VideoGestures] Cleaning up inactive gestures');
+      cleanupInactiveGestures();
+    }, INACTIVE_TIMEOUT);
+  };
+  
+  const cleanupInactiveGestures = () => {
+    const now = Date.now();
+    
+    // Clear old gesture timers
+    for (const [key, timer] of gestureTimers.entries()) {
+      clearTimeout(timer);
+      gestureTimers.delete(key);
+    }
+    
+    // Clean up video tracking for inactive videos
+    for (const video of activeVideos) {
+      if (video.paused || video.ended) {
+        cleanupVideoTracking(video);
+      }
+    }
+    
+    console.log('[VideoGestures] Inactive gestures cleaned up');
   };
 
   // Haptics
@@ -370,6 +490,14 @@
         console.log('[VideoGestures] Invalid duration');
         return false;
       }
+      
+      // Check if video is not stale (hasn't been inactive too long)
+      const now = Date.now();
+      if (video.ended || (video.paused && now - lastActiveTime > settings.GESTURE_TIMEOUT)) {
+        console.log('[VideoGestures] Video is stale or ended');
+        cleanupVideoTracking(video);
+        return false;
+      }
 
       console.log('[VideoGestures] Video is valid');
       return true;
@@ -404,14 +532,220 @@
   let gestureState = null;
   let lastTap = { time: 0, count: 0 };
   let longPressTimer = null;
+  let inactivityTimer = null;
+  
+  // Pinch gesture state
+  let pinchState = null;
+  let pinchGestureActive = false;
+  const PINCH_THRESHOLD = 20; // Minimum distance change to trigger pinch
+  const PINCH_MIN_DISTANCE = 50; // Minimum distance between fingers
+  const PINCH_TIMEOUT = 200; // Time to wait before considering pinch ended
 
-  // Touch handlers
+  // Pinch gesture handlers
+  const handlePinchStart = (e) => {
+    try {
+      if (!document.fullscreenElement) {
+        console.log('[VideoGestures] Pinch gesture only available in fullscreen');
+        return;
+      }
+      
+      if (e.touches.length !== 2) return;
+      
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      
+      const result = findVideo(e.target, 
+        (touch1.clientX + touch2.clientX) / 2, 
+        (touch1.clientY + touch2.clientY) / 2
+      );
+      
+      if (!result?.video) {
+        console.log('[VideoGestures] No valid video found for pinch gesture');
+        return;
+      }
+      
+      // Prevent conflicts with single-touch gestures
+      if (gestureState) {
+        clearTimeout(longPressTimer);
+        gestureState = null;
+      }
+      
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const initialDistance = Math.hypot(
+        touch2.clientX - touch1.clientX,
+        touch2.clientY - touch1.clientY
+      );
+      
+      if (initialDistance < PINCH_MIN_DISTANCE) {
+        console.log('[VideoGestures] Fingers too close together for pinch gesture');
+        return;
+      }
+      
+      pinchState = {
+        video: result.video,
+        container: result.container,
+        initialDistance,
+        currentDistance: initialDistance,
+        startTime: Date.now(),
+        touch1: { x: touch1.clientX, y: touch1.clientY },
+        touch2: { x: touch2.clientX, y: touch2.clientY },
+        hasTriggered: false,
+        aspectRatio: getCurrentAspectRatio(result.video)
+      };
+      
+      pinchGestureActive = true;
+      console.log('[VideoGestures] Pinch gesture started, initial distance:', initialDistance);
+      
+      // Track video activity
+      trackVideoActivity(result.video);
+      resetInactivityTimer();
+      
+    } catch (e) {
+      console.error('[VideoGestures] Pinch start error:', e);
+    }
+  };
+  
+  const handlePinchMove = (e) => {
+    try {
+      if (!pinchState || e.touches.length !== 2) return;
+      
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      
+      const currentDistance = Math.hypot(
+        touch2.clientX - touch1.clientX,
+        touch2.clientY - touch1.clientY
+      );
+      
+      pinchState.currentDistance = currentDistance;
+      
+      const distanceChange = currentDistance - pinchState.initialDistance;
+      const changePercent = Math.abs(distanceChange) / pinchState.initialDistance;
+      
+      // Update touch positions for stability check
+      pinchState.touch1 = { x: touch1.clientX, y: touch1.clientY };
+      pinchState.touch2 = { x: touch2.clientX, y: touch2.clientY };
+      
+      console.log('[VideoGestures] Pinch distance change:', distanceChange, 'percent:', changePercent);
+      
+      // Trigger aspect ratio change if threshold is met
+      if (changePercent > 0.15 && !pinchState.hasTriggered) { // 15% change threshold
+        pinchState.hasTriggered = true;
+        
+        if (distanceChange > 0) {
+          // Pinch out - switch to fill/zoom mode
+          console.log('[VideoGestures] Pinch out detected - switching to fill mode');
+          setVideoAspectRatio(pinchState.video, 'fill');
+          showIndicator('fas fa-expand-arrows-alt', 'Fill Screen', 'aspect');
+        } else {
+          // Pinch in - switch to fit/normal mode
+          console.log('[VideoGestures] Pinch in detected - switching to fit mode');
+          setVideoAspectRatio(pinchState.video, 'fit');
+          showIndicator('fas fa-compress-arrows-alt', 'Fit Screen', 'aspect');
+        }
+        
+        vibrate();
+      }
+      
+      resetInactivityTimer();
+      
+    } catch (e) {
+      console.error('[VideoGestures] Pinch move error:', e);
+    }
+  };
+  
+  const handlePinchEnd = (e) => {
+    try {
+      if (!pinchState) return;
+      
+      console.log('[VideoGestures] Pinch gesture ended');
+      
+      // Clean up pinch state
+      const endTime = Date.now();
+      const duration = endTime - pinchState.startTime;
+      
+      console.log('[VideoGestures] Pinch duration:', duration, 'ms, triggered:', pinchState.hasTriggered);
+      
+      pinchState = null;
+      pinchGestureActive = false;
+      
+    } catch (e) {
+      console.error('[VideoGestures] Pinch end error:', e);
+    }
+  };
+  
+  // Video aspect ratio management
+  const getCurrentAspectRatio = (video) => {
+    try {
+      const style = getComputedStyle(video);
+      const objectFit = style.objectFit || 'fill';
+      return objectFit;
+    } catch (e) {
+      return 'fill';
+    }
+  };
+  
+  const setVideoAspectRatio = (video, mode) => {
+    try {
+      if (!video) return;
+      
+      // Store original styles if not already stored
+      if (!video._originalObjectFit) {
+        video._originalObjectFit = getComputedStyle(video).objectFit || 'fill';
+        video._originalObjectPosition = getComputedStyle(video).objectPosition || 'center';
+      }
+      
+      switch (mode) {
+        case 'fill':
+          // Fill entire screen, may crop content
+          video.style.objectFit = 'cover';
+          video.style.objectPosition = 'center';
+          video.style.width = '100%';
+          video.style.height = '100%';
+          console.log('[VideoGestures] Video set to fill mode');
+          break;
+          
+        case 'fit':
+          // Fit entire video, may show black bars
+          video.style.objectFit = 'contain';
+          video.style.objectPosition = 'center';
+          video.style.width = '100%';
+          video.style.height = '100%';
+          console.log('[VideoGestures] Video set to fit mode');
+          break;
+          
+        case 'original':
+          // Restore original aspect ratio
+          video.style.objectFit = video._originalObjectFit || 'fill';
+          video.style.objectPosition = video._originalObjectPosition || 'center';
+          video.style.width = '';
+          video.style.height = '';
+          console.log('[VideoGestures] Video restored to original mode');
+          break;
+      }
+      
+    } catch (e) {
+      console.error('[VideoGestures] Aspect ratio change error:', e);
+    }
+  };
+
+  // Touch handlers (updated for pinch support)
   const onTouchStart = (e) => {
     try {
       console.log('[VideoGestures] Touch start detected');
       
-      if (e.touches.length > 1) {
-        console.log('[VideoGestures] Multi-touch detected, ignoring');
+      // Handle multi-touch for pinch gestures
+      if (e.touches.length === 2) {
+        console.log('[VideoGestures] Two-finger touch detected, checking for pinch gesture');
+        handlePinchStart(e);
+        return;
+      } else if (e.touches.length > 2) {
+        console.log('[VideoGestures] More than 2 touches detected, ignoring');
         return;
       }
 
@@ -458,9 +792,15 @@
       lastTap.time = now;
       console.log('[VideoGestures] Tap count:', lastTap.count);
 
-      // Long-press setup
-      if (document.fullscreenElement) {
-        console.log('[VideoGestures] Setting up long press timer');
+      // Check for dead zones
+      if (isInDeadZone(touch.clientX, touch.clientY)) {
+        console.log('[VideoGestures] Touch in dead zone, ignoring');
+        return;
+      }
+
+      // Long-press setup (only if video is playing)
+      if (document.fullscreenElement && !result.video.paused) {
+        console.log('[VideoGestures] Setting up long press timer (video is playing)');
         longPressTimer = setTimeout(() => {
           if (!gestureState || gestureState.isSwipe) return;
 
@@ -477,7 +817,15 @@
           showIndicator('fas fa-forward', `${settings.LONG_PRESS_SPEED}x`, 'speed', true);
           vibrate();
         }, settings.LONG_PRESS_DURATION);
+      } else if (document.fullscreenElement && result.video.paused) {
+        console.log('[VideoGestures] Video is paused, long press disabled');
       }
+      
+      // Track video activity
+      trackVideoActivity(result.video);
+      
+      // Reset inactivity timer
+      resetInactivityTimer();
     } catch (e) {
       console.error('[VideoGestures] Touch start error:', e);
     }
@@ -485,10 +833,19 @@
 
   const onTouchMove = (e) => {
     try {
+      // Handle pinch gesture movement
+      if (e.touches.length === 2 && pinchState) {
+        handlePinchMove(e);
+        return;
+      }
+      
       if (!gestureState || e.touches.length > 1) {
         if (!gestureState) console.log('[VideoGestures] No gesture state in touchmove');
         return;
       }
+      
+      // Reset inactivity timer on movement
+      resetInactivityTimer();
 
       const touch = e.touches[0];
       const dx = touch.clientX - gestureState.startX;
@@ -528,6 +885,12 @@
 
   const onTouchEnd = (e) => {
     try {
+      // Handle pinch gesture end
+      if (pinchState && e.touches.length < 2) {
+        handlePinchEnd(e);
+        return;
+      }
+      
       if (!gestureState) return;
 
       clearTimeout(longPressTimer);
@@ -550,7 +913,7 @@
   };
 
   const onContextMenu = (e) => {
-    if (gestureState) {
+    if (gestureState || pinchGestureActive) {
       e.preventDefault();
       e.stopPropagation();
     }
@@ -800,9 +1163,30 @@
   // Cleanup
   const cleanup = () => {
     try {
+      // Clear all timers
       clearTimeout(longPressTimer);
       clearTimeout(hideTimer);
       clearTimeout(toastTimer);
+      clearTimeout(inactivityTimer);
+      
+      // Clear video timers
+      for (const timer of videoTimers.values()) {
+        clearTimeout(timer);
+      }
+      videoTimers.clear();
+      
+      // Clear gesture timers
+      for (const timer of gestureTimers.values()) {
+        clearTimeout(timer);
+      }
+      gestureTimers.clear();
+      
+      // Clear WeakSet references
+      activeVideos = new WeakSet();
+      
+      // Clear pinch state
+      pinchState = null;
+      pinchGestureActive = false;
       
       document.removeEventListener('touchstart', onTouchStart, true);
       document.removeEventListener('touchmove', onTouchMove, true);
@@ -815,7 +1199,7 @@
       toast?.remove();
       
       gestureState = null;
-      console.log('[VideoGestures] Cleanup completed');
+      console.log('[VideoGestures] Enhanced cleanup completed with pinch gesture support');
     } catch (e) {
       console.warn('[VideoGestures] Cleanup error:', e);
     }
@@ -842,8 +1226,16 @@
       
       // Initial check
       checkForVideos();
+      
+      // Start inactivity monitoring
+      resetInactivityTimer();
+      
+      // Periodic cleanup for memory management
+      setInterval(() => {
+        cleanupInactiveGestures();
+      }, 30000); // Every 30 seconds
 
-      console.log('[VideoGestures] Initialized successfully');
+      console.log('[VideoGestures] Initialized successfully with enhanced memory management and pinch gesture support');
     } catch (e) {
       console.error('[VideoGestures] Initialization failed:', e);
     }
