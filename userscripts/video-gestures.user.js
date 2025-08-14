@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Touch Gestures (Optimized)
 // @namespace     https://github.com/itsrody/SuperBrowsing
-// @version       2.0.2
+// @version       2.0.3
 // @description   Optimized video gesture interface with Font Awesome icons and improved performance
 // @author        Murtaza Salih
 // @match         *://*/*
@@ -150,13 +150,13 @@
         left: 50% !important;
         transform: translate(-50%, -50%) scale(0.94) !important;
         padding: 12px 16px !important;
-        background: rgba(18, 18, 18, 0.35) !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        backdrop-filter: blur(12px) saturate(140%) !important;
+        background: linear-gradient(135deg, rgba(18,18,18,0.38), rgba(18,18,18,0.28)) !important;
+        border: 1px solid rgba(255,255,255,0.14) !important;
+        backdrop-filter: blur(14px) saturate(140%) !important;
         -webkit-backdrop-filter: blur(12px) saturate(140%) !important;
-        color: rgba(255, 255, 255, 0.95) !important;
-        font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-        font-size: 15px !important;
+        color: rgba(255,255,255,0.96) !important;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
+        font-size: 13px !important;
         font-weight: 500 !important;
         border-radius: 16px !important;
         z-index: 2147483647 !important;
@@ -166,8 +166,8 @@
         opacity: 0 !important;
         pointer-events: none !important;
         transition: opacity 0.18s ease, transform 0.18s ease !important;
-        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.06) !important;
-        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.4) !important;
+        box-shadow:  0 18px 44px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255,255,255,.06) !important;
+        text-shadow:  0 1px 1px rgba(0,0,0,.35) !important;
         user-select: none !important;
         white-space: nowrap !important;
       }
@@ -181,7 +181,7 @@
         font-size: 24px !important;
         min-width: 24px !important;
         text-align: center !important;
-        filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35)) !important;
+        filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.09)) !important;
       }
 
       #${INDICATOR_ID} span, #${TOAST_ID} span {
@@ -190,17 +190,17 @@
       }
 
       #${INDICATOR_ID}.seeking {
-        background: rgba(18, 18, 18, 0.35) !important;
+        background: rgba(18, 18, 18, 0.09) !important;
         border: 1px solid rgba(255, 255, 255, 0.12) !important;
       }
 
       #${INDICATOR_ID}.volume {
-        background: rgba(18, 18, 18, 0.35) !important;
+        background: rgba(18, 18, 18, 0.09) !important;
         border: 1px solid rgba(255, 255, 255, 0.12) !important;
       }
 
       #${INDICATOR_ID}.speed {
-        background: rgba(18, 18, 18, 0.35) !important;
+        background: rgba(18, 18, 18, 0.09) !important;
         border: 1px solid rgba(255, 255, 255, 0.12) !important;
       }
 
