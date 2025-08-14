@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Bookmark Manager
 // @namespace    http://tampermonkey.net/
-// @version      3.0.1
+// @version      3.0.3
 // @description  Streamlined video bookmark system with simplified UI and Font Awesome icons
 // @author       Murtaza Salih
 // @match        *://*/*
@@ -552,6 +552,15 @@
             opacity: 0.85;
             line-height: 1.5;
         }
+        .vbm-device-info {
+            display: block;
+            font-size: 12px;
+            opacity: 0.7;
+            margin-top: 8px;
+            margin-bottom: 16px;
+            font-style: italic;
+            color: var(--vbm-fore-2);
+        }
 
         .vbm-button-group {
             display: flex;
@@ -996,6 +1005,7 @@
             await this.loadPreferences();
             await this.initializeSync();
             this.setupMenuCommands();
+            this.startBackgroundSync();
             this.observeVideos();
             this.scanExistingVideos();
 
@@ -1057,8 +1067,33 @@
             await this.syncProvider.initialize();
         }
 
+        startBackgroundSync() {
+            // Clear any existing background sync interval
+            if (this.backgroundSyncInterval) {
+                clearInterval(this.backgroundSyncInterval);
+            }
+
+            // Start smart background sync every 2 minutes (120000 ms) if sync is enabled
+            if (this.preferences.syncEnabled) {
+                this.backgroundSyncInterval = setInterval(async () => {
+                    if (this.preferences.syncEnabled && !this.syncState.isSyncing) {
+                        try {
+                            const timeSinceLastSync = Date.now() - (this.preferences.lastSyncTime || 0);
+                            // Only sync if it's been more than 1 minute since last sync and there's been recent activity
+                            if (timeSinceLastSync > 60000 && this.hasRecentActivity()) {
+                                this.log('Performing background smart sync due to recent activity...');
+                                await this.performSync();
+                            }
+                        } catch (error) {
+                            this.log('Background sync failed:', error);
+                        }
+                    }
+                }, 120000); // 2 minutes
+            }
+        }
+
         async performSync() {
-            if (this.syncState.isSyncing) return;
+            if (this.syncState.isSyncing) return false;
 
             try {
                 this.syncState.isSyncing = true;
@@ -1074,7 +1109,7 @@
                         if (data) {
                             localData[key] = {
                                 data: data,
-                                lastModified: Date.now()
+                                lastModified: data.lastModified || Date.now()
                             };
                         }
                     } catch (error) {
@@ -1083,12 +1118,12 @@
                 }
 
                 const remoteData = await this.syncProvider.getAllData();
-                const mergedData = { ...remoteData, ...localData };
+                const mergedData = await this.smartMergeData(localData, remoteData);
 
                 await this.syncProvider.saveAllData(mergedData);
 
-                for (const [key, entry] of Object.entries(remoteData)) {
-                    if (!localData[key] || entry.lastModified > localData[key].lastModified) {
+                for (const [key, entry] of Object.entries(mergedData)) {
+                    if (!localData[key] || this.shouldUpdateLocal(localData[key], entry)) {
                         await GM.setValue(key, entry.data);
                     }
                 }
@@ -1096,15 +1131,146 @@
                 this.preferences.lastSyncTime = Date.now();
                 await this.savePreferences();
 
-                this.showMessage('Sync completed successfully!', 'success');
+                this.showMessage('Smart sync completed successfully!', 'success');
+                return true;
 
             } catch (error) {
                 this.log('Sync failed:', error);
                 this.syncState.lastError = error.message;
                 this.showMessage('Sync failed: ' + error.message, 'error');
+                return false;
             } finally {
                 this.syncState.isSyncing = false;
             }
+        }
+
+        async smartMergeData(localData, remoteData) {
+            const mergedData = {};
+            const allKeys = new Set([...Object.keys(localData), ...Object.keys(remoteData)]);
+
+            for (const key of allKeys) {
+                const local = localData[key];
+                const remote = remoteData[key];
+
+                if (!local && remote) {
+                    mergedData[key] = remote;
+                } else if (local && !remote) {
+                    mergedData[key] = local;
+                } else if (local && remote) {
+                    mergedData[key] = this.mergeSingleVideoData(local, remote, key);
+                }
+            }
+
+            return mergedData;
+        }
+
+        mergeSingleVideoData(local, remote, key) {
+            try {
+                const localBookmarks = local.data.bookmarks || [];
+                const remoteBookmarks = remote.data.bookmarks || [];
+                
+                const localAutoSave = localBookmarks.find(b => b.isAutoSave);
+                const remoteAutoSave = remoteBookmarks.find(b => b.isAutoSave);
+                
+                const localLastActivity = this.getLastActivityTime(local.data);
+                const remoteLastActivity = this.getLastActivityTime(remote.data);
+                
+                this.log(`Merging ${key}: Local activity: ${new Date(localLastActivity).toLocaleString()}, Remote activity: ${new Date(remoteLastActivity).toLocaleString()}`);
+
+                let baseData = localLastActivity >= remoteLastActivity ? local.data : remote.data;
+                let newerData = localLastActivity >= remoteLastActivity ? remote.data : local.data;
+                
+                if (localAutoSave && remoteAutoSave) {
+                    if (localLastActivity > remoteLastActivity) {
+                        this.log(`Using local auto-save for ${key} (more recent: ${new Date(localLastActivity).toLocaleString()})`);
+                        baseData = local.data;
+                        newerData = remote.data;
+                    } else {
+                        this.log(`Using remote auto-save for ${key} (more recent: ${new Date(remoteLastActivity).toLocaleString()})`);
+                        baseData = remote.data;
+                        newerData = local.data;
+                    }
+                }
+
+                const mergedBookmarks = this.mergeBookmarkArrays(baseData.bookmarks || [], newerData.bookmarks || []);
+                
+                const result = {
+                    data: {
+                        ...baseData,
+                        bookmarks: mergedBookmarks,
+                        lastModified: Math.max(localLastActivity, remoteLastActivity)
+                    },
+                    lastModified: Math.max(localLastActivity, remoteLastActivity)
+                };
+
+                return result;
+                
+            } catch (error) {
+                this.log('Error merging data for key:', key, error);
+                return local.lastModified >= remote.lastModified ? local : remote;
+            }
+        }
+
+        getLastActivityTime(data) {
+            if (!data || !data.bookmarks) return data.lastModified || 0;
+            
+            const autoSave = data.bookmarks.find(b => b.isAutoSave);
+            if (autoSave && autoSave.createdAt) {
+                return Math.max(autoSave.createdAt, data.lastModified || 0);
+            }
+            
+            const latestBookmark = data.bookmarks
+                .filter(b => !b.isAutoSave && b.createdAt)
+                .sort((a, b) => b.createdAt - a.createdAt)[0];
+            
+            if (latestBookmark) {
+                return Math.max(latestBookmark.createdAt, data.lastModified || 0);
+            }
+            
+            return data.lastModified || 0;
+        }
+
+        mergeBookmarkArrays(base, newer) {
+            const merged = [...base];
+            
+            for (const newBookmark of newer) {
+                if (newBookmark.isAutoSave) continue;
+                
+                const exists = merged.some(b => 
+                    Math.abs(b.timestamp - newBookmark.timestamp) < 1 && 
+                    b.label === newBookmark.label
+                );
+                
+                if (!exists) {
+                    merged.push(newBookmark);
+                }
+            }
+            
+            merged.sort((a, b) => a.timestamp - b.timestamp);
+            return merged;
+        }
+
+        shouldUpdateLocal(local, merged) {
+            if (!local || !merged) return true;
+            
+            const localActivity = this.getLastActivityTime(local.data);
+            const mergedActivity = this.getLastActivityTime(merged.data);
+            
+            return mergedActivity > localActivity;
+        }
+
+        hasRecentActivity() {
+            const now = Date.now();
+            const recentThreshold = 300000; // 5 minutes
+            
+            // Check if there has been any video activity recently
+            for (const [video, lastSavedTime] of this.lastSavedTimes.entries()) {
+                if (now - lastSavedTime < recentThreshold) {
+                    return true;
+                }
+            }
+            
+            return false;
         }
 
         // ==================== DATA METHODS ====================
@@ -1677,22 +1843,52 @@
             const autoSave = data.bookmarks.find(b => b.isAutoSave);
 
             if (autoSave && autoSave.timestamp > 5 && autoSave.timestamp < video.duration - 10) {
-                this.showRestorePrompt(video, autoSave.timestamp);
+                const deviceInfo = this.getDeviceInfo(autoSave);
+                this.showRestorePrompt(video, autoSave.timestamp, autoSave.createdAt, deviceInfo);
             }
         }
 
-        showRestorePrompt(video, timestamp) {
+        getDeviceInfo(autoSave) {
+            const now = Date.now();
+            const timeDiff = now - (autoSave.createdAt || now);
+            const minutes = Math.floor(timeDiff / (1000 * 60));
+            const hours = Math.floor(minutes / 60);
+            const days = Math.floor(hours / 24);
+            
+            let timeAgo = '';
+            if (days > 0) {
+                timeAgo = `${days} day${days > 1 ? 's' : ''} ago`;
+            } else if (hours > 0) {
+                timeAgo = `${hours} hour${hours > 1 ? 's' : ''} ago`;
+            } else if (minutes > 0) {
+                timeAgo = `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+            } else {
+                timeAgo = 'just now';
+            }
+
+            const isRecentActivity = timeDiff < 300000; // 5 minutes
+            const deviceHint = isRecentActivity ? 'this device' : 'another device';
+            
+            return { timeAgo, deviceHint, isRecent: isRecentActivity };
+        }
+
+        showRestorePrompt(video, timestamp, createdAt, deviceInfo) {
             document.querySelectorAll('.vbm-clock-btn.active').forEach(btn => btn.classList.remove('active'));
             document.querySelectorAll('.vbm-panel').forEach(panel => panel.remove());
 
             const existingPrompt = document.querySelector('.vbm-restore-prompt');
             if (existingPrompt) existingPrompt.remove();
 
+            const deviceText = deviceInfo ? 
+                `<small class="vbm-device-info">Watched on ${deviceInfo.deviceHint} ${deviceInfo.timeAgo}</small>` : 
+                '';
+
             const prompt = document.createElement('div');
             prompt.className = 'vbm-restore-prompt';
             prompt.innerHTML = `
                 <h3><i class="${ICONS.clock}"></i> <span>Resume Playback?</span></h3>
                 <p>Continue from <strong>${this.formatTime(timestamp)}</strong>?</p>
+                ${deviceText}
                 <div class="vbm-button-group">
                     <button class="vbm-btn vbm-btn-secondary" data-action="skip">Start Fresh</button>
                     <button class="vbm-btn vbm-btn-primary" data-action="restore">Resume</button>
@@ -1790,6 +1986,7 @@
             this.savePreferences().then(async () => {
                 try {
                     await this.setupSyncProvider();
+                    this.startBackgroundSync(); // Start background sync
                     await this.performSync();
                     this.showMessage('GitHub sync configured and synced!', 'success');
                 } catch (error) {
@@ -2111,7 +2308,21 @@
             this.activeVideo = video;
 
             this.createUI(video);
-            await this.checkAndPromptRestore(video);
+            
+            // Auto-start smart sync when video loads
+            let syncCompleted = false;
+            if (this.preferences.syncEnabled) {
+                this.log('Starting smart sync for cross-device continuity...');
+                syncCompleted = await this.performSync();
+                this.log('Smart sync completed:', syncCompleted);
+            }
+            
+            // Show restore prompt after successful sync or if sync is disabled
+            if (!this.preferences.syncEnabled || syncCompleted) {
+                await this.checkAndPromptRestore(video);
+            } else {
+                this.log('Skipping restore prompt due to sync failure');
+            }
 
             let playStarted = false;
             let lastUpdateTime = 0;
