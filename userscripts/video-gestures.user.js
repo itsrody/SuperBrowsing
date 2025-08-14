@@ -1,7 +1,8 @@
 // ==UserScript==
-// @name          Video Touch Gestures (Optimized)
+// @name          Video Touch Gestures
 // @namespace     https://github.com/itsrody/SuperBrowsing
-// @version       2.0.3
+// @version       2.0.4
+// @icon          data:image/svg+xml;base64, PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NDAgNjQwIj48IS0tIUZvbnQgQXdlc29tZSBGcmVlIDcuMC4wIGJ5IEBmb250YXdlc29tZSAtIGh0dHBzOi8vZm9udGF3ZXNvbWUuY29tIExpY2Vuc2UgLSBodHRwczovL2ZvbnRhd2Vzb21lLmNvbS9saWNlbnNlL2ZyZWUgQ29weXJpZ2h0IDIwMjUgRm9udGljb25zLCBJbmMuLS0+PHBhdGggZmlsbD0iIzc0QzBGQyIgZD0iTTY0IDMyMEM2NCAxNzguNiAxNzguNiA2NCAzMjAgNjRDNDYxLjQgNjQgNTc2IDE3OC42IDU3NiAzMjBDNTc2IDQ2MS40IDQ2MS40IDU3NiAzMjAgNTc2QzE3OC42IDU3NiA2NCA0NjEuNCA2NCAzMjB6TTI1Mi4zIDIxMS4xQzI0NC43IDIxNS4zIDI0MCAyMjMuNCAyNDAgMjMyTDI0MCA0MDhDMjQwIDQxNi43IDI0NC43IDQyNC43IDI1Mi4zIDQyOC45QzI1OS45IDQzMy4xIDI2OS4xIDQzMyAyNzYuNiA0MjguNEw0MjAuNiAzNDAuNEM0MjcuNyAzMzYgNDMyLjEgMzI4LjMgNDMyLjEgMzE5LjlDNDMyLjEgMzExLjUgNDI3LjcgMzAzLjggNDIwLjYgMjk5LjRMMjc2LjYgMjExLjRDMjY5LjIgMjA2LjkgMjU5LjkgMjA2LjcgMjUyLjMgMjEwLjl6Ii8+PC9zdmc+
 // @description   Optimized video gesture interface with Font Awesome icons and improved performance
 // @author        Murtaza Salih
 // @match         *://*/*
