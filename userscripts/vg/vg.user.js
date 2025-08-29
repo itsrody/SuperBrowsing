@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name          Video Touch Gestures
 // @namespace     https://github.com/itsrody/SuperBrowsing
-// @version       2.2.0
-// @icon          data:image/svg+xml;base64, PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NDAgNjQwIj48IS0tIUZvbnQgQXdlc29tZSBGcmVlIDcuMC4wIGJ5IEBmb250YXdlc29tZSAtIGh0dHBzOi8vZm9udGF3ZXNvbWUuY29tIExpY2Vuc2UgLSBodHRwczovL2ZvbnRhd2Vzb21lLmNvbS9saWNlbnNlL2ZyZWUgQ29weXJpZ2h0IDIwMjUgRm9udGljb25zLCBJbmMuLS0+PHBhdGggZmlsbD0iIzc0QzBGQyIgZD0iTTY0IDMyMEM2NCAxNzguNiAxNzguNiA2NCAzMjAgNjRDNDYxLjQgNjQgNTc2IDE3OC42IDU3NiAzMjBDNTc2IDQ2MS40IDQ2MS40IDU3NiAzMjAgNTc2QzE3OC42IDU3NiA2NCA0NjEuNCA2NCAzMjB6TTI1Mi4zIDIxMS4xQzI0NC43IDIxNS4zIDI0MCAyMjMuNCAyNDAgMjMyTDI0MCA0MDhDMjQwIDQxNi43IDI0NC43IDQyNC43IDI1Mi4zIDQyOC45QzI1OS45IDQzMy4xIDI2OS4xIDQzMyAyNzYuNiA0MjguNEw0MjAuNiAzNDAuNEM0MjcuNyAzMzYgNDMyLjEgMzI4LjMgNDMyLjEgMzE5LjlDNDMyLjEgMzExLjUgNDI3LjcgMzAzLjggNDIwLjYgMjk5LjRMMjc2LjYgMjExLjRDMjY5LjIgMjA2LjkgMjU5LjkgMjA2LjcgMjUyLjMgMjEwLjl6Ii8+PC9zdmc+
-// @description   Optimized video gesture interface with Font Awesome icons, improved performance, and pinch-to-zoom aspect ratio control
+// @version       3.0.9
+// @icon          data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iIzc0QzBGQyI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0yIDE0LjV2LTlsNiA0LjUtNiA0LjV6Ii8+PC9zdmc+ 
+// @description   Optimized video gesture interface with inline SVG icons, improved performance, and pinch-to-zoom aspect ratio control
 // @author        Murtaza Salih
 // @match         *://*/*
 // @exclude       *://*.netflix.com/*
@@ -39,17 +39,28 @@
 
   // Exit early if not mobile
   if (!isMobile()) {
-    console.log('[VideoGestures] Not a mobile device, exiting');
     return;
   }
-
-  console.log('[VideoGestures] Starting initialization with pinch gesture support...');
 
   // Constants
   const STYLE_ID = 'vg-styles';
   const INDICATOR_ID = 'vg-indicator';
   const TOAST_ID = 'vg-toast';
   const INACTIVE_TIMEOUT = 5000; // 5 seconds
+
+  const ICONS = {
+    'play': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>',
+    'pause': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>',
+    'forward': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>',
+    'backward': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M11 18V6l-8.5 6 8.5 6zm.5-6 8.5 6V6l-8.5 6z"/></svg>',
+    'step-forward': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>',
+    'step-backward': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h2v12H6V6zm3.5 6 8.5 6V6l-8.5 6z"/></svg>',
+    'volume-up': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>',
+    'volume-mute': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>',
+    'expand': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>',
+    'compress': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>',
+    'check-circle': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>'
+  };
 
   // Default configuration
   const CONFIG = {
@@ -65,14 +76,16 @@
     LONG_PRESS_DURATION: 450,
     LONG_PRESS_SPEED: 2.0,
     DEAD_ZONE_SIZE: 30, // pixels from edges
-    GESTURE_TIMEOUT: 10000 // 10 seconds
+    GESTURE_TIMEOUT: 10000, // 10 seconds
+    SWIPE_ZONES: { VOLUME: 0.33, FULLSCREEN: 0.67 },
+    TAP_ZONES: { BACKWARD: 0.4, FORWARD: 0.6 },
+    INDICATOR_UPDATE_THROTTLE: 80 // ms
   };
 
   // Load saved config
   let savedConfig = {};
   try {
     savedConfig = GM_getValue('vg_config', {});
-    console.log('[VideoGestures] Config loaded');
   } catch (e) {
     console.warn('[VideoGestures] Failed to load config:', e);
   }
@@ -120,8 +133,6 @@
         alert('Settings reset');
       }
     });
-
-    console.log('[VideoGestures] Menu commands registered');
   } catch (e) {
     console.warn('[VideoGestures] Failed to register menu commands:', e);
   }
@@ -138,6 +149,21 @@
     return `${mins}:${String(secs).padStart(2, '0')}`;
   };
 
+  // Cross-browser fullscreen helpers
+  const getFullscreenElement = () => document.fullscreenElement || document.mozFullScreenElement || document.webkitFullscreenElement;
+  const requestFullscreen = (element) => {
+    if (element.requestFullscreen) return element.requestFullscreen();
+    if (element.mozRequestFullScreen) return element.mozRequestFullScreen();
+    if (element.webkitRequestFullscreen) return element.webkitRequestFullscreen();
+    return Promise.reject(new Error('Fullscreen API not supported'));
+  };
+  const exitFullscreenHelper = () => {
+    if (document.exitFullscreen) return document.exitFullscreen();
+    if (document.mozCancelFullScreen) return document.mozCancelFullScreen();
+    if (document.webkitExitFullscreen) return document.webkitExitFullscreen();
+    return Promise.reject(new Error('Fullscreen API not supported'));
+  };
+
   // Create styles
   const createStyles = () => {
     if (document.getElementById(STYLE_ID)) return;
@@ -145,9 +171,7 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap');
-      @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
-      
+      /* External fonts and icons removed for privacy and performance */
       #${INDICATOR_ID}, #${TOAST_ID} {
         position: fixed !important;
         top: 50% !important;
@@ -157,7 +181,7 @@
         background: linear-gradient(135deg, rgba(18,18,18,0.38), rgba(18,18,18,0.28)) !important;
         border: 1px solid rgba(255,255,255,0.14) !important;
         backdrop-filter: blur(14px) saturate(140%) !important;
-        -webkit-backdrop-filter: blur(12px) saturate(140%) !important;
+        -webkit-backdrop-filter: blur(14px) saturate(140%) !important;
         color: rgba(255,255,255,0.96) !important;
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
         font-size: 13px !important;
@@ -181,11 +205,17 @@
         transform: translate(-50%, -50%) scale(1) !important;
       }
 
-      #${INDICATOR_ID} i, #${TOAST_ID} i {
-        font-size: 24px !important;
+      #${INDICATOR_ID} .vg-icon, #${TOAST_ID} .vg-icon {
+        width: 24px !important;
+        height: 24px !important;
         min-width: 24px !important;
-        text-align: center !important;
         filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.09)) !important;
+      }
+
+      #${INDICATOR_ID} .vg-icon svg, #${TOAST_ID} .vg-icon svg {
+        width: 100% !important;
+        height: 100% !important;
+        display: block !important;
       }
 
       #${INDICATOR_ID} span, #${TOAST_ID} span {
@@ -220,9 +250,8 @@
         }
       }
     `;
-    
+
     document.head.appendChild(style);
-    console.log('[VideoGestures] Styles created with pinch gesture support');
   };
 
   // UI elements
@@ -230,11 +259,12 @@
   let toast = null;
   let hideTimer = null;
   let toastTimer = null;
-  
+
   // Memory management
   let activeVideos = new WeakSet();
   let videoTimers = new WeakMap();
-  let gestureTimers = new Map();
+  const videoOriginalStyles = new WeakMap();
+  let periodicCleanupTimer = null;
   let lastActiveTime = Date.now();
 
   const createElements = () => {
@@ -249,19 +279,18 @@
       toast.id = TOAST_ID;
       document.body.appendChild(toast);
     }
-    
-    console.log('[VideoGestures] UI elements created');
   };
 
-  const showIndicator = (iconClass, text, type = '', sticky = false) => {
+  const showIndicator = (iconName, text, type = '', sticky = false) => {
     if (!indicator) return;
 
     // Smooth transition by checking if already visible
     const wasVisible = indicator.classList.contains('visible');
-    
-    indicator.innerHTML = `<i class="${iconClass}"></i><span>${text}</span>`;
+    const iconSvg = ICONS[iconName] || '';
+
+    indicator.innerHTML = `<span class="vg-icon">${iconSvg}</span><span>${text}</span>`;
     indicator.className = `visible ${type}`;
-    
+
     // Add a small delay for content change if was already visible
     if (wasVisible) {
       indicator.style.opacity = '0.7';
@@ -295,10 +324,11 @@
     }
   };
 
-  const showToast = (iconClass, text, duration = 1500) => {
+  const showToast = (iconName, text, duration = 1500) => {
     if (!toast) return;
 
-    toast.innerHTML = `<i class="${iconClass}"></i><span>${text}</span>`;
+    const iconSvg = ICONS[iconName] || '';
+    toast.innerHTML = `<span class="vg-icon">${iconSvg}</span><span>${text}</span>`;
     toast.classList.add('visible');
 
     clearTimeout(toastTimer);
@@ -316,7 +346,7 @@
   };
 
   const attachToFullscreen = () => {
-    const fsElement = document.fullscreenElement;
+    const fsElement = getFullscreenElement();
     if (fsElement) {
       if (indicator && indicator.parentElement !== fsElement) {
         fsElement.appendChild(indicator);
@@ -333,72 +363,58 @@
     const deadZone = settings.DEAD_ZONE_SIZE;
     const screenWidth = window.innerWidth;
     const screenHeight = window.innerHeight;
-    
-    return x < deadZone || 
-           x > screenWidth - deadZone || 
-           y < deadZone || 
+
+    return x < deadZone ||
+           x > screenWidth - deadZone ||
+           y < deadZone ||
            y > screenHeight - deadZone;
   };
 
   // Video activity tracking
   const trackVideoActivity = (video) => {
     if (!video || activeVideos.has(video)) return;
-    
+
     activeVideos.add(video);
     lastActiveTime = Date.now();
-    
+
     // Clear existing timer
     if (videoTimers.has(video)) {
       clearTimeout(videoTimers.get(video));
     }
-    
+
     // Set cleanup timer
     const timer = setTimeout(() => {
       cleanupVideoTracking(video);
     }, settings.GESTURE_TIMEOUT);
-    
+
     videoTimers.set(video, timer);
-    
-    console.log('[VideoGestures] Video activity tracked');
   };
-  
+
   const cleanupVideoTracking = (video) => {
     activeVideos.delete(video);
     if (videoTimers.has(video)) {
       clearTimeout(videoTimers.get(video));
       videoTimers.delete(video);
     }
-    console.log('[VideoGestures] Video tracking cleaned up');
   };
-  
+
   // Inactivity timer management
   const resetInactivityTimer = () => {
     lastActiveTime = Date.now();
     clearTimeout(inactivityTimer);
-    
+
     inactivityTimer = setTimeout(() => {
-      console.log('[VideoGestures] Cleaning up inactive gestures');
       cleanupInactiveGestures();
     }, INACTIVE_TIMEOUT);
   };
-  
+
   const cleanupInactiveGestures = () => {
-    const now = Date.now();
-    
-    // Clear old gesture timers
-    for (const [key, timer] of gestureTimers.entries()) {
-      clearTimeout(timer);
-      gestureTimers.delete(key);
-    }
-    
     // Clean up video tracking for inactive videos
     for (const video of activeVideos) {
       if (video.paused || video.ended) {
         cleanupVideoTracking(video);
       }
     }
-    
-    console.log('[VideoGestures] Inactive gestures cleaned up');
   };
 
   // Haptics
@@ -416,10 +432,10 @@
   const findVideo = (targetElement, x, y) => {
     try {
       // Try fullscreen first
-      if (document.fullscreenElement) {
-        const video = document.fullscreenElement.querySelector('video');
+      if (getFullscreenElement()) {
+        const video = getFullscreenElement().querySelector('video');
         if (video && isValidVideo(video)) {
-          return { video, container: document.fullscreenElement };
+          return { video, container: getFullscreenElement() };
         }
       }
 
@@ -466,40 +482,30 @@
   const isValidVideo = (video) => {
     try {
       if (!video) {
-        console.log('[VideoGestures] No video element');
         return false;
       }
-      
+
       if (video.readyState < 1) {
-        console.log('[VideoGestures] Video not ready, readyState:', video.readyState);
         return false;
       }
 
       const rect = video.getBoundingClientRect();
-      console.log('[VideoGestures] Video rect:', rect.width, 'x', rect.height);
-      
       if (rect.width < 200 || rect.height < 150) {
-        console.log('[VideoGestures] Video too small');
         return false;
       }
 
-      console.log('[VideoGestures] Video duration:', video.duration, 'paused:', video.paused);
-      
       // Allow paused videos for gesture detection
       if (!Number.isFinite(video.duration) || video.duration <= 0) {
-        console.log('[VideoGestures] Invalid duration');
         return false;
       }
-      
+
       // Check if video is not stale (hasn't been inactive too long)
       const now = Date.now();
       if (video.ended || (video.paused && now - lastActiveTime > settings.GESTURE_TIMEOUT)) {
-        console.log('[VideoGestures] Video is stale or ended');
         cleanupVideoTracking(video);
         return false;
       }
 
-      console.log('[VideoGestures] Video is valid');
       return true;
     } catch (e) {
       console.error('[VideoGestures] Video validation error:', e);
@@ -533,7 +539,7 @@
   let lastTap = { time: 0, count: 0 };
   let longPressTimer = null;
   let inactivityTimer = null;
-  
+
   // Pinch gesture state
   let pinchState = null;
   let pinchGestureActive = false;
@@ -544,45 +550,42 @@
   // Pinch gesture handlers
   const handlePinchStart = (e) => {
     try {
-      if (!document.fullscreenElement) {
-        console.log('[VideoGestures] Pinch gesture only available in fullscreen');
+      if (!getFullscreenElement()) {
         return;
       }
-      
+
       if (e.touches.length !== 2) return;
-      
+
       const touch1 = e.touches[0];
       const touch2 = e.touches[1];
-      
-      const result = findVideo(e.target, 
-        (touch1.clientX + touch2.clientX) / 2, 
+
+      const result = findVideo(e.target,
+        (touch1.clientX + touch2.clientX) / 2,
         (touch1.clientY + touch2.clientY) / 2
       );
-      
+
       if (!result?.video) {
-        console.log('[VideoGestures] No valid video found for pinch gesture');
         return;
       }
-      
+
       // Prevent conflicts with single-touch gestures
       if (gestureState) {
         clearTimeout(longPressTimer);
         gestureState = null;
       }
-      
+
       e.preventDefault();
       e.stopPropagation();
-      
+
       const initialDistance = Math.hypot(
         touch2.clientX - touch1.clientX,
         touch2.clientY - touch1.clientY
       );
-      
+
       if (initialDistance < PINCH_MIN_DISTANCE) {
-        console.log('[VideoGestures] Fingers too close together for pinch gesture');
         return;
       }
-      
+
       pinchState = {
         video: result.video,
         container: result.container,
@@ -594,112 +597,100 @@
         hasTriggered: false,
         aspectRatio: getCurrentAspectRatio(result.video)
       };
-      
+
       pinchGestureActive = true;
-      console.log('[VideoGestures] Pinch gesture started, initial distance:', initialDistance);
-      
+
       // Track video activity
       trackVideoActivity(result.video);
       resetInactivityTimer();
-      
+
     } catch (e) {
       console.error('[VideoGestures] Pinch start error:', e);
     }
   };
-  
+
   const handlePinchMove = (e) => {
     try {
       if (!pinchState || e.touches.length !== 2) return;
-      
+
       e.preventDefault();
       e.stopPropagation();
-      
+
       const touch1 = e.touches[0];
       const touch2 = e.touches[1];
-      
+
       const currentDistance = Math.hypot(
         touch2.clientX - touch1.clientX,
         touch2.clientY - touch1.clientY
       );
-      
+
       pinchState.currentDistance = currentDistance;
-      
+
       const distanceChange = currentDistance - pinchState.initialDistance;
       const changePercent = Math.abs(distanceChange) / pinchState.initialDistance;
-      
+
       // Update touch positions for stability check
       pinchState.touch1 = { x: touch1.clientX, y: touch1.clientY };
       pinchState.touch2 = { x: touch2.clientX, y: touch2.clientY };
-      
-      console.log('[VideoGestures] Pinch distance change:', distanceChange, 'percent:', changePercent);
-      
+
       // Trigger aspect ratio change if threshold is met
       if (changePercent > 0.15 && !pinchState.hasTriggered) { // 15% change threshold
         pinchState.hasTriggered = true;
-        
+
         if (distanceChange > 0) {
           // Pinch out - switch to fill/zoom mode
-          console.log('[VideoGestures] Pinch out detected - switching to fill mode');
           setVideoAspectRatio(pinchState.video, 'fill');
-          showIndicator('fas fa-expand-arrows-alt', 'Fill Screen', 'aspect');
+          showIndicator('expand', 'Fill Screen', 'aspect');
         } else {
           // Pinch in - switch to fit/normal mode
-          console.log('[VideoGestures] Pinch in detected - switching to fit mode');
           setVideoAspectRatio(pinchState.video, 'fit');
-          showIndicator('fas fa-compress-arrows-alt', 'Fit Screen', 'aspect');
+          showIndicator('compress', 'Fit Screen', 'aspect');
         }
-        
+
         vibrate();
       }
-      
+
       resetInactivityTimer();
-      
+
     } catch (e) {
       console.error('[VideoGestures] Pinch move error:', e);
     }
   };
-  
+
   const handlePinchEnd = (e) => {
     try {
       if (!pinchState) return;
-      
-      console.log('[VideoGestures] Pinch gesture ended');
-      
-      // Clean up pinch state
-      const endTime = Date.now();
-      const duration = endTime - pinchState.startTime;
-      
-      console.log('[VideoGestures] Pinch duration:', duration, 'ms, triggered:', pinchState.hasTriggered);
-      
+
       pinchState = null;
       pinchGestureActive = false;
-      
+
     } catch (e) {
       console.error('[VideoGestures] Pinch end error:', e);
     }
   };
-  
+
   // Video aspect ratio management
   const getCurrentAspectRatio = (video) => {
     try {
       const style = getComputedStyle(video);
-      const objectFit = style.objectFit || 'fill';
-      return objectFit;
+      return style.objectFit || 'fill';
     } catch (e) {
       return 'fill';
     }
   };
-  
+
   const setVideoAspectRatio = (video, mode) => {
     try {
       if (!video) return;
-      
+
       // Store original styles if not already stored
-      if (!video._originalObjectFit) {
-        video._originalObjectFit = getComputedStyle(video).objectFit || 'fill';
-        video._originalObjectPosition = getComputedStyle(video).objectPosition || 'center';
+      if (!videoOriginalStyles.has(video)) {
+        videoOriginalStyles.set(video, {
+          objectFit: getComputedStyle(video).objectFit || 'fill',
+          objectPosition: getComputedStyle(video).objectPosition || 'center'
+        });
       }
-      
+
       switch (mode) {
         case 'fill':
           // Fill entire screen, may crop content
@@ -707,66 +698,80 @@
           video.style.objectPosition = 'center';
           video.style.width = '100%';
           video.style.height = '100%';
-          console.log('[VideoGestures] Video set to fill mode');
           break;
-          
+
         case 'fit':
           // Fit entire video, may show black bars
           video.style.objectFit = 'contain';
           video.style.objectPosition = 'center';
           video.style.width = '100%';
           video.style.height = '100%';
-          console.log('[VideoGestures] Video set to fit mode');
           break;
-          
+
         case 'original':
           // Restore original aspect ratio
-          video.style.objectFit = video._originalObjectFit || 'fill';
-          video.style.objectPosition = video._originalObjectPosition || 'center';
+          const originalStyles = videoOriginalStyles.get(video);
+          if (originalStyles) {
+            video.style.objectFit = originalStyles.objectFit;
+            video.style.objectPosition = originalStyles.objectPosition;
+          }
           video.style.width = '';
           video.style.height = '';
-          console.log('[VideoGestures] Video restored to original mode');
           break;
       }
-      
+
     } catch (e) {
       console.error('[VideoGestures] Aspect ratio change error:', e);
     }
   };
 
+  // Helper to check for interactive UI elements
+  const isInteractive = (element) => {
+    if (!element) return false;
+    const interactiveSelectors = [
+      'button', 'a', 'input', 'textarea', 'select',
+      '[role="button"]', '[role="checkbox"]', '[role="radio"]', '[role="slider"]', '[role="tab"]', '[role="menu"]',
+      // Common player control selectors
+      '.jw-controls', '.vjs-control-bar', '.ytp-chrome-bottom',
+      '.player-controls', '.media-controls', '.control-bar', '.controls'
+    ];
+    if (element.closest(interactiveSelectors.join(','))) {
+      return true;
+    }
+    return false;
+  };
+
   // Touch handlers (updated for pinch support)
   const onTouchStart = (e) => {
     try {
-      console.log('[VideoGestures] Touch start detected');
-      
       // Handle multi-touch for pinch gestures
       if (e.touches.length === 2) {
-        console.log('[VideoGestures] Two-finger touch detected, checking for pinch gesture');
         handlePinchStart(e);
         return;
       } else if (e.touches.length > 2) {
-        console.log('[VideoGestures] More than 2 touches detected, ignoring');
         return;
       }
 
       const touch = e.touches[0];
-      console.log('[VideoGestures] Touch coordinates:', touch.clientX, touch.clientY);
-      
+
+      // If touch starts on an interactive element, ignore the gesture to allow UI interaction.
+      if (isInteractive(touch.target)) {
+        return;
+      }
+
       const result = findVideo(e.target, touch.clientX, touch.clientY);
-      console.log('[VideoGestures] Video search result:', result);
-      
+
       if (!result?.video) {
-        console.log('[VideoGestures] No valid video found');
         return;
       }
 
       if (result.video.duration < settings.MIN_VIDEO_DURATION) {
-        console.log('[VideoGestures] Video too short:', result.video.duration);
         return;
       }
 
-      console.log('[VideoGestures] Valid video found, setting up gesture state');
-      e.stopPropagation();
+      // By not calling preventDefault or stopPropagation here, we allow simple taps
+      // to be processed by the underlying player for play/pause functionality.
+      // The gesture is "claimed" in onTouchMove if the user starts swiping.
 
       gestureState = {
         video: result.video,
@@ -777,9 +782,11 @@
         lastY: touch.clientY,
         isSwipe: false,
         action: null,
+        claimed: false, // Property to track if the gesture is claimed
         originalPlaybackRate: result.video.playbackRate,
         initialVolume: result.video.volume,
-        baseCurrentTime: result.video.currentTime
+        baseCurrentTime: result.video.currentTime,
+        lastIndicatorUpdate: 0
       };
 
       // Double-tap detection
@@ -790,17 +797,14 @@
         lastTap.count = 1;
       }
       lastTap.time = now;
-      console.log('[VideoGestures] Tap count:', lastTap.count);
 
       // Check for dead zones
       if (isInDeadZone(touch.clientX, touch.clientY)) {
-        console.log('[VideoGestures] Touch in dead zone, ignoring');
         return;
       }
 
       // Long-press setup (only if video is playing)
-      if (document.fullscreenElement && !result.video.paused) {
-        console.log('[VideoGestures] Setting up long press timer (video is playing)');
+      if (getFullscreenElement() && !result.video.paused) {
         longPressTimer = setTimeout(() => {
           if (!gestureState || gestureState.isSwipe) return;
 
@@ -808,22 +812,19 @@
             gestureState.lastX - gestureState.startX,
             gestureState.lastY - gestureState.startY
           );
-          
+
           if (moved > 10) return;
 
-          console.log('[VideoGestures] Long press triggered');
           gestureState.action = 'long-press-speed';
           gestureState.video.playbackRate = settings.LONG_PRESS_SPEED;
-          showIndicator('fas fa-forward', `${settings.LONG_PRESS_SPEED}x`, 'speed', true);
+          showIndicator('forward', `${settings.LONG_PRESS_SPEED}x`, 'speed', true);
           vibrate();
         }, settings.LONG_PRESS_DURATION);
-      } else if (document.fullscreenElement && result.video.paused) {
-        console.log('[VideoGestures] Video is paused, long press disabled');
       }
-      
+
       // Track video activity
       trackVideoActivity(result.video);
-      
+
       // Reset inactivity timer
       resetInactivityTimer();
     } catch (e) {
@@ -838,12 +839,11 @@
         handlePinchMove(e);
         return;
       }
-      
+
       if (!gestureState || e.touches.length > 1) {
-        if (!gestureState) console.log('[VideoGestures] No gesture state in touchmove');
         return;
       }
-      
+
       // Reset inactivity timer on movement
       resetInactivityTimer();
 
@@ -852,30 +852,32 @@
       const dy = touch.clientY - gestureState.startY;
       const distance = Math.hypot(dx, dy);
 
+      // Claim the gesture early to prevent conflicts with native player gestures and browser actions.
+      if (getFullscreenElement() && distance > 10 && !gestureState.claimed) {
+        e.preventDefault();
+        e.stopPropagation();
+        gestureState.claimed = true;
+      }
+
       gestureState.lastX = touch.clientX;
       gestureState.lastY = touch.clientY;
 
       if (!gestureState.isSwipe && distance > settings.SWIPE_THRESHOLD) {
-        console.log('[VideoGestures] Swipe detected, distance:', distance);
         clearTimeout(longPressTimer);
         lastTap.count = 0;
         gestureState.isSwipe = true;
-        
+
         if (gestureState.action === 'long-press-speed') {
           gestureState.video.playbackRate = gestureState.originalPlaybackRate;
           hideIndicator();
         }
 
-        if (document.fullscreenElement) {
-          console.log('[VideoGestures] In fullscreen, determining action');
+        if (getFullscreenElement()) {
           determineAction(dx, dy);
-        } else {
-          console.log('[VideoGestures] Not in fullscreen, limited gestures');
         }
       }
 
-      if (gestureState.isSwipe && document.fullscreenElement) {
-        e.preventDefault();
+      if (gestureState.isSwipe && getFullscreenElement()) {
         handleSwipeAction(dx, dy);
       }
     } catch (e) {
@@ -890,19 +892,27 @@
         handlePinchEnd(e);
         return;
       }
-      
+
       if (!gestureState) return;
 
       clearTimeout(longPressTimer);
-      e.stopPropagation();
 
       if (gestureState.action === 'long-press-speed') {
+        e.stopPropagation();
         gestureState.video.playbackRate = gestureState.originalPlaybackRate;
         hideIndicator();
       } else if (gestureState.isSwipe) {
+        e.stopPropagation();
         handleSwipeEnd();
       } else {
-        handleTap();
+        // This is a tap or double tap
+        if (lastTap.count >= 2) {
+          // This is a double tap, handle it and stop propagation to prevent conflicts
+          e.preventDefault();
+          e.stopPropagation();
+          handleTap();
+        }
+        // For single taps, do nothing and let the event propagate to the player
       }
 
       gestureState = null;
@@ -925,26 +935,19 @@
       const zoneX = (gestureState.startX - rect.left) / rect.width;
       const isVertical = Math.abs(dy) > Math.abs(dx);
 
-      console.log('[VideoGestures] Determining action - zoneX:', zoneX, 'isVertical:', isVertical, 'dx:', dx, 'dy:', dy);
-
       if (isVertical) {
-        if (zoneX < 0.33) {
-          console.log('[VideoGestures] Left zone - Volume control');
+        if (zoneX < settings.SWIPE_ZONES.VOLUME) {
           gestureState.action = 'volume';
-        } else if (zoneX > 0.33 && zoneX < 0.67) {
-          console.log('[VideoGestures] Middle zone - Fullscreen control');
+        } else if (zoneX > settings.SWIPE_ZONES.VOLUME && zoneX < settings.SWIPE_ZONES.FULLSCREEN) {
           gestureState.action = 'fullscreen';
         } else {
-          console.log('[VideoGestures] Right zone - No action');
           gestureState.action = 'none';
         }
       } else {
         if (Number.isFinite(gestureState.video.duration)) {
-          console.log('[VideoGestures] Horizontal - Seeking');
           gestureState.action = 'seeking';
         } else {
-          console.log('[VideoGestures] Live stream detected');
-          showIndicator('fas fa-play', 'Live Stream');
+          showIndicator('play', 'Live Stream');
           gestureState.action = 'none';
         }
       }
@@ -955,8 +958,6 @@
 
   const handleSwipeAction = (dx, dy) => {
     try {
-      console.log('[VideoGestures] Handling swipe action:', gestureState.action, 'dx:', dx, 'dy:', dy);
-      
       switch (gestureState.action) {
         case 'seeking':
           handleSeeking(dx);
@@ -967,8 +968,6 @@
         case 'none':
           // Do nothing for right zone or unsupported gestures
           break;
-        default:
-          console.log('[VideoGestures] Unknown action:', gestureState.action);
       }
     } catch (e) {
       console.error('[VideoGestures] Swipe action error:', e);
@@ -989,8 +988,12 @@
 
       gestureState.video.currentTime = newTime;
 
-      const icon = seekAmount >= 0 ? 'fas fa-forward' : 'fas fa-backward';
-      showIndicator(icon, formatTime(newTime), 'seeking');
+      const now = Date.now();
+      if (now - gestureState.lastIndicatorUpdate > settings.INDICATOR_UPDATE_THROTTLE) {
+        const icon = seekAmount >= 0 ? 'forward' : 'backward';
+        showIndicator(icon, formatTime(newTime), 'seeking');
+        gestureState.lastIndicatorUpdate = now;
+      }
     } catch (e) {
       console.warn('[VideoGestures] Seeking error:', e);
     }
@@ -1000,14 +1003,17 @@
     try {
       const change = -dy / settings.VOLUME_SENSITIVITY;
       const newVolume = Math.max(0, Math.min(1, gestureState.initialVolume + change));
-      
+
       gestureState.video.volume = newVolume;
       gestureState.video.muted = newVolume < 0.01;
 
-      const icon = newVolume < 0.01 ? 'fas fa-volume-mute' : 'fas fa-volume-up';
-      const text = newVolume < 0.01 ? 'Muted' : `${Math.round(newVolume * 100)}%`;
-      
-      showIndicator(icon, text, 'volume');
+      const now = Date.now();
+      if (now - gestureState.lastIndicatorUpdate > settings.INDICATOR_UPDATE_THROTTLE) {
+        const icon = newVolume < 0.01 ? 'volume-mute' : 'volume-up';
+        const text = newVolume < 0.01 ? 'Muted' : `${Math.round(newVolume * 100)}%`;
+        showIndicator(icon, text, 'volume');
+        gestureState.lastIndicatorUpdate = now;
+      }
     } catch (e) {
       console.warn('[VideoGestures] Volume error:', e);
     }
@@ -1030,16 +1036,10 @@
 
   const handleTap = () => {
     try {
-      console.log('[VideoGestures] Handling tap, count:', lastTap.count);
-      
       if (lastTap.count >= 2) {
-        console.log('[VideoGestures] Double tap detected');
-        
-        if (document.fullscreenElement) {
-          console.log('[VideoGestures] In fullscreen, handling seek/play');
+        if (getFullscreenElement()) {
           handleDoubleTapSeek();
         } else {
-          console.log('[VideoGestures] Not fullscreen, toggling fullscreen');
           toggleFullscreen();
         }
         lastTap = { time: 0, count: 0 };
@@ -1055,25 +1055,25 @@
       const zone = (gestureState.startX - rect.left) / rect.width;
       const seekTime = settings.DOUBLE_TAP_SEEK;
 
-      if (zone < 0.4) {
+      if (zone < settings.TAP_ZONES.BACKWARD) {
         gestureState.video.currentTime -= seekTime;
-        showIndicator('fas fa-step-backward', `-${seekTime}s`);
-      } else if (zone > 0.6) {
+        showIndicator('step-backward', `-${seekTime}s`);
+      } else if (zone > settings.TAP_ZONES.FORWARD) {
         gestureState.video.currentTime += seekTime;
-        showIndicator('fas fa-step-forward', `+${seekTime}s`);
+        showIndicator('step-forward', `+${seekTime}s`);
       } else {
         if (gestureState.video.paused) {
           const playPromise = gestureState.video.play();
           if (playPromise && playPromise.catch) {
             playPromise.catch(() => {});
           }
-          showIndicator('fas fa-play', 'Play');
+          showIndicator('pause', 'Pause');
         } else {
           gestureState.video.pause();
-          showIndicator('fas fa-pause', 'Pause');
+          showIndicator('play', 'Play');
         }
       }
-      
+
       vibrate();
     } catch (e) {
       console.warn('[VideoGestures] Double tap error:', e);
@@ -1082,9 +1082,9 @@
 
   const exitFullscreen = () => {
     try {
-      if (document.fullscreenElement && document.exitFullscreen) {
-        document.exitFullscreen();
-        showIndicator('fas fa-compress', 'Exit Fullscreen');
+      if (getFullscreenElement()) {
+        exitFullscreenHelper().catch(() => {}); // Ignore errors
+        showIndicator('compress', 'Exit Fullscreen');
         vibrate();
       }
     } catch (e) {
@@ -1094,27 +1094,26 @@
 
   const toggleFullscreen = () => {
     try {
-      const isFullscreen = !!document.fullscreenElement;
-      
+      const isFullscreen = !!getFullscreenElement();
+
       if (isFullscreen) {
         exitFullscreen();
       } else {
         const element = gestureState?.container || document.documentElement;
-        if (element && element.requestFullscreen) {
-          element.requestFullscreen();
-          showIndicator('fas fa-expand', 'Enter Fullscreen');
+        requestFullscreen(element).catch(() => {}); // Ignore errors, fire and forget
 
-          if (settings.FORCE_LANDSCAPE && gestureState?.video) {
-            const { videoWidth, videoHeight } = gestureState.video;
-            if (videoWidth > videoHeight && screen.orientation) {
-              setTimeout(() => {
-                screen.orientation.lock('landscape').catch(() => {});
-              }, 100);
-            }
+        showIndicator('expand', 'Enter Fullscreen');
+
+        if (settings.FORCE_LANDSCAPE && gestureState?.video) {
+          const { videoWidth, videoHeight } = gestureState.video;
+          if (videoWidth > videoHeight && screen.orientation) {
+            setTimeout(() => {
+              screen.orientation.lock('landscape').catch(() => {});
+            }, 100);
           }
-          
-          vibrate();
         }
+
+        vibrate();
       }
     } catch (e) {
       console.warn('[VideoGestures] Toggle fullscreen error:', e);
@@ -1124,7 +1123,7 @@
   const onFullscreenChange = () => {
     try {
       attachToFullscreen();
-      if (!document.fullscreenElement && screen.orientation) {
+      if (!getFullscreenElement() && screen.orientation) {
         screen.orientation.unlock().catch(() => {});
       }
     } catch (e) {
@@ -1139,21 +1138,12 @@
 
     try {
       const videos = document.querySelectorAll('video');
-      console.log('[VideoGestures] Found', videos.length, 'video elements');
-      
       for (const video of videos) {
-        console.log('[VideoGestures] Checking video:', video.src || 'no src');
-        
         if (isValidVideo(video) && video.duration >= settings.MIN_VIDEO_DURATION) {
           readyShown = true;
-          showToast('fas fa-check-circle', 'Gestures Ready');
-          console.log('[VideoGestures] Ready message shown for valid video');
+          showToast('check-circle', 'Gestures Ready');
           break;
         }
-      }
-      
-      if (!readyShown && videos.length > 0) {
-        console.log('[VideoGestures] Videos found but none are valid yet');
       }
     } catch (e) {
       console.error('[VideoGestures] Video check error:', e);
@@ -1168,38 +1158,34 @@
       clearTimeout(hideTimer);
       clearTimeout(toastTimer);
       clearTimeout(inactivityTimer);
-      
+      clearInterval(periodicCleanupTimer);
+
       // Clear video timers
       for (const timer of videoTimers.values()) {
         clearTimeout(timer);
       }
       videoTimers.clear();
-      
-      // Clear gesture timers
-      for (const timer of gestureTimers.values()) {
-        clearTimeout(timer);
-      }
-      gestureTimers.clear();
-      
+
       // Clear WeakSet references
       activeVideos = new WeakSet();
-      
+
       // Clear pinch state
       pinchState = null;
       pinchGestureActive = false;
-      
+
       document.removeEventListener('touchstart', onTouchStart, true);
       document.removeEventListener('touchmove', onTouchMove, true);
       document.removeEventListener('touchend', onTouchEnd, true);
       document.removeEventListener('contextmenu', onContextMenu, true);
       document.removeEventListener('fullscreenchange', onFullscreenChange);
-      
+      document.removeEventListener('mozfullscreenchange', onFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+
       document.getElementById(STYLE_ID)?.remove();
       indicator?.remove();
       toast?.remove();
-      
+
       gestureState = null;
-      console.log('[VideoGestures] Enhanced cleanup completed with pinch gesture support');
     } catch (e) {
       console.warn('[VideoGestures] Cleanup error:', e);
     }
@@ -1216,26 +1202,31 @@
       document.addEventListener('touchend', onTouchEnd, { passive: false, capture: true });
       document.addEventListener('contextmenu', onContextMenu, { capture: true });
       document.addEventListener('fullscreenchange', onFullscreenChange, { passive: true });
+      document.addEventListener('mozfullscreenchange', onFullscreenChange, { passive: true });
+      document.addEventListener('webkitfullscreenchange', onFullscreenChange, { passive: true });
 
       window.addEventListener('beforeunload', cleanup);
       window.addEventListener('pagehide', cleanup);
 
       // Watch for videos
-      const observer = new MutationObserver(checkForVideos);
+      let debounceTimer;
+      const observer = new MutationObserver(() => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(checkForVideos, 300);
+      });
       observer.observe(document.body, { childList: true, subtree: true });
-      
+
       // Initial check
       checkForVideos();
-      
+
       // Start inactivity monitoring
       resetInactivityTimer();
-      
+
       // Periodic cleanup for memory management
-      setInterval(() => {
+      periodicCleanupTimer = setInterval(() => {
         cleanupInactiveGestures();
       }, 30000); // Every 30 seconds
 
-      console.log('[VideoGestures] Initialized successfully with enhanced memory management and pinch gesture support');
     } catch (e) {
       console.error('[VideoGestures] Initialization failed:', e);
     }
