@@ -1,5 +1,5 @@
 ! Title: 🧙‍♂Web Wizard
-! Version: 1.6
+! Version: 1.7
 ! Description: Filters for cleaning websites.
 ! Maintainer: Murtaza Salih
 ! Expires: 7 days
@@ -12,9 +12,9 @@ faselhds.life##.blockMovieMeta,.slideMeta, .posTop, .seasonMeta
 faselhds.life##.singleBtns, .singleStar, .shortLink, .downloadLinks, #Teamwork, .ralatedMovies, .social-block
 
 ! wecima
-wecima.tv###menu-item-273056, #menu-item-273057, .LeftSideFlex, .ProductionsListButton, .LeftUI, footer
-wecima.tv##.Slider--Grid, .InnerButton, .GotoTop
-wecima.tv##singlecontainerleft, singlerelated, .WecimaonSocialnetwork, .Download--Wecima--Single, .BreadcrumbsFilters
+wecima.video###menu-item-273056, #menu-item-273057, .LeftSideFlex, .ProductionsListButton, .LeftUI, footer
+wecima.video##.Slider--Grid, .InnerButton, .GotoTop
+wecima.video##singlecontainerleft, singlerelated, .WecimaonSocialnetwork, .Download--Wecima--Single, .BreadcrumbsFilters
 
 ! cee
 cee.buzz##cinemana-collections, .pwa-modal-container
