@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Touch Gestures
 // @namespace     https://github.com/itsrody/SuperBrowsing
-// @version       3.0.9
+// @version       3.11
 // @icon          data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iIzc0QzBGQyI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0yIDE0LjV2LTlsNiA0LjUtNiA0LjV6Ii8+PC9zdmc+ 
 // @description   Optimized video gesture interface with inline SVG icons, improved performance, and pinch-to-zoom aspect ratio control
 // @author        Murtaza Salih
@@ -28,7 +28,7 @@
 // @run-at        document-start
 // ==/UserScript==
 
-(() => {
+(async () => {
   'use strict';
 
   // Check if mobile device
@@ -85,7 +85,7 @@
   // Load saved config
   let savedConfig = {};
   try {
-    savedConfig = GM_getValue('vg_config', {});
+    savedConfig = await GM_getValue('vg_config', {});
   } catch (e) {
     console.warn('[VideoGestures] Failed to load config:', e);
   }
@@ -94,9 +94,9 @@
   const settings = { ...CONFIG, ...savedConfig };
 
   // Save config function
-  const saveConfig = () => {
+  const saveConfig = async () => {
     try {
-      GM_setValue('vg_config', settings);
+      await GM_setValue('vg_config', settings);
     } catch (e) {
       console.warn('[VideoGestures] Failed to save config:', e);
     }
@@ -104,32 +104,32 @@
 
   // Register menu commands
   try {
-    GM_registerMenuCommand('⚙️ Set Seek Time', () => {
+    GM_registerMenuCommand('⚙️ Set Seek Time', async () => {
       const current = settings.DOUBLE_TAP_SEEK;
       const input = prompt(`Double-tap seek seconds (5-30):\nCurrent: ${current}s`, current);
       if (input && !isNaN(input)) {
         const value = Math.max(5, Math.min(30, parseInt(input)));
         settings.DOUBLE_TAP_SEEK = value;
-        saveConfig();
+        await saveConfig();
         alert(`Seek time set to ${value}s`);
       }
     });
 
-    GM_registerMenuCommand('⚡ Set Speed', () => {
+    GM_registerMenuCommand('⚡ Set Speed', async () => {
       const current = settings.LONG_PRESS_SPEED;
       const input = prompt(`Long-press speed (0.5-4):\nCurrent: ${current}x`, current);
       if (input && !isNaN(input)) {
         const value = Math.max(0.5, Math.min(4, parseFloat(input)));
         settings.LONG_PRESS_SPEED = value;
-        saveConfig();
+        await saveConfig();
         alert(`Speed set to ${value}x`);
       }
     });
 
-    GM_registerMenuCommand('🔄 Reset Settings', () => {
+    GM_registerMenuCommand('🔄 Reset Settings', async () => {
       if (confirm('Reset all settings to defaults?')) {
         Object.assign(settings, CONFIG);
-        saveConfig();
+        await saveConfig();
         alert('Settings reset');
       }
     });
@@ -351,7 +351,8 @@
       if (indicator && indicator.parentElement !== fsElement) {
         fsElement.appendChild(indicator);
       }
-    } else {
+    }
+    else {
       if (indicator && indicator.parentElement !== document.body) {
         document.body.appendChild(indicator);
       }
@@ -943,7 +944,8 @@
         } else {
           gestureState.action = 'none';
         }
-      } else {
+      }
+      else {
         if (Number.isFinite(gestureState.video.duration)) {
           gestureState.action = 'seeking';
         } else {
@@ -1067,10 +1069,10 @@
           if (playPromise && playPromise.catch) {
             playPromise.catch(() => {});
           }
-          showIndicator('pause', 'Pause');
+          showIndicator('play', 'Play');
         } else {
           gestureState.video.pause();
-          showIndicator('play', 'Play');
+          showIndicator('pause', 'Pause');
         }
       }
 
@@ -1087,7 +1089,8 @@
         showIndicator('compress', 'Exit Fullscreen');
         vibrate();
       }
-    } catch (e) {
+    }
+    catch (e) {
       console.warn('[VideoGestures] Exit fullscreen error:', e);
     }
   };
