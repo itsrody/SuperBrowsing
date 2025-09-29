@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Progress Saver
 // @namespace    http://tampermonkey.net/
-// @version      2.8.0
+// @version      2.8.2
 // @description  Automatically saves and restores HTML5 video playback progress. Features a rich history panel with search, sort, and bulk actions, plus two-way Firebase sync.
 // @author       Gemini & You
 // @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NDAgNjQwIj48IS0tIUZvbnQgQXdlc29tZSBGcmVlIDcuMC4wIGJ5IEBmb250YXdlc29tZSAtIGh0dHBzOi8vZm9udGF3ZXNvbWUuY29tIExpY2Vuc2UgLSBodHRwczovL2ZvbnRhd2Vzb21lLmNvbS9saWNlbnNlL2ZyZWUgQ29weXJpZ2h0IDIwMjUgRm9udGljb25zLCBJbmMuLS0+PHBhdGggZmlsbD0iIzc0QzBGQyIgZD0iTTMyMCAxMjhDNDI2IDEyOCA1MTIgMjE0IDUxMiAzMjBDNTEyIDQyNiA0MjYgNTEyIDMyMCA1MTJDMjU0LjggNTEyIDE5Ny4xIDQ3OS41IDE2Mi4yIDQyOS43QzE1M2MsNDEzLjIgMTMyLjMgNDExLjcgMTE3LjggNDIxLjhDMTAzLjMgNDMxLjkgOTkuOCA0NTEuOSAxMDkuOSA0NjYuNEMxNTYuMSA1MzIuNiAyMzMgNTc2IDMyMCA1NzZDNjEuNCA1NzYgNTc2IDQ2MS40IDU3NiAzMjBDNTc2IDE3OC42IDQ2MS40IDY0IDMyMCA2NEMyMzQuMyA2NCAxNTguNSAxMDYuMSAxMTIgMTcwLjdMMTEyIDE0OEMxMTIgMTI2LjMgOTcuNyAxMTIgODAgMTEyQzYyLjMgMTEyIDQ4IDEyNi4zIDQ4IDE0NEw0OCAyNTZDNCAyNzMuNyA2Mi4zIDI4OCA4MCAyODhMMTA0LjYgMjg4QzEwNS4xIDI4OCAxMDUuNiAyODggMTA2LjEgMjg4TDE5Mi4xIDI4OEMyMDkuOCAyODggMjI0LjEgMjczLjcgMjI0LjEgMjU2QzIyNC4xIDIzOC4zIDIwOS44IDIyNCAxOTIuMSAyMjRMMTUzLjggMjI0QzE4Ni45IDE2Ni42IDI0OSAxMjggMzIwIDEyOHpNMzQ0IDIxNkMzNDQgMjAyLjcgMzMzLjMgMTkyIDMyMCAxOTJDMzA2LjcgMTkyIDI5NiAyMDIuNyAyOTYgMjE2TDI5NiAzMjBDMjk2IDMyNi44IDI5OC41IDMzMi41IDMwMyAzMzdMMzc1IDQwOUMzODQuNCA0MTguNCAzOTkuNiA0MTguNCA0MDguOSA0MDlDNDE4LjIgMzk5LjYgNDE4LjMgMzg0LjQgNDA4LjkgMzc1LjFMMzQzLjkgMzEwLjFMMzQzLjkgMjE2eiIvPjwvc3ZnPg==
@@ -13,6 +13,8 @@
 // @connect      firebasestorage.googleapis.com
 // @connect      *.firebaseio.com
 // @connect      *.firebasedatabase.app
+// @connect      identitytoolkit.googleapis.com
+// @connect      securetoken.googleapis.com
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -372,41 +374,150 @@
     };
 
     /**
+     * --- FIREBASE AUTH MODULE ---
+     */
+    const Auth = {
+        getApiKey(config) { return config.apiKey; },
+        async getToken(config) {
+            const apiKey = this.getApiKey(config);
+            if (!apiKey) return null;
+
+            let tokenData = await GM_getValue('vps_firebase_auth_token', null);
+
+            if (tokenData && tokenData.apiKey !== apiKey) {
+                tokenData = null;
+                await GM_setValue('vps_firebase_auth_token', null);
+            }
+
+            if (tokenData && tokenData.expiresAt > Date.now()) {
+                return tokenData.idToken;
+            }
+            if (tokenData && tokenData.refreshToken) {
+                return await this.refreshToken(config, tokenData.refreshToken);
+            }
+            return await this.anonymousLogin(config);
+        },
+        async anonymousLogin(config) {
+            const apiKey = this.getApiKey(config);
+            if (!apiKey) return null;
+            const url = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`;
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ returnSecureToken: true })
+                });
+                if (!response.ok) {
+                    console.error('VPS: Anonymous login failed', await response.text());
+                    return null;
+                }
+                const data = await response.json();
+                const tokenData = {
+                    apiKey: apiKey,
+                    idToken: data.idToken,
+                    refreshToken: data.refreshToken,
+                    expiresAt: Date.now() + (parseInt(data.expiresIn) * 1000) - 30000 // 30s buffer
+                };
+                await GM_setValue('vps_firebase_auth_token', tokenData);
+                return tokenData.idToken;
+            } catch (e) {
+                console.error('VPS: Anonymous login network error', e);
+                return null;
+            }
+        },
+        async refreshToken(config, refreshToken) {
+            const apiKey = this.getApiKey(config);
+            const url = `https://securetoken.googleapis.com/v1/token?key=${apiKey}`;
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ grant_type: 'refresh_token', refresh_token: refreshToken })
+                });
+                if (!response.ok) {
+                    console.error('VPS: Token refresh failed', await response.text());
+                    return await this.anonymousLogin(config);
+                }
+                const data = await response.json();
+                const tokenData = {
+                    apiKey: apiKey,
+                    idToken: data.id_token,
+                    refreshToken: data.refresh_token,
+                    expiresAt: Date.now() + (parseInt(data.expires_in) * 1000) - 30000 // 30s buffer
+                };
+                await GM_setValue('vps_firebase_auth_token', tokenData);
+                return tokenData.idToken;
+            } catch (e) {
+                console.error('VPS: Token refresh network error', e);
+                return await this.anonymousLogin(config); // Fallback to new login
+            }
+        }
+    };
+
+    /**
      * --- FIREBASE SYNC MODULE ---
      */
     const Firebase = {
-        config: { enabled: false, databaseURL: '', path: '', projectId: '' },
+        config: { enabled: false, databaseURL: '', path: '', projectId: '', apiKey: '', databaseSecret: '' },
         async init() {
             const storedConfig = await GM_getValue(CONFIG.FIREBASE_CONFIG_KEY, {});
             this.config = { ...this.config, ...storedConfig };
         },
         isEnabled() { return this.config.enabled && this.config.databaseURL && this.config.path; },
-        _getSafeKey(key) { return encodeURIComponent(key).replace(/\./g, '%2E'); },
+        _getSafeKey(key) { return encodeURIComponent(key).replace(/\\./g, '%2E'); },
+
+        async _getUrlWithAuth(baseUrl, config) {
+            const effectiveConfig = config || this.config;
+
+            // Priority 1: Use Database Secret if provided.
+            if (effectiveConfig.databaseSecret) {
+                const separator = baseUrl.includes('?') ? '&' : '?';
+                return `${baseUrl}${separator}auth=${effectiveConfig.databaseSecret}`;
+            }
+
+            // Priority 2: Use API Key token auth.
+            if (effectiveConfig.apiKey) {
+                const token = await Auth.getToken(effectiveConfig);
+                if (token) {
+                    const separator = baseUrl.includes('?') ? '&' : '?';
+                    return `${baseUrl}${separator}auth=${token}`;
+                }
+            }
+
+            // Fallback: No auth.
+            return baseUrl;
+        },
+
         async get(key) {
             if (!this.isEnabled()) return null;
-            const url = `${this.config.databaseURL}/${this.config.path}/${this._getSafeKey(key)}.json`;
+            const baseUrl = `${this.config.databaseURL}/${this.config.path}/${this._getSafeKey(key)}.json`;
+            const url = await this._getUrlWithAuth(baseUrl);
             const response = await fetch(url, { method: 'GET', mode: 'cors' });
             return response.ok ? await response.json() : null;
         },
         async set(key, data) {
             if (!this.isEnabled()) return;
-            const url = `${this.config.databaseURL}/${this.config.path}/${this._getSafeKey(key)}.json`;
+            const baseUrl = `${this.config.databaseURL}/${this.config.path}/${this._getSafeKey(key)}.json`;
+            const url = await this._getUrlWithAuth(baseUrl);
             await fetch(url, { method: 'PUT', mode: 'cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
         },
         async getAll() {
             if (!this.isEnabled()) return null;
-            const url = `${this.config.databaseURL}/${this.config.path}.json`;
+            const baseUrl = `${this.config.databaseURL}/${this.config.path}.json`;
+            const url = await this._getUrlWithAuth(baseUrl);
             const response = await fetch(url, { method: 'GET', mode: 'cors' });
             return response.ok ? (await response.json() || {}) : null;
         },
         async setAll(data) {
             if (!this.isEnabled()) return;
-            const url = `${this.config.databaseURL}/${this.config.path}.json`;
+            const baseUrl = `${this.config.databaseURL}/${this.config.path}.json`;
+            const url = await this._getUrlWithAuth(baseUrl);
             await fetch(url, { method: 'PUT', mode: 'cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
         },
         async delete(key) {
             if (!this.isEnabled()) return;
-            const url = `${this.config.databaseURL}/${this.config.path}/${this._getSafeKey(key)}.json`;
+            const baseUrl = `${this.config.databaseURL}/${this.config.path}/${this._getSafeKey(key)}.json`;
+            const url = await this._getUrlWithAuth(baseUrl);
             await fetch(url, { method: 'DELETE', mode: 'cors' });
         },
         async testConnection(testConfig) {
@@ -414,20 +525,49 @@
                 return { success: false, error: 'Database URL and Path are required.' };
             }
             try {
-                const url = `${testConfig.databaseURL}/${testConfig.path}.json?shallow=true&timeout=5s`;
-                const response = await fetch(url, { method: 'GET', mode: 'cors' });
-                if (response.ok) {
-                    return { success: true };
+                let debugInfo = '';
+                let token = null;
+
+                // Step 1: Try to get a token if API key is present
+                if (testConfig.apiKey) {
+                    debugInfo = 'Attempting to get authentication token... ';
+                    token = await Auth.getToken(testConfig);
+                    if (token) {
+                        debugInfo += 'OK. ';
+                    } else {
+                        return { success: false, error: 'Failed to retrieve an authentication token. This is the most common point of failure. Please RE-VERIFY that your API Key is correct and that the "Identity Platform" API is enabled in your Google Cloud project console for this project.' };
+                    }
+                } else {
+                    debugInfo = 'No API Key provided. Attempting unauthenticated access. ';
                 }
+
+                debugInfo += 'Connecting to database... ';
+                const baseUrl = `${testConfig.databaseURL}/${testConfig.path}.json?shallow=true&timeout=5s`;
+                const url = await this._getUrlWithAuth(baseUrl, testConfig);
+
+                const response = await fetch(url, { method: 'GET', mode: 'cors' });
+
+                if (response.ok) {
+                    return { success: true, message: 'Connection successful!' }; // Return a success message
+                }
+
+                // If it fails, provide the debug info
                 const errorText = await response.text();
                 try {
                     const errorJson = JSON.parse(errorText);
-                    return { success: false, error: errorJson.error || 'Permission denied or invalid path.' };
+                    let errorMessage = errorJson.error || 'Unknown error.';
+
+                    if (token) {
+                         errorMessage = `Got auth token, but request was denied. Error: "${errorMessage}". This means authentication worked, but your database security rules are still blocking access. Please ensure the rules are applied to the ROOT of your database and are exactly: \`{ "rules": { ".read": "auth != null", ".write": "auth != null" } }\`. Also, re-verify your Database URL is correct.`;
+                    } else {
+                         errorMessage = `Request was denied without an auth token. Error: "${errorMessage}". Your rules likely require authentication, but no API key was provided or it failed.`;
+                    }
+                    return { success: false, error: errorMessage };
                 } catch (e) {
-                    return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+                    return { success: false, error: `Received an invalid response from the server (HTTP ${response.status}). Please check your Database URL.` };
                 }
             } catch (e) {
-                return { success: false, error: `Network error: ${e.message}` };
+                return { success: false, error: `A network error occurred: ${e.message}. This could be a typo in the URL, a firewall, or a network connectivity issue.` };
             }
         }
     };
@@ -796,7 +936,19 @@
                     <small>A name for the data collection, like a folder name.</small>
                 </div>
                 <hr>
-                <p>The fields below are optional and only needed for specific Firebase security rules.</p>
+                <p>For authentication, provide <b>either</b> an API Key (recommended) <b>or</b> a Database Secret.</p>
+                <div class="vps-config-field">
+                    <label for="vps-apiKey">API Key (Recommended)</label>
+                    <input type="text" id="vps-apiKey" name="apiKey" placeholder="AIzaSy..." value="${config.apiKey || ''}">
+                    <small>Your Firebase project's Web API Key for token-based authentication.</small>
+                </div>
+                <div class="vps-config-field">
+                    <label for="vps-databaseSecret">Database Secret (Alternative)</label>
+                    <input type="text" id="vps-databaseSecret" name="databaseSecret" placeholder="Your legacy database secret" value="${config.databaseSecret || ''}">
+                    <small>A less secure, deprecated alternative to the API Key.</small>
+                </div>
+                <hr>
+                <p>The fields below are optional and rarely needed.</p>
                  <div class="vps-config-field">
                     <label for="vps-apiKey">API Key</label>
                     <input type="text" id="vps-apiKey" name="apiKey" placeholder="AIzaSy..." value="${config.apiKey || ''}">
@@ -875,6 +1027,7 @@
                         databaseURL: dbURL,
                         projectId: formData.projectId || '',
                         storageBucket: formData.storageBucket || '',
+                        databaseSecret: formData.databaseSecret || '',
                         path: formData.path.replace(/^\/|\/$/g, '')
                     };
 
