@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name          Video Touch Gestures
+// @name          Video Touch & Mouse Gestures
 // @namespace     https://github.com/itsrody/SuperBrowsing
-// @version       3.11
-// @icon          data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iIzc0QzBGQyI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0yIDE0LjV2LTlsNiA0LjUtNiA0LjV6Ii8+PC9zdmc+ 
-// @description   Optimized video gesture interface with inline SVG icons, improved performance, and pinch-to-zoom aspect ratio control
+// @version       4.0
+// @icon          data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iIzc0QzBGQyI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0yIDE0LjV2LTlsNiA0LjUtNiA0LjV6Ii8+PC9zdmc+
+// @description   Optimized video gesture interface for both touch and mouse, with performance improvements and aspect ratio control.
 // @author        Murtaza Salih
 // @match         *://*/*
 // @exclude       *://*.netflix.com/*
@@ -30,17 +30,6 @@
 
 (async () => {
   'use strict';
-
-  // Check if mobile device
-  const isMobile = () => {
-    return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
-           (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
-  };
-
-  // Exit early if not mobile
-  if (!isMobile()) {
-    return;
-  }
 
   // Constants
   const STYLE_ID = 'vg-styles';
@@ -106,7 +95,8 @@
   try {
     GM_registerMenuCommand('⚙️ Set Seek Time', async () => {
       const current = settings.DOUBLE_TAP_SEEK;
-      const input = prompt(`Double-tap seek seconds (5-30):\nCurrent: ${current}s`, current);
+      const input = prompt(`Double-tap seek seconds (5-30):
+Current: ${current}s`, current);
       if (input && !isNaN(input)) {
         const value = Math.max(5, Math.min(30, parseInt(input)));
         settings.DOUBLE_TAP_SEEK = value;
@@ -117,7 +107,8 @@
 
     GM_registerMenuCommand('⚡ Set Speed', async () => {
       const current = settings.LONG_PRESS_SPEED;
-      const input = prompt(`Long-press speed (0.5-4):\nCurrent: ${current}x`, current);
+      const input = prompt(`Long-press speed (0.5-4):
+Current: ${current}x`, current);
       if (input && !isNaN(input)) {
         const value = Math.max(0.5, Math.min(4, parseFloat(input)));
         settings.LONG_PRESS_SPEED = value;
@@ -540,6 +531,11 @@
   let lastTap = { time: 0, count: 0 };
   let longPressTimer = null;
   let inactivityTimer = null;
+  let touchInProgress = false; // To prevent mouse events on touch
+
+  // Desktop gesture state
+  let mouseState = null;
+  let longPressMouseTimer = null;
 
   // Pinch gesture state
   let pinchState = null;
@@ -745,6 +741,7 @@
   // Touch handlers (updated for pinch support)
   const onTouchStart = (e) => {
     try {
+      touchInProgress = true;
       // Handle multi-touch for pinch gestures
       if (e.touches.length === 2) {
         handlePinchStart(e);
@@ -921,10 +918,110 @@
       console.warn('[VideoGestures] Touch end error:', e);
       gestureState = null;
     }
+    setTimeout(() => { touchInProgress = false; }, 300);
   };
 
   const onContextMenu = (e) => {
     if (gestureState || pinchGestureActive) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  // Desktop mouse handlers
+  const onMouseDown = (e) => {
+    if (touchInProgress || e.button !== 0 || e.isPrimary === false) return;
+    if (isInteractive(e.target)) return;
+
+    const result = findVideo(e.target, e.clientX, e.clientY);
+    if (!result?.video || result.video.duration < settings.MIN_VIDEO_DURATION) return;
+
+    mouseState = {
+      video: result.video,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+      action: null,
+      originalPlaybackRate: result.video.playbackRate,
+    };
+
+    clearTimeout(longPressMouseTimer);
+    longPressMouseTimer = setTimeout(() => {
+      if (!mouseState || mouseState.moved) return;
+
+      mouseState.action = 'long-press-speed';
+      mouseState.video.playbackRate = settings.LONG_PRESS_SPEED;
+      showIndicator('forward', `${settings.LONG_PRESS_SPEED}x`, 'speed', true);
+      vibrate();
+    }, settings.LONG_PRESS_DURATION);
+  };
+
+  const onMouseMove = (e) => {
+    if (!mouseState || mouseState.moved) return;
+
+    const moved = Math.hypot(e.clientX - mouseState.startX, e.clientY - mouseState.startY);
+    if (moved > 10) {
+      mouseState.moved = true;
+      clearTimeout(longPressMouseTimer);
+    }
+  };
+
+  const onMouseUp = (e) => {
+    if (e.button !== 0 || !mouseState) return;
+
+    clearTimeout(longPressMouseTimer);
+    if (mouseState.action === 'long-press-speed') {
+      mouseState.video.playbackRate = mouseState.originalPlaybackRate;
+      hideIndicator();
+    }
+    mouseState = null;
+  };
+
+  // Keyboard handler
+  const onKeyDown = (e) => {
+    if (e.target.matches('input, textarea, [contenteditable]')) return;
+
+    const fsVideo = getFullscreenElement()?.querySelector('video');
+    const result = fsVideo ? { video: fsVideo } : findVideo(document.activeElement, window.innerWidth / 2, window.innerHeight / 2);
+
+    if (!result?.video) return;
+
+    const { video } = result;
+    const seekTime = settings.DOUBLE_TAP_SEEK;
+    let handled = false;
+
+    switch (e.key) {
+      case 'ArrowLeft':
+        video.currentTime = Math.max(0, video.currentTime - seekTime);
+        showIndicator('step-backward', `-${seekTime}s`);
+        vibrate();
+        handled = true;
+        break;
+      case 'ArrowRight':
+        video.currentTime = Math.min(video.duration, video.currentTime + seekTime);
+        showIndicator('step-forward', `+${seekTime}s`);
+        vibrate();
+        handled = true;
+        break;
+      case 'ArrowUp':
+        const newVolumeUp = Math.min(1, video.volume + 0.05);
+        video.volume = newVolumeUp;
+        video.muted = newVolumeUp < 0.01;
+        showIndicator(video.muted ? 'volume-mute' : 'volume-up', `${Math.round(newVolumeUp * 100)}%`, 'volume');
+        vibrate();
+        handled = true;
+        break;
+      case 'ArrowDown':
+        const newVolumeDown = Math.max(0, video.volume - 0.05);
+        video.volume = newVolumeDown;
+        video.muted = newVolumeDown < 0.01;
+        showIndicator(video.muted ? 'volume-mute' : 'volume-up', `${Math.round(newVolumeDown * 100)}%`, 'volume');
+        vibrate();
+        handled = true;
+        break;
+    }
+
+    if (handled) {
       e.preventDefault();
       e.stopPropagation();
     }
@@ -1158,6 +1255,7 @@
     try {
       // Clear all timers
       clearTimeout(longPressTimer);
+      clearTimeout(longPressMouseTimer);
       clearTimeout(hideTimer);
       clearTimeout(toastTimer);
       clearTimeout(inactivityTimer);
@@ -1179,6 +1277,10 @@
       document.removeEventListener('touchstart', onTouchStart, true);
       document.removeEventListener('touchmove', onTouchMove, true);
       document.removeEventListener('touchend', onTouchEnd, true);
+      document.removeEventListener('mousedown', onMouseDown, true);
+      document.removeEventListener('mousemove', onMouseMove, true);
+      document.removeEventListener('mouseup', onMouseUp, true);
+      document.removeEventListener('keydown', onKeyDown, true);
       document.removeEventListener('contextmenu', onContextMenu, true);
       document.removeEventListener('fullscreenchange', onFullscreenChange);
       document.removeEventListener('mozfullscreenchange', onFullscreenChange);
@@ -1189,6 +1291,7 @@
       toast?.remove();
 
       gestureState = null;
+      mouseState = null;
     } catch (e) {
       console.warn('[VideoGestures] Cleanup error:', e);
     }
@@ -1200,9 +1303,18 @@
       createStyles();
       createElements();
 
+      // Touch gestures
       document.addEventListener('touchstart', onTouchStart, { passive: false, capture: true });
       document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
       document.addEventListener('touchend', onTouchEnd, { passive: false, capture: true });
+
+      // Desktop gestures
+      document.addEventListener('mousedown', onMouseDown, { capture: true });
+      document.addEventListener('mousemove', onMouseMove, { capture: true });
+      document.addEventListener('mouseup', onMouseUp, { capture: true });
+      document.addEventListener('keydown', onKeyDown, { capture: true });
+
+      // Common
       document.addEventListener('contextmenu', onContextMenu, { capture: true });
       document.addEventListener('fullscreenchange', onFullscreenChange, { passive: true });
       document.addEventListener('mozfullscreenchange', onFullscreenChange, { passive: true });
