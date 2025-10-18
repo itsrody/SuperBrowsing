@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Video Touch Gestures
 // @namespace     https://github.com/itsrody/SuperBrowsing
-// @version       3.11
+// @version       3.12
 // @icon          data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iIzc0QzBGQyI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0yIDE0LjV2LTlsNiA0LjUtNiA0LjV6Ii8+PC9zdmc+ 
 // @description   Optimized video gesture interface with inline SVG icons, improved performance, and pinch-to-zoom aspect ratio control
 // @author        Murtaza Salih
@@ -240,7 +240,7 @@
 
       #${INDICATOR_ID}.aspect {
         background: rgba(74, 144, 226, 0.15) !important;
-        border: 1px solid rgba(74, 144, 226, 0.3) !important;
+        border: 1px solid rgba(255,255,255,0.14) !important;
         color: rgba(255, 255, 255, 0.98) !important;
       }
 
