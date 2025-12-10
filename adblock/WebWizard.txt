@@ -1,57 +1,60 @@
 ! Title: 🧙‍♂Web Wizard
-! Version: 1.9
+! Version: 2.0
 ! Description: Filters for cleaning websites.
 ! Maintainer: Murtaza Salih
 ! Expires: 7 days
-! Homepage: https://github.com/itsrody/Lists
+! Homepage: https://github.com/itsrody/SuperBrowsing
 
-! faselhd
-faselhds.life##.breakNews, .accBtn, .promoLink, .promoTab, .social, .slider
-faselhds.life###pr, #footer, #scroll-to-top, .mb-5
-faselhds.life##.blockMovieMeta,.slideMeta, .posTop, .seasonMeta
-faselhds.life##.singleBtns, .singleStar, .shortLink, .downloadLinks, #Teamwork, .ralatedMovies, .social-block
+! FaselHD #Home
+faselhds.biz##.justify-content-center.row
+faselhds.biz##div.col-12:nth-of-type(3)
+faselhds.biz##.container > div > center
+faselhds.biz##.align-items-center.d-flex > div > div:nth-of-type(2)
+! FaselHD #Top
+faselhds.biz##.promoLink, .social, .accBtn, .breakNews
+! FaselHD #Meta
+faselhds.biz##.slideMeta, .blockMovieMeta, .posTop
+! FaselHD #Footer
+faselhds.biz###footer, #pr, #scroll-to-top
+! FaselHD #InnerPost
+faselhds.biz##.singleBtns, .social-block, .shortLink, .postShare, .downloadLinks, .ralatedMovies
 
-! wecima
-cima.wecima.show###menu-item-273056, #menu-item-273057, .LeftSideFlex, .ProductionsListButton, .LeftUI, footer
-cima.wecima.show##.Slider--Grid, .InnerButton, .GotoTop
-cima.wecima.show##singlecontainerleft, singlerelated, .WecimaonSocialnetwork, .Download--Wecima--Single, .BreadcrumbsFilters
+! HD Today #Home
+hdtoday.cc###logo, .mb-5.mw-body, .mb-5.text-center.mw-buttons, #xfooter, #xfooter-about, .mwh-logo, #xlogo
+! HD Today #Top
+hdtoday.cc##li.nav-item:nth-of-type(7), #user-slot
+! HD Today #Main #Footer
+hdtoday.cc###footer
+hdtoday.cc##.section-id-01.block_area_home.block_area
+hdtoday.cc##section.section-id-02.block_area_home.block_area:nth-of-type(4)
+! HD Today #Post
+hdtoday.cc##.block_area_category.block_area
+hdtoday.cc##.mb-3.detail-tags
+hdtoday.cc##.server-notice
+hdtoday.cc##.block-rating
+hdtoday.cc##.btn-favorite
+hdtoday.cc##.dp-i-stats
+hdtoday.cc##.breadcrumb
+hdtoday.cc##.alert
+hdtoday.cc##.watching_player-control
 
-! cee
+! 5tv #Top #Footer
+5tv.cam##.btn-login, .fa-search, .menu-item-129997, #menu-item-106263, #menu-item-2865, .tac.ft
+! 5tv #Body
+5tv.cam###widget_list_movies_series-6, #widget_list_movies_series-4, #widget_list_movies_series-7, #widget_list_movies_series-10, #widget_list_movies_series-11, #widget_list_movies_series-12
+! 5tv #Post
+5tv.cam###fav-tv, .description > p:nth-of-type(1), .dfxa, .comments-title, section.episodes.section:nth-of-type(2), .owl-nav, .episodes.section
+
+! betra.rtcoi.xyz
+betra.rtcoi.xyz##server--title
+betra.rtcoi.xyz##.header-footer-group.has-text-align-center.entry-header
+betra.rtcoi.xyz##.entry-content
+betra.rtcoi.xyz##.category-2.hentry.format-standard.status-publish.type-post.post
+betra.rtcoi.xyz###site-footer
+
+! 9animetv
+9animetv.to##.description, .text-center.mw-buttons > .mb-2.block, #mw-text, #footer, .btn-user, .socials-group, .block_area-comment
+
+! CEE #Home
 cee.buzz##cinemana-collections, .pwa-modal-container
 
-! 5tv
-5tv.center##.btn-login, #menu-item-129997, #menu-item-106263, #menu-item-28656
-5tv.center##.ft, #widget_list_movies_series-6, #widget_list_movies_series-4
-5tv.center##.widget_list_episodes.section.widget.wdgt-home, #widget_list_movies_series-11, #widget_list_movies_series-12
-5tv.center###fav-tv, .dfxa, .comments-area, .owl-drag, .description > p:nth-of-type(1), section.episodes.section:nth-of-type(2)
-towhtch.spotnews.buzz##server--title, .entry-header,  .entry-content, .comment-respond, #site-footer, .section-inner.pagination-single
-
-! quillbot
-quillbot.com##.MuiButton-root, .css-fl7web, .css-1dkvnan, #qb-footer
-
-! -----------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-! supjav
-supjav.com##.menu-item-62, .menu-item-103868, .menu-item-232365, .menu-item-104594, .menu-item-328572, .menu-item-73429, .menu-item-135, .menu-item-123731, .menu-item-74331, .menu-item-18
-supjav.com##.recommend, #mocat-4, #mocat-5, .footer, .totop, .meta
-supjav.com##.dz_view, .downscase, .content:nth-of-type(5)
-
-! sextb
-sextb.net##.navbar-container > span, [href="https://fcjav.com"], [href="https://javct.net"], [href="https://javplayer.org"], [href="https://pubjav.com"], [href="https://theporndude.com"], [href="https://bongacams.com"]
-sextb.net##.login-member, .notice, [href^="https://pleonereplacks.com/5e4080e9-583e-4bee-aa64-e72c5dacbb79"], [href="https://r.trwl1.com/c1/b3ebbad2-f7f3-4061-a8e1-335bfe73170f"], [href="/contact"]
-sextb.net##.navbar-menu-item:nth-of-type(10), .navbar-menu-item:nth-of-type(9), .navbar-menu-item:nth-of-type(8), .navbar-menu-item:nth-of-type(1)
-sextb.net##.welcome, footer, .tray-item-trailer
-sextb.net##section.all.tray:nth-of-type(3), section.all.tray:nth-of-type(4), section.all.tray:nth-of-type(5), section.all.tray:nth-of-type(6)
-sextb.net##.player-header, .player-footer, .list-vip, .button-list, .load_more, .col-4, .col-3:nth-of-type(2), .fa-heart, .short-text, .ss-box
-sextb.net##h5.tab_info:nth-of-type(2) > .h-text, h5.tab_info:nth-of-type(3) > .h-text, h5.tab_info:nth-of-type(4) > .h-text
-
-! roshy
-roshy.tv##.beeteam368_color_bar, .menu-item-142786, .menu-item-108510, #menu-item-66230, .menu-item-20164, .menu-item-7431, .menu-item-93540, .site-footer, .total-posts-content
-roshy.tv##.btnn-primary, .is-square, .beeteam368-related-posts > div:nth-of-type(2)
-
-! pornhits.com
-pornhits.com##.promo-bar, [href="https://theporndude.com/"], #item10, .sites__list, .seo, .tags, .tags-cloud, .tototo, .footer
-
-! porn00
-porn00.tv##.headline7, .round, .bottom-adv.box, li:nth-of-type(7)
-porn00.tv##.headline5, .table, .info-buttons, .username
