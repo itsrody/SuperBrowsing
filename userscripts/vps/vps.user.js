@@ -1,380 +1,341 @@
+
 // ==UserScript==
 // @name         Video Progress Saver
 // @namespace    http://tampermonkey.net/
-// @version      2.8.2
-// @description  Automatically saves and restores HTML5 video playback progress. Features a rich history panel with search, sort, and bulk actions, plus two-way Firebase sync.
-// @author       Gemini & You
-// @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NDAgNjQwIj48IS0tIUZvbnQgQXdlc29tZSBGcmVlIDcuMC4wIGJ5IEBmb250YXdlc29tZSAtIGh0dHBzOi8vZm9udGF3ZXNvbWUuY29tIExpY2Vuc2UgLSBodHRwczovL2ZvbnRhd2Vzb21lLmNvbS9saWNlbnNlL2ZyZWUgQ29weXJpZ2h0IDIwMjUgRm9udGljb25zLCBJbmMuLS0+PHBhdGggZmlsbD0iIzc0QzBGQyIgZD0iTTMyMCAxMjhDNDI2IDEyOCA1MTIgMjE0IDUxMiAzMjBDNTEyIDQyNiA0MjYgNTEyIDMyMCA1MTJDMjU0LjggNTEyIDE5Ny4xIDQ3OS41IDE2Mi4yIDQyOS43QzE1M2MsNDEzLjIgMTMyLjMgNDExLjcgMTE3LjggNDIxLjhDMTAzLjMgNDMxLjkgOTkuOCA0NTEuOSAxMDkuOSA0NjYuNEMxNTYuMSA1MzIuNiAyMzMgNTc2IDMyMCA1NzZDNjEuNCA1NzYgNTc2IDQ2MS40IDU3NiAzMjBDNTc2IDE3OC42IDQ2MS40IDY0IDMyMCA2NEMyMzQuMyA2NCAxNTguNSAxMDYuMSAxMTIgMTcwLjdMMTEyIDE0OEMxMTIgMTI2LjMgOTcuNyAxMTIgODAgMTEyQzYyLjMgMTEyIDQ4IDEyNi4zIDQ4IDE0NEw0OCAyNTZDNCAyNzMuNyA2Mi4zIDI4OCA4MCAyODhMMTA0LjYgMjg4QzEwNS4xIDI4OCAxMDUuNiAyODggMTA2LjEgMjg4TDE5Mi4xIDI4OEMyMDkuOCAyODggMjI0LjEgMjczLjcgMjI0LjEgMjU2QzIyNC4xIDIzOC4zIDIwOS44IDIyNCAxOTIuMSAyMjRMMTUzLjggMjI0QzE4Ni45IDE2Ni42IDI0OSAxMjggMzIwIDEyOHpNMzQ0IDIxNkMzNDQgMjAyLjcgMzMzLjMgMTkyIDMyMCAxOTJDMzA2LjcgMTkyIDI5NiAyMDIuNyAyOTYgMjE2TDI5NiAzMjBDMjk2IDMyNi44IDI5OC41IDMzMi41IDMwMyAzMzdMMzc1IDQwOUMzODQuNCA0MTguNCAzOTkuNiA0MTguNCA0MDguOSA0MDlDNDE4LjIgMzk5LjYgNDE4LjMgMzg0LjQgNDA4LjkgMzc1LjFMMzQzLjkgMzEwLjFMMzQzLjkgMjE2eiIvPjwvc3ZnPg==
+// @version      4.5.0
+// @description  Save and restore video playback progress for videos longer than 1 minute.
+// @author       Antigravity
 // @match        *://*/*
 // @grant        GM_setValue
 // @grant        GM_getValue
-// @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
 // @connect      firebasestorage.googleapis.com
 // @connect      *.firebaseio.com
 // @connect      *.firebasedatabase.app
 // @connect      identitytoolkit.googleapis.com
 // @connect      securetoken.googleapis.com
-// @run-at       document-idle
+// @run-at       document-end
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
-    // --- CONFIGURATION ---
-    const CONFIG = {
-        SAVE_INTERVAL_SECONDS: 6,
-        MIN_VIDEO_DURATION_SECONDS: 60,
-        COMPLETION_THRESHOLD_SECONDS: 10,
-        STORAGE_KEY: 'vps_video_progress',
-        FIREBASE_CONFIG_KEY: 'vps_firebase_config',
-    };
-
-    // --- ICONS ---
-    const ICONS = {
-        RESTORE: `<svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 0 24 24" width="20px" fill="currentColor"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8H12z"/></svg>`,
-        GEAR: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="1.2em" height="1.2em" style="vertical-align: middle;"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69-.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22-.07.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>`,
-        SYNC: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="1.2em" height="1.2em" style="vertical-align: middle;"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>`,
-        EYE: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="1.2em" height="1.2em" style="vertical-align: middle;"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5C21.27 7.61 17 4.5 12 4.5zm0 10c-2.48 0-4.5-2.02-4.5-4.5S9.52 5.5 12 5.5s4.5 2.02 4.5 4.5-2.02 4.5-4.5 4.5zm0-7C10.62 7.5 9.5 8.62 9.5 10s1.12 2.5 2.5 2.5 2.5-1.12 2.5-2.5S13.38 7.5 12 7.5z"/></svg>`,
-        EXPORT: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="1.2em" height="1.2em"><path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/></svg>`,
-        IMPORT: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="1.2em" height="1.2em"><path d="M9 10h6v6h4l-7 7-7-7h4v-6zm-4-4h14v2H5V6z"/></svg>`,
-        TRASH: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="1.2em" height="1.2em"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>`,
-        CHECK: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="1.2em" height="1.2em" style="vertical-align: middle;"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>`,
-        CLOSE: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="1.2em" height="1.2em" style="vertical-align: middle;"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>`,
-        WIFI: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="1.2em" height="1.2em" style="vertical-align: middle;"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5C21.27 7.61 17 4.5 12 4.5zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM4.98 13.5c.73-2.42 2.7-4.5 5.02-4.5s4.29 2.08 5.02 4.5h-10.04z"/></svg>`
-    };
-
-    // --- STYLES ---
-    const UI_STYLES = `
-        .vps-restore-toast {
-            position: absolute; top: 20px; right: 20px; padding: 10px 15px; border-radius: 12px;
-            background: rgba(30, 30, 30, 0.7); backdrop-filter: blur(10px) saturate(180%); -webkit-backdrop-filter: blur(10px) saturate(180%);
-            color: #fff; border: 1px solid rgba(255, 255, 255, 0.125); box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 14px;
-            z-index: 99999; opacity: 0; transform: translateY(-20px); transition: all 0.5s ease; pointer-events: none;
-            display: flex; align-items: center; gap: 10px;
-        }
-        .vps-restore-toast.vps-show { opacity: 1; transform: translateY(0); }
-        .vps-toast-icon { flex-shrink: 0; }
-
-        .vps-dialog-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-            z-index: 100000; display: flex; align-items: center; justify-content: center;
-            opacity: 0; transition: opacity 0.3s ease;
-        }
-        .vps-dialog-overlay.vps-show { opacity: 1; }
-        .vps-dialog {
-            position: relative;
-            background: rgba(44, 44, 44, 0.75); backdrop-filter: blur(12px) saturate(150%); -webkit-backdrop-filter: blur(12px) saturate(150%);
-            color: #f1f1f1; border-radius: 16px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.4); border: 1px solid rgba(255, 255, 255, 0.1);
-            width: 90%; max-width: 800px; transform: scale(0.95); transition: transform 0.3s ease; overflow: hidden;
-            display: flex; flex-direction: column;
-        }
-        .vps-dialog-overlay.vps-show .vps-dialog { transform: scale(1); }
-
-        /* Force RTL: Force RTL direction on all panel elements. */
-        .vps-dialog, .vps-dialog * { direction: rtl !important; }
-        .vps-restore-toast, .vps-restore-toast * { direction: rtl !important; }
-        .vps-dialog { text-align: right; }
-
-        .vps-dialog-header { padding: 16px 24px; font-size: 1.2em; font-weight: 600; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
-        .vps-dialog-body { padding: 24px; line-height: 1.6; max-height: 70vh; overflow-y: auto; flex-grow: 1; }
-        .vps-dialog-body p { margin: 0 0 10px; }
-        .vps-dialog-body label { display: block; margin-bottom: 5px; font-size: 0.9em; color: #aaa; }
-        .vps-dialog-body input[type="text"] {
-            width: 100%; padding: 10px; margin-bottom: 5px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.2);
-            background: #3a3a3a; color: #f1f1f1; font-family: sans-serif; font-size: 14px; box-sizing: border-box;
-        }
-        .vps-dialog-body hr { border: none; height: 1px; background-color: rgba(255, 255, 255, 0.1); margin: 20px 0; }
-        .vps-dialog-footer {
-            padding: 16px 24px; display: flex; justify-content: flex-end; gap: 12px; background: rgba(0,0,0,0.2);
-        }
-        .vps-dialog-button {
-            padding: 10px 20px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s ease;
-            display: inline-flex; align-items: center; gap: 8px; justify-content: center;
-        }
-        .vps-dialog-button:disabled { opacity: 0.6; cursor: not-allowed; }
-        .vps-dialog-button:active { transform: scale(0.98); }
-        .vps-dialog-button.primary { background: #74C0FC; color: #1a1a1a; }
-        .vps-dialog-button.danger { background: #E57373; color: #1a1a1a; }
-        .vps-dialog-button.secondary { background: #555; color: #fff; }
-
-        .vps-dialog-close-btn {
-            position: absolute; top: 12px; left: 16px; background: none; border: none; color: #aaa;
-            font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; padding: 0; z-index: 1;
-        }
-        .vps-dialog-close-btn:hover { color: #fff; }
-        .vps-dialog-header-actions { display: flex; gap: 10px; }
-        .vps-header-button {
-            background: none; border: none; color: #f1f1f1; font-size: 20px; cursor: pointer;
-            padding: 5px; border-radius: 5px; transition: background-color 0.2s;
-            display: flex; align-items: center; justify-content: center;
-            width: 32px; height: 32px;
-        }
-        .vps-header-button:hover { background-color: rgba(255, 255, 255, 0.1); }
-
-        /* Config Panel Enhancements */
-        .vps-config-field small { font-size: 0.8em; color: #999; display: block; margin-bottom: 15px; }
-        #vps-test-connection-result { margin-top: 15px; padding: 10px; border-radius: 8px; display: none; }
-        #vps-test-connection-result.success { background: rgba(129, 199, 132, 0.2); color: #a5d6a7; }
-        #vps-test-connection-result.error { background: rgba(229, 115, 115, 0.2); color: #ef9a9a; }
-        @keyframes vps-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .vps-spinner { display: inline-block; width: 1em; height: 1em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: vps-spin 1s linear infinite; }
-
-        /* History Panel Enhancements */
-        .vps-history-controls {
-            display: flex; gap: 15px; padding-bottom: 20px; margin-bottom: 20px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .vps-history-search, .vps-history-sort {
-            padding: 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.2);
-            background: #3a3a3a; color: #f1f1f1; font-size: 14px;
-        }
-        .vps-history-search { flex-grow: 1; }
-        .vps-history-list { display: flex; flex-direction: column; gap: 10px; }
-        .vps-history-item {
-            background: rgba(255, 255, 255, 0.05); border-radius: 10px; padding: 12px;
-            display: flex; align-items: center; gap: 12px;
-            transition: background-color 0.2s ease, opacity 0.3s ease, transform 0.3s ease, margin-bottom 0.3s ease, padding 0.3s ease, height 0.3s ease;
-        }
-        .vps-history-item:hover { background: rgba(255, 255, 255, 0.1); }
-        .vps-history-item-checkbox { flex-shrink: 0; width: 18px; height: 18px; accent-color: #74C0FC; margin: 0; }
-        .vps-history-item-favicon { flex-shrink: 0; width: 24px; height: 24px; border-radius: 4px; background-color: rgba(0,0,0,0.2); }
-        .vps-history-item-details { flex-grow: 1; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
-        .vps-history-item-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .vps-history-item-title a { color: #f1f1f1; text-decoration: none; }
-        .vps-history-item-title a:hover { text-decoration: underline; }
-        .vps-history-item-progress-bar-container { background: rgba(0,0,0,0.3); border-radius: 5px; height: 8px; overflow: hidden; }
-        .vps-history-item-progress-bar { background: #74C0FC; height: 100%; width: 0%; border-radius: 5px; transition: width 0.4s ease; }
-        .vps-history-item-meta { font-size: 0.8em; color: #aaa; }
-        .vps-history-item-delete {
-            background: #E57373; color: #f1f1f1; border: none; border-radius: 8px; cursor: pointer; padding: 8px;
-            font-size: 18px; line-height: 1; display: flex; align-items: center; justify-content: center;
-            transition: background-color 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
-            opacity: 0; transform: scale(0.8); flex-shrink: 0;
-        }
-        .vps-history-item:hover .vps-history-item-delete { opacity: 1; transform: scale(1); }
-        .vps-history-item-delete:hover { background: #ef5350; }
-        .vps-history-item-completed { color: #81C784; font-weight: bold; }
-        .vps-history-empty { text-align: center; padding: 40px 20px; color: #aaa; }
-        .vps-history-empty svg { width: 50px; height: 50px; margin-bottom: 15px; opacity: 0.5; }
-
-        .vps-bulk-actions-bar {
-            padding: 12px 24px; background: rgba(0,0,0,0.3); display: flex; justify-content: space-between;
-            align-items: center; transition: opacity 0.3s; opacity: 0; pointer-events: none; margin-top: -1px;
-        }
-        .vps-bulk-actions-bar.vps-show { opacity: 1; pointer-events: auto; }
-        .vps-bulk-actions-bar span { font-weight: 600; }
-
-        @media (max-width: 768px) {
-            .vps-dialog {
-                width: 100%;
-                max-width: 100%;
-                height: 100%;
-                max-height: 100%;
-                border-radius: 0;
-                top: 0;
-                left: 0;
-                transform: translateY(100%); /* Start off-screen */
-                transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
-            }
-
-            .vps-dialog-overlay.vps-show .vps-dialog {
-                transform: translateY(0);
-            }
-
-            .vps-dialog-header {
-                padding: 12px 16px;
-                font-size: 1.1em;
-            }
-
-            .vps-dialog-body {
-                padding: 16px;
-                max-height: calc(100vh - 120px); /* Adjust based on header/footer height */
-            }
-
-            .vps-dialog-footer {
-                padding: 12px 16px;
-                flex-direction: row; /* Revert to row for side-by-side buttons */
-                justify-content: space-around; /* Space out buttons evenly */
-                gap: 10px;
-                position: absolute;
-                bottom: 0;
-                width: 100%;
-                background: rgba(0,0,0,0.4);
-            }
-
-            .vps-dialog-button {
-                width: auto; /* Auto width for buttons */
-                flex-grow: 1; /* Allow buttons to grow and fill space */
-                padding: 12px;
-            }
-
-            .vps-history-controls {
-                flex-direction: column;
-                gap: 10px;
-            }
-
-            .vps-history-item {
-                display: grid;
-                grid-template-columns: auto auto 1fr auto;
-                grid-template-rows: auto auto;
-                gap: 5px 15px;
-                align-items: center;
-                position: relative;
-            }
-
-            .vps-history-item-checkbox {
-                grid-column: 1;
-                grid-row: 1 / span 2;
-            }
-
-            .vps-history-item-favicon {
-                grid-column: 2;
-                grid-row: 1 / span 2;
-                width: 32px; /* Slightly larger favicon */
-                height: 32px;
-            }
-
-            .vps-history-item-title {
-                grid-column: 3;
-                grid-row: 1;
-            }
-            
-            .vps-history-item-progress-bar-container {
-                grid-column: 3;
-                grid-row: 2;
-            }
-
-            .vps-history-item-meta {
-                display: none; /* Hide meta on mobile to save space */
-            }
-
-            .vps-history-item-delete {
-                grid-column: 4;
-                grid-row: 1 / span 2;
-                position: static; /* Remove absolute positioning */
-                opacity: 1;
-                transform: scale(1);
-            }
-            .vps-dialog-button .vps-button-text { display: none; }
-        }
-    `;
+    /**
+     * Constants & Config
+     */
+    const MIN_DURATION = 60; // 1 minute
+    const SAVE_INTERVAL = 10; // 10 seconds
+    const PRUNE_DAYS = 30; // 30 days
+    const REWIND_SECONDS = 5; // Smart Context Rewind
+    const DB_NAME = 'VPS_DB';
+    const STORE_NAME = 'videos';
 
     /**
-     * --- META MODULE ---
+     * URLSanitizer & MetadataExtractor
+     * Robust ID generation and smart title extraction.
      */
-    const Meta = {
-        addViewport() {
-            if (document.querySelector('meta[name="viewport"]')) return;
-            const viewport = document.createElement('meta');
-            viewport.name = 'viewport';
-            viewport.content = 'width=device-width, initial-scale=1.0';
-            document.head.appendChild(viewport);
+    class SmartContext {
+        static getCanonicalId(urlStr, duration) {
+            try {
+                const url = new URL(urlStr);
+                const hostname = url.hostname;
+
+                // Strategy 1: YouTube
+                if (hostname.includes('youtube.com') || hostname.includes('youtu.be')) {
+                    const v = url.searchParams.get('v');
+                    if (v) return `vps_yt_${v}`;
+                }
+
+                // Strategy 2: Generic Cleanup
+                const junkParams = [
+                    'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+                    'fbclid', 'ref', 'ref_src', 'feature', 't', 'time_continue', 'ab_channel',
+                    'app', 'context', 'feature', 'kw', 'modestbranding', 'origin', 'referer',
+                    'related', 'source', 'st', 'theme', 'type'
+                ];
+                // Remove all params unless they look like an ID (whitelist approach might be safer but harder)
+                // For now, aggressive blacklist extension.
+                // Or better: keep only known IDs? No, too risky for generic sites.
+                // Let's iterate and delete known junk.
+                const params = Array.from(url.searchParams.keys());
+                for (const p of params) {
+                    if (junkParams.includes(p) || p.startsWith('utm_') || p.startsWith('ga_')) {
+                        url.searchParams.delete(p);
+                    }
+                }
+
+                // Strategy 3: Hash handling (some SPAs use hash for routing, others for anchors)
+                // We'll keep the hash if it looks like a route (starts with #/)
+                if (url.hash && !url.hash.startsWith('#/')) {
+                    url.hash = '';
+                }
+
+                // Append duration to differentiate same-url but different-content (rare but possible)
+                // Use a coarser duration (e.g. nearest 10s) to allow for slight encoding variations?
+                // No, legacy logic used Math.floor. Let's stick to that for compatibility,
+                // but rely mostly on the cleaner URL.
+                return `vps_${url.href}_${Math.floor(duration)}`;
+            } catch (e) {
+                return `vps_${urlStr}_${Math.floor(duration)}`;
+            }
         }
-    };
+
+        static getSmartTitle() {
+            // 1. OG Title (often cleanest)
+            const og = document.querySelector('meta[property="og:title"]');
+            if (og && og.content) return og.content;
+
+            // 2. H1 (semantic main title)
+            const h1 = document.querySelector('h1');
+            if (h1 && h1.innerText) return h1.innerText;
+
+            // 3. Document Title (cleaned)
+            let title = document.title;
+            // Remove common suffixes like " - YouTube", " | Netflix"
+            title = title.replace(/ - .*/, '').replace(/ \| .*/, '');
+            return title || 'Unknown Video';
+        }
+    }
 
     /**
-     * --- DIALOG MODULE ---
+     * ContextDetector (Swarm Edition + Smart ID)
      */
-    const Dialog = {
-        currentOpenDialog: null,
-        show(options) {
-            if (this.currentOpenDialog) {
-                this.close(this.currentOpenDialog);
+    class ContextDetector {
+        constructor() {
+            this.handleMessage = this.handleMessage.bind(this);
+            window.addEventListener('message', this.handleMessage);
+            this.cachedContext = null;
+        }
+
+        handleMessage(event) {
+            if (event.data?.type === 'VPS_WHO_AM_I') {
+                event.source.postMessage({
+                    type: 'VPS_CONTEXT_RESPONSE',
+                    context: {
+                        url: window.location.href,
+                        title: SmartContext.getSmartTitle() // Use smart title
+                    }
+                }, event.origin);
             }
-            return new Promise((resolve) => {
-                const overlay = document.createElement('div');
-                overlay.className = 'vps-dialog-overlay';
+        }
 
-                const dialog = document.createElement('div');
-                dialog.className = 'vps-dialog';
-                dialog.innerHTML = `
-                    ${options.showCloseButton ? '<button class="vps-dialog-close-btn" title="Close">&times;</button>' : ''}
-                    <div class="vps-dialog-header">${options.title}</div>
-                    <div class="vps-dialog-body">${options.body || ''}</div>
-                    <div class="vps-dialog-footer"></div>
-                `;
+        async getContext() {
+            if (this.cachedContext) return this.cachedContext;
 
-                if (options.showCloseButton) {
-                    dialog.querySelector('.vps-dialog-close-btn').onclick = () => {
-                        resolve({ button: 'close' });
-                        this.close(overlay);
-                    };
-                }
+            if (window === window.top) {
+                this.cachedContext = {
+                    url: window.location.href,
+                    title: SmartContext.getSmartTitle()
+                };
+                return this.cachedContext;
+            }
 
-                const footer = dialog.querySelector('.vps-dialog-footer');
-                if (options.buttons && options.buttons.length > 0) {
-                    (options.buttons || []).forEach(btn => {
-                        const button = document.createElement('button');
-                        button.className = `vps-dialog-button ${btn.class || 'secondary'}`;
-                        button.id = `vps-dialog-btn-${btn.id}`;
-                        button.innerHTML = btn.text; // Use innerHTML to support icons
-                        button.onclick = () => {
-                            const result = { button: btn.id };
-                            if (options.form) {
-                                result.formData = {};
-                                dialog.querySelectorAll('[name]').forEach(input => { result.formData[input.name] = input.value; });
-                            }
-                            // Don't close on test button
-                            if (btn.id !== 'test') {
-                                resolve(result);
-                                this.close(overlay);
-                            }
-                        };
-                        footer.appendChild(button);
-                    });
-                } else {
-                    footer.style.display = 'none';
-                }
+            try {
+                this.cachedContext = await this.askTopFrame();
+            } catch (e) {
+                // Fallback
+                let url = document.referrer || location.href;
+                this.cachedContext = { url, title: SmartContext.getSmartTitle() };
+            }
 
-                overlay.onclick = (e) => {
-                    if (e.target === overlay && options.cancellable) {
-                        resolve({ button: 'cancel' });
-                        this.close(overlay);
+            return this.cachedContext;
+        }
+
+        askTopFrame() {
+            return new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => reject('Timeout'), 500); // Faster timeout
+                const handler = (event) => {
+                    if (event.data?.type === 'VPS_CONTEXT_RESPONSE') {
+                        clearTimeout(timeout);
+                        window.removeEventListener('message', handler);
+                        resolve(event.data.context);
+                    }
+                };
+                window.addEventListener('message', handler);
+                window.top.postMessage({ type: 'VPS_WHO_AM_I' }, '*');
+            });
+        }
+    }
+
+    /**
+     * VideoDB
+     * IndexedDB Wrapper
+     */
+    class VideoDB {
+        constructor() {
+            this.dbName = DB_NAME;
+            this.storeName = STORE_NAME;
+            this.dbParam = null;
+        }
+
+        async init() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(this.dbName, 2);
+
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(this.storeName)) {
+                        db.createObjectStore(this.storeName, { keyPath: 'id' });
                     }
                 };
 
-                overlay.appendChild(dialog);
-                document.body.appendChild(overlay);
-                this.currentOpenDialog = overlay;
+                request.onsuccess = (event) => {
+                    this.dbParam = event.target.result;
+                    this.pruneOldEntries();
+                    resolve();
+                };
 
-                setTimeout(() => {
-                    overlay.classList.add('vps-show');
-                    if (options.onOpen) {
-                        options.onOpen(dialog);
-                    }
-                }, 10);
+                request.onerror = (event) => reject(event.target.error);
             });
-        },
-
-        close(overlay) {
-            if (!overlay) return;
-            overlay.classList.remove('vps-show');
-            setTimeout(() => overlay.remove(), 300);
-            if (overlay === this.currentOpenDialog) {
-                this.currentOpenDialog = null;
-            }
-        },
-
-        showLoader(title) {
-            const overlay = document.createElement('div');
-            overlay.className = 'vps-dialog-overlay vps-show';
-            overlay.innerHTML = `
-                <div class="vps-dialog">
-                    <div class="vps-dialog-header">${title}</div>
-                    <div class="vps-dialog-body"><p>Please wait...</p></div>
-                </div>
-            `;
-            document.body.appendChild(overlay);
-            return { close: () => this.close(overlay) };
         }
-    };
+
+        async pruneOldEntries() {
+            if (!this.dbParam) return;
+            const transaction = this.dbParam.transaction([this.storeName], 'readwrite');
+            const store = transaction.objectStore(this.storeName);
+            const cutoff = Date.now() - (PRUNE_DAYS * 24 * 60 * 60 * 1000);
+
+            const request = store.openCursor();
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    const entry = cursor.value;
+                    if (entry.lastUpdated && entry.lastUpdated < cutoff) {
+                        cursor.delete();
+                    }
+                    cursor.continue();
+                }
+            };
+        }
+
+        async deleteEntry(id) {
+            if (!this.dbParam) await this.init();
+            return new Promise((resolve, reject) => {
+                const transaction = this.dbParam.transaction([this.storeName], 'readwrite');
+                const store = transaction.objectStore(this.storeName);
+                const request = store.delete(id);
+                transaction.oncomplete = () => resolve();
+                transaction.onerror = () => reject('Delete failed');
+            });
+        }
+
+
+
+        async saveProgress(id, data) {
+            if (!this.dbParam) await this.init();
+            return new Promise((resolve, reject) => {
+                const bgTransaction = this.dbParam.transaction([this.storeName], 'readwrite');
+                const store = bgTransaction.objectStore(this.storeName);
+                const entry = {
+                    id,
+                    ...data,
+                    timestamp: data.time,
+                    lastUpdated: Date.now()
+                };
+                store.put(entry);
+                bgTransaction.oncomplete = () => resolve();
+                bgTransaction.onerror = () => reject('DB Error');
+            });
+        }
+
+        async markPendingSync(id, isPending) {
+            if (!this.dbParam) await this.init();
+            return new Promise((resolve) => {
+                const transaction = this.dbParam.transaction([this.storeName], 'readwrite');
+                const store = transaction.objectStore(this.storeName);
+                const req = store.get(id);
+                req.onsuccess = () => {
+                    if (req.result) {
+                        const entry = req.result;
+                        entry.pendingSync = isPending;
+                        store.put(entry);
+                    }
+                    resolve();
+                };
+            });
+        }
+
+        async getPendingSyncs() {
+            if (!this.dbParam) await this.init();
+            return new Promise((resolve) => {
+                const transaction = this.dbParam.transaction([this.storeName], 'readonly');
+                const store = transaction.objectStore(this.storeName);
+                const request = store.openCursor();
+                const pending = [];
+                request.onsuccess = (event) => {
+                    const cursor = event.target.result;
+                    if (cursor) {
+                        if (cursor.value.pendingSync) pending.push(cursor.value);
+                        cursor.continue();
+                    } else {
+                        resolve(pending);
+                    }
+                };
+            });
+        }
+
+        async getProgress(id) {
+            if (!this.dbParam) await this.init();
+            return new Promise((resolve) => {
+                const transaction = this.dbParam.transaction([this.storeName], 'readonly');
+                const store = transaction.objectStore(this.storeName);
+                const query = store.get(id);
+                query.onsuccess = () => resolve(query.result);
+                query.onerror = () => resolve(null);
+            });
+        }
+
+        async getAll() {
+            if (!this.dbParam) await this.init();
+            return new Promise((resolve) => {
+                const transaction = this.dbParam.transaction([this.storeName], 'readonly');
+                const store = transaction.objectStore(this.storeName);
+                const query = store.getAll();
+                query.onsuccess = () => resolve(query.result);
+            });
+        }
+
+        async clearAll() {
+            if (!this.dbParam) await this.init();
+            return new Promise((resolve) => {
+                const transaction = this.dbParam.transaction([this.storeName], 'readwrite');
+                const store = transaction.objectStore(this.storeName);
+                store.clear();
+                transaction.oncomplete = () => resolve();
+            });
+        }
+
+        async importData(jsonData) {
+            if (!this.dbParam) await this.init();
+            return new Promise((resolve, reject) => {
+                let items;
+                try {
+                    items = JSON.parse(jsonData);
+                    if (!Array.isArray(items)) throw new Error("Invalid Format");
+                } catch (e) { return reject("Invalid JSON"); }
+
+                const transaction = this.dbParam.transaction([this.storeName], 'readwrite');
+                const store = transaction.objectStore(this.storeName);
+
+                let count = 0;
+                items.forEach(item => {
+                    if (item.id && item.time !== undefined) {
+                        store.put(item);
+                        count++;
+                    }
+                });
+
+                transaction.oncomplete = () => resolve(count);
+                transaction.onerror = () => reject("Transaction Failed");
+            });
+        }
+    }
+
+
 
     /**
-     * --- FIREBASE AUTH MODULE ---
+     * Auth (Firebase Token Management)
      */
     const Auth = {
         getApiKey(config) { return config.apiKey; },
@@ -401,742 +362,1276 @@
             const apiKey = this.getApiKey(config);
             if (!apiKey) return null;
             const url = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`;
-            try {
-                const response = await fetch(url, {
+            return new Promise(resolve => {
+                GM_xmlhttpRequest({
                     method: 'POST',
+                    url: url,
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ returnSecureToken: true })
+                    data: JSON.stringify({ returnSecureToken: true }),
+                    onload: async (res) => {
+                        if (res.status !== 200) {
+                            console.error('VPS: Anonymous login failed', res.responseText);
+                            return resolve(null);
+                        }
+                        try {
+                            const data = JSON.parse(res.responseText);
+                            const tokenData = {
+                                apiKey: apiKey,
+                                idToken: data.idToken,
+                                refreshToken: data.refreshToken,
+                                expiresAt: Date.now() + (parseInt(data.expiresIn) * 1000) - 30000
+                            };
+                            await GM_setValue('vps_firebase_auth_token', tokenData);
+                            resolve(tokenData.idToken);
+                        } catch (e) { resolve(null); }
+                    },
+                    onerror: (e) => { console.error('VPS: Login Net Error', e); resolve(null); }
                 });
-                if (!response.ok) {
-                    console.error('VPS: Anonymous login failed', await response.text());
-                    return null;
-                }
-                const data = await response.json();
-                const tokenData = {
-                    apiKey: apiKey,
-                    idToken: data.idToken,
-                    refreshToken: data.refreshToken,
-                    expiresAt: Date.now() + (parseInt(data.expiresIn) * 1000) - 30000 // 30s buffer
-                };
-                await GM_setValue('vps_firebase_auth_token', tokenData);
-                return tokenData.idToken;
-            } catch (e) {
-                console.error('VPS: Anonymous login network error', e);
-                return null;
-            }
+            });
         },
         async refreshToken(config, refreshToken) {
             const apiKey = this.getApiKey(config);
             const url = `https://securetoken.googleapis.com/v1/token?key=${apiKey}`;
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ grant_type: 'refresh_token', refresh_token: refreshToken })
-                });
-                if (!response.ok) {
-                    console.error('VPS: Token refresh failed', await response.text());
-                    return await this.anonymousLogin(config);
-                }
-                const data = await response.json();
-                const tokenData = {
-                    apiKey: apiKey,
-                    idToken: data.id_token,
-                    refreshToken: data.refresh_token,
-                    expiresAt: Date.now() + (parseInt(data.expires_in) * 1000) - 30000 // 30s buffer
-                };
-                await GM_setValue('vps_firebase_auth_token', tokenData);
-                return tokenData.idToken;
-            } catch (e) {
-                console.error('VPS: Token refresh network error', e);
-                return await this.anonymousLogin(config); // Fallback to new login
-            }
-        }
-    };
-
-    /**
-     * --- FIREBASE SYNC MODULE ---
-     */
-    const Firebase = {
-        config: { enabled: false, databaseURL: '', path: '', projectId: '', apiKey: '', databaseSecret: '' },
-        async init() {
-            const storedConfig = await GM_getValue(CONFIG.FIREBASE_CONFIG_KEY, {});
-            this.config = { ...this.config, ...storedConfig };
-        },
-        isEnabled() { return this.config.enabled && this.config.databaseURL && this.config.path; },
-        _getSafeKey(key) { return encodeURIComponent(key).replace(/\\./g, '%2E'); },
-
-        async _getUrlWithAuth(baseUrl, config) {
-            const effectiveConfig = config || this.config;
-
-            // Priority 1: Use Database Secret if provided.
-            if (effectiveConfig.databaseSecret) {
-                const separator = baseUrl.includes('?') ? '&' : '?';
-                return `${baseUrl}${separator}auth=${effectiveConfig.databaseSecret}`;
-            }
-
-            // Priority 2: Use API Key token auth.
-            if (effectiveConfig.apiKey) {
-                const token = await Auth.getToken(effectiveConfig);
-                if (token) {
-                    const separator = baseUrl.includes('?') ? '&' : '?';
-                    return `${baseUrl}${separator}auth=${token}`;
-                }
-            }
-
-            // Fallback: No auth.
-            return baseUrl;
-        },
-
-        async get(key) {
-            if (!this.isEnabled()) return null;
-            const baseUrl = `${this.config.databaseURL}/${this.config.path}/${this._getSafeKey(key)}.json`;
-            const url = await this._getUrlWithAuth(baseUrl);
-            const response = await fetch(url, { method: 'GET', mode: 'cors' });
-            return response.ok ? await response.json() : null;
-        },
-        async set(key, data) {
-            if (!this.isEnabled()) return;
-            const baseUrl = `${this.config.databaseURL}/${this.config.path}/${this._getSafeKey(key)}.json`;
-            const url = await this._getUrlWithAuth(baseUrl);
-            await fetch(url, { method: 'PUT', mode: 'cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-        },
-        async getAll() {
-            if (!this.isEnabled()) return null;
-            const baseUrl = `${this.config.databaseURL}/${this.config.path}.json`;
-            const url = await this._getUrlWithAuth(baseUrl);
-            const response = await fetch(url, { method: 'GET', mode: 'cors' });
-            return response.ok ? (await response.json() || {}) : null;
-        },
-        async setAll(data) {
-            if (!this.isEnabled()) return;
-            const baseUrl = `${this.config.databaseURL}/${this.config.path}.json`;
-            const url = await this._getUrlWithAuth(baseUrl);
-            await fetch(url, { method: 'PUT', mode: 'cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-        },
-        async delete(key) {
-            if (!this.isEnabled()) return;
-            const baseUrl = `${this.config.databaseURL}/${this.config.path}/${this._getSafeKey(key)}.json`;
-            const url = await this._getUrlWithAuth(baseUrl);
-            await fetch(url, { method: 'DELETE', mode: 'cors' });
-        },
-        async testConnection(testConfig) {
-            if (!testConfig.databaseURL || !testConfig.path) {
-                return { success: false, error: 'Database URL and Path are required.' };
-            }
-            try {
-                let debugInfo = '';
-                let token = null;
-
-                // Step 1: Try to get a token if API key is present
-                if (testConfig.apiKey) {
-                    debugInfo = 'Attempting to get authentication token... ';
-                    token = await Auth.getToken(testConfig);
-                    if (token) {
-                        debugInfo += 'OK. ';
-                    } else {
-                        return { success: false, error: 'Failed to retrieve an authentication token. This is the most common point of failure. Please RE-VERIFY that your API Key is correct and that the "Identity Platform" API is enabled in your Google Cloud project console for this project.' };
-                    }
-                } else {
-                    debugInfo = 'No API Key provided. Attempting unauthenticated access. ';
-                }
-
-                debugInfo += 'Connecting to database... ';
-                const baseUrl = `${testConfig.databaseURL}/${testConfig.path}.json?shallow=true&timeout=5s`;
-                const url = await this._getUrlWithAuth(baseUrl, testConfig);
-
-                const response = await fetch(url, { method: 'GET', mode: 'cors' });
-
-                if (response.ok) {
-                    return { success: true, message: 'Connection successful!' }; // Return a success message
-                }
-
-                // If it fails, provide the debug info
-                const errorText = await response.text();
-                try {
-                    const errorJson = JSON.parse(errorText);
-                    let errorMessage = errorJson.error || 'Unknown error.';
-
-                    if (token) {
-                         errorMessage = `Got auth token, but request was denied. Error: "${errorMessage}". This means authentication worked, but your database security rules are still blocking access. Please ensure the rules are applied to the ROOT of your database and are exactly: \`{ "rules": { ".read": "auth != null", ".write": "auth != null" } }\`. Also, re-verify your Database URL is correct.`;
-                    } else {
-                         errorMessage = `Request was denied without an auth token. Error: "${errorMessage}". Your rules likely require authentication, but no API key was provided or it failed.`;
-                    }
-                    return { success: false, error: errorMessage };
-                } catch (e) {
-                    return { success: false, error: `Received an invalid response from the server (HTTP ${response.status}). Please check your Database URL.` };
-                }
-            } catch (e) {
-                return { success: false, error: `A network error occurred: ${e.message}. This could be a typo in the URL, a firewall, or a network connectivity issue.` };
-            }
-        }
-    };
-
-    /**
-     * --- STORAGE MODULE ---
-     */
-    const Storage = {
-        async get(key) { return await GM_getValue(key, null); },
-        async set(key, value) { return await GM_setValue(key, value); },
-        async getAll() { return await GM_getValue(CONFIG.STORAGE_KEY, {}); },
-        async saveAll(data) { return await this.set(CONFIG.STORAGE_KEY, data); },
-        async getEntry(videoKey) {
-            const localData = (await this.getAll())[videoKey] || null;
-            if (!Firebase.isEnabled()) return localData;
-            const remoteData = await Firebase.get(videoKey);
-            if (!localData && !remoteData) return null;
-            if (localData && !remoteData) return localData;
-            if (!localData && remoteData) return remoteData;
-            return localData.lastUpdate > remoteData.lastUpdate ? localData : remoteData;
-        },
-        async updateEntry(videoKey, entryData) {
-            const allData = await this.getAll();
-            const newEntry = { ...allData[videoKey], ...entryData, id: allData[videoKey]?.id || Date.now(), lastUpdate: Date.now(), userAgent: navigator.userAgent };
-            allData[videoKey] = newEntry;
-            await this.saveAll(allData);
-            if (Firebase.isEnabled()) await Firebase.set(videoKey, newEntry);
-        },
-        async deleteEntry(videoKey) {
-            const allData = await this.getAll();
-            delete allData[videoKey];
-            await this.saveAll(allData);
-            if (Firebase.isEnabled()) await Firebase.delete(videoKey);
-        }
-    };
-
-    /**
-     * --- UI MODULE ---
-     */
-    const UI = {
-        init() {
-            Meta.addViewport();
-            GM_addStyle(UI_STYLES);
-        },
-        showRestoredMessage(videoElement, timestamp) {
-            const container = videoElement.parentElement;
-            if (!container) return;
-            if (getComputedStyle(container).position === 'static') container.style.position = 'relative';
-            const toast = document.createElement('div');
-            toast.className = 'vps-restore-toast';
-            const minutes = Math.floor(timestamp / 60);
-            const seconds = Math.floor(timestamp % 60).toString().padStart(2, '0');
-            toast.innerHTML = `${ICONS.RESTORE}<span>Restored to ${minutes}:${seconds}</span>`;
-            container.appendChild(toast);
-            setTimeout(() => toast.classList.add('vps-show'), 100);
-            setTimeout(() => { toast.classList.remove('vps-show'); setTimeout(() => toast.remove(), 600); }, 4000);
-        }
-    };
-
-    /**
-     * --- VIDEO MANAGER MODULE ---
-     */
-    const VideoManager = {
-        trackedVideos: new WeakSet(),
-        init() {
-            this.discoverVideos();
-            new MutationObserver(() => this.discoverVideos()).observe(document.body, { childList: true, subtree: true });
-        },
-        discoverVideos() {
-            document.querySelectorAll('video').forEach(video => {
-                if (window.location.hostname.includes('youtube.com')) {
-                    if (!video.closest('#movie_player')) {
-                        return; // It's a YouTube preview/thumbnail video, ignore it.
-                    }
-                }
-                if (!this.trackedVideos.has(video) && video.src) this.trackVideo(video);
-            });
-        },
-        getVideoKey() {
-            try {
-                const topUrl = new URL(window.top.location.href);
-                if (topUrl.hostname.includes('youtube.com') && topUrl.pathname === '/watch') {
-                    const videoId = topUrl.searchParams.get('v');
-                    if (videoId) return `youtube_${videoId}`;
-                }
-                return window.top.location.href;
-            } catch (e) { return window.location.href; }
-        },
-        trackVideo(video) {
-            this.trackedVideos.add(video);
-            let lastSavedTime = -1;
-
-            const getTopLevelInfo = () => {
-                try {
-                    const url = window.top.location.href;
-                    return { pageTitle: window.top.document.title, pageUrl: url };
-                } catch (e) {
-                    return { pageTitle: document.title, pageUrl: window.location.href };
-                }
-            };
-
-            const getInfo = () => ({
-                ...getTopLevelInfo(),
-                timestamp: video.currentTime,
-                duration: video.duration,
-                videoSrc: video.src
-            });
-
-            video.addEventListener('loadedmetadata', async () => {
-                if (video.duration <= CONFIG.MIN_VIDEO_DURATION_SECONDS) return;
-                const data = await Storage.getEntry(this.getVideoKey());
-                if (data && !data.completed && data.timestamp > 0 && data.timestamp < data.duration - 5) {
-                    video.currentTime = data.timestamp;
-                    UI.showRestoredMessage(video, data.timestamp);
-                }
-            }, { once: true });
-
-            video.addEventListener('timeupdate', async () => {
-                if (video.paused || video.seeking || video.ended || video.duration <= CONFIG.MIN_VIDEO_DURATION_SECONDS) return;
-                if (Math.abs(video.currentTime - lastSavedTime) > CONFIG.SAVE_INTERVAL_SECONDS) {
-                    lastSavedTime = video.currentTime;
-                    const isCompleted = (video.duration - video.currentTime) < CONFIG.COMPLETION_THRESHOLD_SECONDS;
-                    await Storage.updateEntry(this.getVideoKey(), { ...getInfo(), completed: isCompleted });
-                }
-            });
-
-            video.addEventListener('pause', async () => {
-                if (video.duration <= CONFIG.MIN_VIDEO_DURATION_SECONDS || video.currentTime < 1) return;
-                const isCompleted = (video.duration - video.currentTime) < CONFIG.COMPLETION_THRESHOLD_SECONDS;
-                await Storage.updateEntry(this.getVideoKey(), { ...getInfo(), completed: isCompleted });
-            });
-        }
-    };
-
-    /**
-     * --- MENU MODULE ---
-     */
-    const Menu = {
-        init() {
-            if (window.self !== window.top) return;
-            GM_registerMenuCommand('⚙️ Configure Sync', () => this.configureSync());
-            GM_registerMenuCommand('🔄 Sync Now', () => this.syncNow());
-            GM_registerMenuCommand('👁️ Watching History', () => this.showHistory());
-        },
-
-        async showHistory() {
-            if (window.self !== window.top) return;
-
-            let allData = await Storage.getAll();
-            let selectedKeys = new Set();
-            let currentSort = 'lastUpdate-desc';
-            let currentSearch = '';
-
-            const titleHtml = `
-                <div style="display: flex; align-items: center; gap: 15px; width: 100%;">
-                    <span style="display: flex; align-items: center; gap: 8px;">${ICONS.EYE} Watching History</span>
-                    <div class="vps-dialog-header-actions">
-                        <button class="vps-header-button" id="vps-export-btn" title="Export All Progress">${ICONS.EXPORT}</button>
-                        <button class="vps-header-button" id="vps-import-btn" title="Import All Progress">${ICONS.IMPORT}</button>
-                        <button class="vps-header-button" id="vps-clear-btn" title="Clear Local Progress">${ICONS.TRASH}</button>
-                    </div>
-                </div>
-            `;
-
-            const bodyHtml = `
-                <div class="vps-history-controls">
-                    <input type="search" class="vps-history-search" placeholder="Search by title...">
-                    <select class="vps-history-sort">
-                        <option value="lastUpdate-desc">Last Updated</option>
-                        <option value="title-asc">Title (A-Z)</option>
-                        <option value="title-desc">Title (Z-A)</option>
-                        <option value="progress-desc">Progress (Most)</option>
-                        <option value="progress-asc">Progress (Least)</option>
-                    </select>
-                </div>
-                <div class="vps-history-list"></div>
-            `;
-
-            Dialog.show({
-                title: titleHtml,
-                body: bodyHtml,
-                cancellable: true,
-                showCloseButton: true,
-                onOpen: (dialog) => {
-                    const bulkActionBar = document.createElement('div');
-                    bulkActionBar.className = 'vps-bulk-actions-bar';
-                    dialog.querySelector('.vps-dialog-body').after(bulkActionBar);
-
-                    const listEl = dialog.querySelector('.vps-history-list');
-                    const searchInput = dialog.querySelector('.vps-history-search');
-                    const sortSelect = dialog.querySelector('.vps-history-sort');
-
-                    const updateBulkActionBar = () => {
-                        if (selectedKeys.size > 0) {
-                            bulkActionBar.innerHTML = `
-                                <span>${selectedKeys.size} item${selectedKeys.size > 1 ? 's' : ''} selected</span>
-                                <button class="vps-dialog-button danger" id="vps-bulk-delete-btn">${ICONS.TRASH} Delete Selected</button>
-                            `;
-                            bulkActionBar.classList.add('vps-show');
-                            bulkActionBar.querySelector('#vps-bulk-delete-btn').onclick = handleBulkDelete;
-                        } else {
-                            bulkActionBar.classList.remove('vps-show');
-                        }
-                    };
-
-                    const renderList = () => {
-                        const filtered = Object.entries(allData).filter(([key, data]) =>
-                            data && data.pageTitle && data.pageTitle.toLowerCase().includes(currentSearch.toLowerCase())
-                        );
-
-                        const sorters = {
-                            'lastUpdate-desc': (a, b) => (b[1]?.lastUpdate || 0) - (a[1]?.lastUpdate || 0),
-                            'title-asc': (a, b) => (a[1]?.pageTitle || '').localeCompare(b[1]?.pageTitle || ''),
-                            'title-desc': (a, b) => (b[1]?.pageTitle || '').localeCompare(a[1]?.pageTitle || ''),
-                            'progress-desc': (a, b) => {
-                                const progressB = b[1]?.duration ? (b[1].timestamp / b[1].duration) : 0;
-                                const progressA = a[1]?.duration ? (a[1].timestamp / a[1].duration) : 0;
-                                return (progressB || 0) - (progressA || 0);
-                            },
-                            'progress-asc': (a, b) => {
-                                const progressA = a[1]?.duration ? (a[1].timestamp / a[1].duration) : 0;
-                                const progressB = b[1]?.duration ? (b[1].timestamp / b[1].duration) : 0;
-                                return (progressA || 0) - (progressB || 0);
-                            },
-                        };
-                        filtered.sort(sorters[currentSort]);
-
-                        if (filtered.length === 0) {
-                            listEl.innerHTML = `<div class="vps-history-empty">${ICONS.EYE}<div>No history found.</div></div>`;
-                        } else {
-                            listEl.innerHTML = filtered.map(([key, data]) => this.createHistoryItemHtml(key, data, selectedKeys.has(key))).join('');
-                        }
-                        attachItemListeners();
-                        updateBulkActionBar();
-                    };
-
-                    const handleItemCheckboxChange = (e) => {
-                        const key = e.target.dataset.key;
-                        if (e.target.checked) {
-                            selectedKeys.add(key);
-                        } else {
-                            selectedKeys.delete(key);
-                        }
-                        updateBulkActionBar();
-                    };
-
-                    const handleSingleDelete = async (e) => {
-                        const itemEl = e.target.closest('.vps-history-item');
-                        const videoKey = itemEl.dataset.key;
-                        const { button: confirmButton } = await Dialog.show({
-                            title: 'Confirm Deletion',
-                            body: '<p>Are you sure you want to delete this entry?</p>',
-                            buttons: [{id: 'cancel', text: 'Cancel'}, {id: 'ok', text: 'Delete', class: 'danger'}]
-                        });
-                        if (confirmButton === 'ok') {
-                            await Storage.deleteEntry(videoKey);
-                            delete allData[videoKey];
-                            selectedKeys.delete(videoKey);
-                            renderList();
-                        }
-                    };
-
-                    const handleBulkDelete = async () => {
-                        const { button: confirmButton } = await Dialog.show({
-                            title: `Delete ${selectedKeys.size} Items?`,
-                            body: `<p>Are you sure you want to delete the ${selectedKeys.size} selected entries?</p>`,
-                            buttons: [{id: 'cancel', text: 'Cancel'}, {id: 'ok', text: 'Delete', class: 'danger'}]
-                        });
-                        if (confirmButton === 'ok') {
-                            const loader = Dialog.showLoader('Deleting...');
-                            for (const key of selectedKeys) {
-                                await Storage.deleteEntry(key);
-                                delete allData[key];
-                            }
-                            selectedKeys.clear();
-                            loader.close();
-                            renderList();
-                        }
-                    };
-
-                    function attachItemListeners() {
-                        listEl.querySelectorAll('.vps-history-item-checkbox').forEach(el => el.onchange = handleItemCheckboxChange);
-                        listEl.querySelectorAll('.vps-history-item-delete').forEach(el => el.onclick = handleSingleDelete);
-                    }
-
-                    searchInput.oninput = (e) => { currentSearch = e.target.value; renderList(); };
-                    sortSelect.onchange = (e) => { currentSort = e.target.value; renderList(); };
-
-                    dialog.querySelector('#vps-export-btn').onclick = () => this.exportData();
-                    dialog.querySelector('#vps-import-btn').onclick = async () => {
-                        if (await this.importData()) {
-                            allData = await Storage.getAll();
-                            renderList();
-                        }
-                    };
-                    dialog.querySelector('#vps-clear-btn').onclick = async () => {
-                        if (await this.clearData()) {
-                            allData = {};
-                            selectedKeys.clear();
-                            renderList();
-                        }
-                    };
-
-                    renderList();
-                }
-            });
-        },
-
-        getFaviconUrl(pageUrl) {
-            try {
-                const url = new URL(pageUrl);
-                return `https://www.google.com/s2/favicons?sz=32&domain_url=${url.hostname}`;
-            } catch (e) {
-                return '';
-            }
-        },
-
-        createHistoryItemHtml(key, data, isSelected) {
-            const { pageTitle, pageUrl, timestamp, duration, lastUpdate, completed } = data;
-            const progressPercent = duration > 0 ? (timestamp / duration) * 100 : 0;
-
-            const formatTime = (seconds) => {
-                if (isNaN(seconds) || seconds === null) return '00:00';
-                const h = Math.floor(seconds / 3600);
-                const m = Math.floor((seconds % 3600) / 60);
-                const s = Math.floor(seconds % 60);
-                return h > 0
-                    ? `${h.toString()}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-                    : `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-            };
-
-            const timeMeta = completed
-                ? `<span class="vps-history-item-completed" style="display: flex; align-items: center; gap: 4px;">${ICONS.CHECK} Completed</span>`
-                : `${formatTime(timestamp)} / ${formatTime(duration)}`;
-
-            const lastUpdateDate = lastUpdate ? new Date(lastUpdate).toLocaleString() : 'N/A';
-            const progressTooltip = `${timeMeta} (${Math.round(completed ? 100 : progressPercent)}%)`;
-
-            return `
-                <div class="vps-history-item" data-key="${key}">
-                    <input type="checkbox" class="vps-history-item-checkbox" data-key="${key}" ${isSelected ? 'checked' : ''}>
-                    <img src="${this.getFaviconUrl(pageUrl)}" class="vps-history-item-favicon" alt="">
-                    <div class="vps-history-item-title"><a href="${pageUrl}" target="_blank" title="${pageUrl}">${pageTitle || 'Untitled'}</a></div>
-                    <div class="vps-history-item-progress-bar-container" title="${progressTooltip}">
-                        <div class="vps-history-item-progress-bar" style="width: ${completed ? 100 : progressPercent}%;"></div>
-                    </div>
-                    <div class="vps-history-item-meta">
-                        <span>${timeMeta}</span> &bull; <span>${lastUpdateDate}</span>
-                    </div>
-                    <button class="vps-history-item-delete" title="Delete Entry">${ICONS.TRASH}</button>
-                </div>
-            `;
-        },
-
-        async configureSync() {
-            const config = await Storage.get(CONFIG.FIREBASE_CONFIG_KEY) || {};
-            const formHtml = `
-                <div class="vps-config-field">
-                    <label for="vps-dbUrl">Database URL (Required)</label>
-                    <input type="text" id="vps-dbUrl" name="databaseURL" placeholder="https://my-project-default-rtdb.firebaseio.com" value="${config.databaseURL || ''}">
-                    <small>The URL of your Firebase Realtime Database.</small>
-                </div>
-                <div class="vps-config-field">
-                    <label for="vps-path">Collection Path (Required)</label>
-                    <input type="text" id="vps-path" name="path" placeholder="e.g., videoProgress" value="${config.path || 'videoProgress'}">
-                    <small>A name for the data collection, like a folder name.</small>
-                </div>
-                <hr>
-                <p>For authentication, provide <b>either</b> an API Key (recommended) <b>or</b> a Database Secret.</p>
-                <div class="vps-config-field">
-                    <label for="vps-apiKey">API Key (Recommended)</label>
-                    <input type="text" id="vps-apiKey" name="apiKey" placeholder="AIzaSy..." value="${config.apiKey || ''}">
-                    <small>Your Firebase project's Web API Key for token-based authentication.</small>
-                </div>
-                <div class="vps-config-field">
-                    <label for="vps-databaseSecret">Database Secret (Alternative)</label>
-                    <input type="text" id="vps-databaseSecret" name="databaseSecret" placeholder="Your legacy database secret" value="${config.databaseSecret || ''}">
-                    <small>A less secure, deprecated alternative to the API Key.</small>
-                </div>
-                <hr>
-                <p>The fields below are optional and rarely needed.</p>
-                 <div class="vps-config-field">
-                    <label for="vps-apiKey">API Key</label>
-                    <input type="text" id="vps-apiKey" name="apiKey" placeholder="AIzaSy..." value="${config.apiKey || ''}">
-                    <small>Your Firebase project's Web API Key.</small>
-                </div>
-                <div class="vps-config-field">
-                    <label for="vps-projectId">Project ID</label>
-                    <input type="text" id="vps-projectId" name="projectId" placeholder="e.g., my-cool-project" value="${config.projectId || ''}">
-                    <small>Your Google Cloud project ID.</small>
-                </div>
-                <div class="vps-config-field">
-                    <label for="vps-authDomain">Auth Domain</label>
-                    <input type="text" id="vps-authDomain" name="authDomain" placeholder="my-project.firebaseapp.com" value="${config.authDomain || ''}">
-                    <small>Your project's authentication domain.</small>
-                </div>
-                <div class="vps-config-field">
-                    <label for="vps-storageBucket">Storage Bucket</label>
-                    <input type="text" id="vps-storageBucket" name="storageBucket" placeholder="my-project.appspot.com" value="${config.storageBucket || ''}">
-                    <small>Your project's Cloud Storage bucket.</small>
-                </div>
-                <div id="vps-test-connection-result"></div>
-            `;
-
-            const dialogPromise = Dialog.show({
-                title: `<span style="display: flex; align-items: center; gap: 8px;">${ICONS.GEAR} Configure Sync</span>`,
-                cancellable: true,
-                showCloseButton: true,
-                form: true,
-                body: formHtml,
-                buttons: [
-                    ...(config.enabled ? [{ id: 'disable', text: `${ICONS.TRASH}<span class="vps-button-text">Disable Sync</span>`, class: 'danger' }] : []),
-                    { id: 'test', text: `${ICONS.WIFI}<span class="vps-button-text">Test Connection</span>`, class: 'secondary' },
-                    { id: 'cancel', text: `${ICONS.CLOSE}<span class="vps-button-text">Cancel</span>`, class: 'secondary' },
-                    { id: 'save', text: `${ICONS.CHECK}<span class="vps-button-text">Save & Reload</span>`, class: 'primary' }
-                ],
-                onOpen: (dialog) => {
-                    const testBtn = dialog.querySelector('#vps-dialog-btn-test');
-                    const resultEl = dialog.querySelector('#vps-test-connection-result');
-
-                    testBtn.onclick = async () => {
-                        const formData = {};
-                        dialog.querySelectorAll('[name]').forEach(input => { formData[input.name] = input.value; });
-
-                        testBtn.disabled = true;
-                        testBtn.innerHTML = `<span class="vps-spinner"></span><span class="vps-button-text"> Testing...</span>`;
-                        resultEl.style.display = 'none';
-
-                        const result = await Firebase.testConnection(formData);
-
-                        resultEl.textContent = result.success ? 'Connection successful!' : `Error: ${result.error}`;
-                        resultEl.className = result.success ? 'success' : 'error';
-                        resultEl.style.display = 'block';
-
-                        testBtn.disabled = false;
-                        testBtn.innerHTML = `${ICONS.WIFI}<span class="vps-button-text">Test Connection</span>`;
-                    };
-                }
-            });
-
-            const { button, formData } = await dialogPromise;
-
-            if (button === 'save') {
-                try {
-                    const dbURL = formData.databaseURL;
-                    if (!dbURL || typeof dbURL !== 'string') throw new Error('Config must include a "databaseURL" string.');
-                    if (!dbURL.startsWith('https://')) throw new Error('"databaseURL" must start with https://');
-                    if (!dbURL.includes('.firebaseio.com') && !dbURL.includes('.firebasedatabase.app')) {
-                        throw new Error('"databaseURL" does not appear to be a valid Firebase URL.');
-                    }
-                    if (!formData.path) throw new Error('Collection path is required.');
-
-                    const newConfig = {
-                        enabled: true,
-                        apiKey: formData.apiKey || '',
-                        authDomain: formData.authDomain || '',
-                        databaseURL: dbURL,
-                        projectId: formData.projectId || '',
-                        storageBucket: formData.storageBucket || '',
-                        databaseSecret: formData.databaseSecret || '',
-                        path: formData.path.replace(/^\/|\/$/g, '')
-                    };
-
-                    await Storage.set(CONFIG.FIREBASE_CONFIG_KEY, newConfig);
-                    await Dialog.show({ title: 'Success', body: '<p>Firebase sync configured. The page will now reload.</p>', buttons: [{id: 'ok', text: 'OK', class: 'primary'}] });
-                    location.reload();
-                } catch (e) { await Dialog.show({ title: 'Error', body: `<p>Configuration failed: ${e.message}</p>`, buttons: [{id: 'ok', text: 'OK', class: 'primary'}] }); }
-            } else if (button === 'disable') {
-                config.enabled = false;
-                await Storage.set(CONFIG.FIREBASE_CONFIG_KEY, config);
-                await Dialog.show({ title: 'Sync Disabled', body: '<p>Firebase sync has been disabled. The page will reload.</p>', buttons: [{id: 'ok', text: 'OK', class: 'primary'}] });
-                location.reload();
-            }
-        },
-
-        async syncNow() {
-            if (window.self !== window.top) return;
-            if (!Firebase.isEnabled()) return Dialog.show({ title: 'Error', body: '<p>Firebase sync is not configured.</p>', buttons: [{id: 'ok', text: 'OK', class: 'primary'}] });
-            const loader = Dialog.showLoader(`<span style="display: flex; align-items: center; gap: 8px;">${ICONS.SYNC} Syncing Now</span>`);
-            try {
-                const [localData, remoteData] = await Promise.all([Storage.getAll(), Firebase.getAll()]);
-                if (remoteData === null) throw new Error('Could not fetch data from Firebase. Check console.');
-
-                const allKeys = new Set([...Object.keys(localData), ...Object.keys(remoteData)]);
-                const mergedData = {};
-                for (const key of allKeys) {
-                    const local = localData[key], remote = remoteData[key];
-                    if (local && !remote) mergedData[key] = local;
-                    else if (!local && remote) mergedData[key] = remote;
-                    else if (local && remote) mergedData[key] = (local.lastUpdate || 0) > (remote.lastUpdate || 0) ? local : remote;
-                }
-                await Promise.all([Storage.saveAll(mergedData), Firebase.setAll(mergedData)]);
-                loader.close();
-                await Dialog.show({ title: 'Sync Complete', body: '<p>Local and remote data have been merged. Page will reload.</p>', buttons: [{id: 'ok', text: 'OK', class: 'primary'}] });
-                location.reload();
-            } catch (error) {
-                loader.close();
-                await Dialog.show({ title: 'Sync Failed', body: `<p>${error.message}</p>`, buttons: [{id: 'ok', text: 'OK', class: 'primary'}] });
-            }
-        },
-
-        async exportData() {
-            if (window.self !== window.top) return;
-            const data = await Storage.getAll();
-            if (Object.keys(data).length === 0) return Dialog.show({ title: 'Export', body: '<p>No data to export.</p>', buttons: [{id: 'ok', text: 'OK', class: 'primary'}] });
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = `vps-backup-${new Date().toISOString().split('T')[0]}.json`;
-            a.click();
-            URL.revokeObjectURL(a.href);
-            a.remove();
-        },
-
-        async importData() {
-            if (window.self !== window.top) return;
             return new Promise(resolve => {
-                const input = document.createElement('input');
-                input.type = 'file';
-                input.accept = '.json,application/json';
-                input.onchange = async (e) => {
-                    const file = e.target.files[0];
-                    if (!file) return resolve(false);
-                    try {
-                        const data = JSON.parse(await file.text());
-                        if (typeof data !== 'object' || data === null || Array.isArray(data)) throw new Error('Invalid file format.');
-                        const { button } = await Dialog.show({ title: `<span style="display: flex; align-items: center; gap: 8px;">${ICONS.IMPORT} Import Progress</span>`, body: '<p>Overwrite all local progress with the selected file?</p>', buttons: [{id: 'cancel', text: 'Cancel'}, {id: 'ok', text: 'Confirm', class: 'primary'}] });
-                        if (button === 'ok') {
-                            await Storage.saveAll(data);
-                            await Dialog.show({ title: 'Import Successful', body: '<p>Data imported. Use "Sync Now" to push to Firebase if needed.</p>', buttons: [{id: 'ok', text: 'OK', class: 'primary'}] });
-                            resolve(true);
-                        } else {
-                            resolve(false);
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: url,
+                    headers: { 'Content-Type': 'application/json' },
+                    data: JSON.stringify({ grant_type: 'refresh_token', refresh_token: refreshToken }),
+                    onload: async (res) => {
+                        if (res.status !== 200) {
+                            console.error('VPS: Token refresh failed');
+                            return resolve(await this.anonymousLogin(config));
                         }
-                    } catch (error) {
-                        await Dialog.show({ title: 'Import Failed', body: `<p>${error.message}</p>`, buttons: [{id: 'ok', text: 'OK', class: 'primary'}] });
-                        resolve(false);
-                    } finally {
-                        input.remove();
-                    }
-                };
-                input.click();
+                        try {
+                            const data = JSON.parse(res.responseText);
+                            const tokenData = {
+                                apiKey: apiKey,
+                                idToken: data.id_token,
+                                refreshToken: data.refresh_token,
+                                expiresAt: Date.now() + (parseInt(data.expires_in) * 1000) - 30000
+                            };
+                            await GM_setValue('vps_firebase_auth_token', tokenData);
+                            resolve(tokenData.idToken);
+                        } catch (e) { resolve(await this.anonymousLogin(config)); }
+                    },
+                    onerror: () => resolve(null)
+                });
             });
-        },
-
-        async clearData() {
-            if (window.self !== window.top) return;
-            const { button } = await Dialog.show({
-                title: `<span style="display: flex; align-items: center; gap: 8px;">${ICONS.TRASH} Clear Local Progress</span>`,
-                body: '<p>Are you sure you want to delete ALL locally saved progress?</p><p>This does not affect remote data.</p>',
-                buttons: [{id: 'cancel', text: 'Cancel'}, {id: 'ok', text: 'Confirm Clear', class: 'danger'}]
-            });
-            if (button === 'ok') {
-                await Storage.saveAll({});
-                await Dialog.show({ title: 'Success', body: '<p>All local progress has been cleared.</p>', buttons: [{id: 'ok', text: 'OK', class: 'primary'}] });
-                return true;
-            }
-            return false;
         }
     };
 
-    // --- INITIALIZATION ---
-    async function main() {
-        await Firebase.init();
-        UI.init();
-        VideoManager.init();
-        Menu.init();
+    /**
+     * CloudSync (Firebase REST)
+     */
+    class CloudSync {
+        constructor() {
+            // Load full config object or migrate legacy values
+            const stored = GM_getValue('vps_firebase_config', {});
+            // Legacy migrator
+            const legacyUrl = GM_getValue('FIREBASE_URL', '');
+            const legacyAuth = GM_getValue('FIREBASE_AUTH', '');
+
+            if (legacyUrl && !stored.databaseURL) {
+                this.config = {
+                    enabled: true,
+                    databaseURL: legacyUrl,
+                    databaseSecret: legacyAuth,
+                    path: 'videos',
+                    apiKey: ''
+                };
+                GM_setValue('vps_firebase_config', this.config);
+                // We keep legacy keys for safety or remove them? Let's keep for now.
+            } else {
+                this.config = {
+                    enabled: false,
+                    databaseURL: '',
+                    path: 'videos',
+                    apiKey: '',
+                    databaseSecret: '',
+                    ...stored
+                };
+            }
+
+            this.updateConnectionState();
+        }
+
+        setConfig(newConfig) {
+            this.config = { ...this.config, ...newConfig };
+
+            // Auto-fix URL protocol & slashes
+            if (this.config.databaseURL) {
+                if (!this.config.databaseURL.startsWith('http')) {
+                    this.config.databaseURL = 'https://' + this.config.databaseURL;
+                }
+                this.config.databaseURL = this.config.databaseURL.replace(/\/+$/, '');
+            }
+
+            // Clean Path
+            if (this.config.path) {
+                this.config.path = this.config.path.replace(/^\/+|\/+$/g, '');
+            }
+
+            GM_setValue('vps_firebase_config', this.config);
+            this.updateConnectionState();
+        }
+
+        updateConnectionState() {
+            this.connected = !!(this.config.enabled && this.config.databaseURL);
+            this.dbUrl = this.config.databaseURL || '';
+        }
+
+        async _getUrlWithAuth(baseUrl) {
+            // Priority 1: Auth Token (API Key)
+            if (this.config.apiKey) {
+                const token = await Auth.getToken(this.config);
+                if (token) return `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}auth=${token}`;
+            }
+            // Priority 2: Database Secret (Legacy)
+            if (this.config.databaseSecret) {
+                return `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}auth=${this.config.databaseSecret}`;
+            }
+            return baseUrl;
+        }
+
+        async sync(id, data) {
+            if (!this.connected || !id) return { success: false, error: 'No Connection' };
+
+            // Construct base URL using configurable path
+            const path = this.config.path || 'videos';
+            // Safe Key: Encode URI ref chars, then replace dots with underscore (Firebase disallows dots in keys)
+            const safeId = encodeURIComponent(id).replace(/\./g, '_');
+            const base = `${this.dbUrl}/${path}/${safeId}.json`;
+            const url = await this._getUrlWithAuth(base);
+
+            // console.log('[VPS] Syncing to:', url.split('?')[0]); // Log stripped URL for debug
+
+            return new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: "PATCH",
+                    url: url,
+                    headers: { "Content-Type": "application/json" },
+                    data: JSON.stringify({ ...data, lastUpdated: Date.now() }),
+                    onload: (res) => {
+                        if (res.status >= 200 && res.status < 300) {
+                            resolve({ success: true });
+                        } else {
+                            // Try to parse Firebase Error
+                            let errorMsg = `HTTP ${res.status}`;
+                            try {
+                                const json = JSON.parse(res.responseText);
+                                if (json.error) {
+                                    // Firebase returns { error: "message" } or { error: { message: "..." } }
+                                    errorMsg = typeof json.error === 'string' ? json.error : (json.error.message || errorMsg);
+                                }
+                            } catch (e) {
+                                // Fallback to basic status validation
+                                if (res.status === 401) errorMsg = 'Unauthorized (Check Key/Rules)';
+                                if (res.status === 404) errorMsg = 'Database Not Found';
+                            }
+                            console.error(`VPS Sync Error: ${errorMsg}`, res.responseText);
+                            resolve({ success: false, error: errorMsg });
+                        }
+                    },
+                    onerror: (e) => resolve({ success: false, error: 'Network Error' })
+                });
+            });
+        }
+
+        async check(id) {
+            if (!this.connected || !id) return null;
+
+            const path = this.config.path || 'videos';
+            const safeId = encodeURIComponent(id).replace(/\./g, '_');
+            const base = `${this.dbUrl}/${path}/${safeId}.json`;
+            const url = await this._getUrlWithAuth(base);
+
+            return new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: "GET",
+                    url: url,
+                    onload: (res) => {
+                        if (res.status >= 200 && res.status < 300) {
+                            try { resolve(JSON.parse(res.responseText)); } catch (e) { resolve(null); }
+                        } else {
+                            // Log warning for debug
+                            try {
+                                const json = JSON.parse(res.responseText);
+                                const msg = typeof json.error === 'string' ? json.error : (json.error?.message || res.status);
+                                console.warn('[VPS] Check failed:', msg);
+                            } catch (e) { }
+                            resolve(null);
+                        }
+                    },
+                    onerror: () => resolve(null)
+                });
+            });
+        }
     }
 
-    main();
+    /**
+     * UI (iOS 26 / MacOS Tahoe Design System)
+     */
+    class UI {
+        constructor(db, tracker, cloud) {
+            this.db = db;
+            this.tracker = tracker;
+            this.cloud = cloud;
+            this.shadow = null;
+            this.initHost();
+        }
+
+        initHost() {
+            const host = document.createElement('div');
+            host.id = 'vps-host-root';
+            this.shadow = host.attachShadow({ mode: 'open' });
+            document.body.appendChild(host);
+
+            const style = document.createElement('style');
+            style.textContent = `
+                :host {
+                    all: initial;
+                    z-index: 2147483647;
+                    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                    --glass-bg: rgba(250, 250, 250, 0.75);
+                    --glass-border: rgba(255, 255, 255, 0.5);
+                    --glass-shadow: 0 20px 50px rgba(0, 0, 0, 0.15), 0 0 0 0.5px rgba(0,0,0,0.05);
+                    --text-primary: #1c1c1e;
+                    --text-secondary: #8E8E93;
+                    --accent: #007AFF;
+                    --danger: #FF3B30;
+                    --success: #34C759;
+                }
+                @media (prefers-color-scheme: dark) {
+                    :host {
+                        --glass-bg: rgba(30, 30, 30, 0.60);
+                        --glass-border: rgba(255, 255, 255, 0.1);
+                        --glass-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255,255,255,0.1);
+                        --text-primary: #FFFFFF;
+                        --text-secondary: #98989D;
+                        --accent: #0A84FF;
+                        --danger: #FF453A;
+                    }
+                }
+
+                .toast-container {
+                    position: fixed; top: 24px; right: 24px; pointer-events: none;
+                    display: flex; flex-direction: column; align-items: flex-end; z-index: 9999;
+                    gap: 12px;
+                }
+                .toast {
+                    background: var(--glass-bg);
+                    backdrop-filter: blur(30px) saturate(180%);
+                    -webkit-backdrop-filter: blur(30px) saturate(180%);
+                    box-shadow: var(--glass-shadow);
+                    border-radius: 28px;
+                    padding: 14px 20px;
+                    display: flex; align-items: center; gap: 16px;
+                    pointer-events: auto;
+                    animation: springSlideIn 0.5s cubic-bezier(0.19, 1, 0.22, 1);
+                    transform-origin: center right; color: var(--text-primary);
+                    user-select: none;
+                }
+                @keyframes springSlideIn {
+                    0% { opacity: 0; transform: translateX(20px) scale(0.9); }
+                    100% { opacity: 1; transform: translateX(0) scale(1); }
+                }
+                .toast.fade-out {
+                    opacity: 0; transform: scale(0.9) translateY(-10px);
+                    transition: all 0.3s cubic-bezier(0.19, 1, 0.22, 1);
+                }
+                .toast-content { display: flex; flex-direction: column; gap: 2px; }
+                .title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+                .message { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+
+                .actions { display: flex; gap: 8px; align-items: center; margin-left: 4px; }
+                .icon-btn {
+                    background: rgba(120, 120, 128, 0.1);
+                    border: none; cursor: pointer; width: 32px; height: 32px; border-radius: 50%;
+                    display: flex; align-items: center; justify-content: center;
+                    transition: all 0.2s cubic-bezier(0.19, 1, 0.22, 1);
+                    color: var(--text-primary);
+                }
+                .icon-btn:hover { background: rgba(120, 120, 128, 0.2); transform: scale(1.1); }
+                .icon-btn:active { transform: scale(0.92); }
+                .icon-btn.primary { background: var(--accent); color: white; box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3); }
+                .icon-btn.primary:hover { filter: brightness(1.1); transform: scale(1.05); }
+                .icon-btn.danger { color: var(--danger); background: rgba(255, 59, 48, 0.1); }
+                .icon-btn.danger:hover { background: rgba(255, 59, 48, 0.2); }
+
+                svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+
+                /* iOS Settings Modal */
+                .modal-overlay {
+                    position: fixed; inset: 0; background: rgba(0,0,0,0.3);
+                    backdrop-filter: blur(5px);
+                    display: flex; justify-content: center; align-items: center;
+                    animation: fadeIn 0.3s ease forwards; z-index: 10000;
+                }
+                .modal-overlay.closing { animation: fadeOut 0.2s ease forwards; pointer-events: none; }
+
+                @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+                @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+
+                .modal {
+                    background: var(--glass-bg);
+                    backdrop-filter: blur(40px) saturate(200%);
+                    -webkit-backdrop-filter: blur(40px) saturate(200%);
+                    width: 500px; max-width: 92vw; height: 650px; max-height: 88vh;
+                    border-radius: 32px;
+                    box-shadow: var(--glass-shadow);
+                    display: flex; flex-direction: column; overflow: hidden;
+                    animation: springPop 0.5s cubic-bezier(0.19, 1, 0.22, 1) forwards;
+                    border: 0.5px solid var(--glass-border);
+                }
+                @keyframes springPop {
+                    0% { opacity: 0; transform: scale(0.8); }
+                    100% { opacity: 1; transform: scale(1); }
+                }
+                .modal-overlay.closing .modal { animation: springPopOut 0.2s cubic-bezier(0.19, 1, 0.22, 1) forwards; }
+                @keyframes springPopOut { to { opacity: 0; transform: scale(0.9); } }
+
+                .modal-header {
+                    padding: 20px 24px;
+                    display: flex; justify-content: space-between; align-items: center;
+                    background: rgba(120, 120, 128, 0.05);
+                    border-bottom: 0.5px solid var(--glass-border);
+                }
+                .modal-header h2 { margin: 0; font-size: 20px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; }
+                .close-btn {
+                    background: rgba(120,120,128,0.1); border:none; border-radius: 50%;
+                    width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+                    font-size: 18px; color: var(--text-secondary); cursor: pointer; transition: 0.2s;
+                }
+                .close-btn:hover { background: rgba(120,120,128,0.2); color: var(--text-primary); transform: rotate(90deg); }
+
+                .modal-content { flex: 1; overflow-y: auto; padding: 20px; background: transparent; /* Unified Glass */ }
+
+                .section { margin-bottom: 24px; }
+                .section-title { margin: 0 0 16px 16px; font-size: 12px; text-transform: uppercase; color: var(--text-secondary); font-weight: 500; }
+
+                /* Cards & Layout */
+                .history-card {
+                    box-sizing: border-box; /* CRITICAL FIX: Include padding in height */
+                    display: flex; justify-content: space-between; align-items: center;
+                    padding: 12px 16px; border-radius: 16px;
+                    background: rgba(120, 120, 128, 0.08);
+                    border: 1px solid rgba(255, 255, 255, 0.05); /* Subtle inner border */
+                    cursor: pointer; transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+                    position: relative; overflow: hidden;
+                    text-decoration: none; color: inherit;
+                }
+                .history-card:hover {
+                    background: rgba(120, 120, 128, 0.12);
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+                }
+                .history-card:active { transform: scale(0.98); }
+
+                .item-info { display: flex; flex-direction: column; gap: 4px; overflow: hidden; z-index: 2; }
+                .item-main { font-size: 15px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em; }
+                .item-sub { font-size: 13px; color: var(--text-secondary); font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; font-weight: 400; }
+
+                /* Pill Buttons */
+                .pill-btn {
+                    flex: 1; border: none; border-radius: 20px; padding: 10px;
+                    display: flex; align-items: center; justify-content: center; gap: 8px;
+                    font-size: 14px; font-weight: 600; cursor: pointer;
+                    transition: all 0.2s;
+                    background: rgba(120, 120, 128, 0.12); color: var(--text-primary);
+                }
+                .pill-btn:hover { background: rgba(120, 120, 128, 0.2); transform: translateY(-1px); }
+                .pill-btn:active { transform: scale(0.96); }
+
+                .pixel-perfect-btn {
+                    flex: 0 0 auto !important;
+                    width: 38px; height: 38px; padding: 0 !important;
+                    border-radius: 12px;
+                }
+                .pixel-perfect-btn svg { width: 20px; height: 20px; }
+
+                /* Switch */
+                .switch {
+                    position: relative; display: inline-block; width: 42px; height: 24px;
+                }
+                .switch input { opacity: 0; width: 0; height: 0; }
+                .slider {
+                    position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+                    background-color: rgba(120,120,128,0.16); transition: .3s cubic-bezier(0.25, 0.8, 0.5, 1); border-radius: 24px;
+                }
+                .slider:before {
+                    position: absolute; content: ""; height: 20px; width: 20px;
+                    left: 2px; bottom: 2px; background-color: white;
+                    transition: .3s cubic-bezier(0.25, 0.8, 0.5, 1); border-radius: 50%;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                }
+                input:checked + .slider { background-color: var(--accent); }
+                input:checked + .slider:before { transform: translateX(18px); }
+
+                .delete-btn { color: var(--danger); background: none; border: none; font-size: 15px; cursor: pointer; padding: 4px; }
+
+                /* Trash Icon Hover */
+                .delete-trash-btn:hover {
+                    color: var(--danger) !important;
+                    background: rgba(255,59,48,0.1) !important;
+                    transform: scale(1.05);
+                }
+                .delete-trash-btn:active { transform: scale(0.95); }
+
+                /* Sync Status */
+                .sync-status {
+                    position: fixed; bottom: 20px; right: 20px;
+                    background: var(--glass-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+                    padding: 8px 12px; border-radius: 20px;
+                    display: flex; align-items: center; gap: 8px;
+                    font-size: 12px; font-weight: 600; color: var(--text-primary);
+                    box-shadow: var(--glass-shadow);
+                    transform: translateY(100px); transition: transform 0.5s cubic-bezier(0.19, 1, 0.22, 1);
+                    z-index: 9998; pointer-events: none; opacity: 0;
+                    border: 0.5px solid var(--glass-border);
+                }
+                .sync-status.visible { transform: translateY(0); opacity: 1; }
+                .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-secondary); transition: background 0.3s; }
+                .sync-dot.syncing { background: var(--accent); animation: pulse 1s infinite; }
+                .sync-dot.success { background: var(--success); }
+                .sync-dot.error { background: var(--danger); }
+                @keyframes pulse { 0% { opacity: 0.4; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.2); } 100% { opacity: 0.4; transform: scale(0.8); } }
+
+                /* Form Elements */
+                .input-field {
+                    width: 100%; box-sizing: border-box;
+                    background: rgba(120, 120, 128, 0.12);
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    border-radius: 10px; padding: 10px 12px;
+                    color: var(--text-primary); margin-top: 6px; font-size: 14px;
+                    transition: border-color 0.2s, background 0.2s;
+                    box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+                }
+                .input-field:focus {
+                    outline: none; border-color: var(--accent);
+                    background: rgba(120, 120, 128, 0.18);
+                }
+                .list-item { padding: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+                /* Mobile Optimization */
+                @media (max-width: 600px) {
+                    .modal {
+                        width: 95vw;
+                        height: auto; max-height: 85vh;
+                        border-radius: 24px;
+                    }
+                    .modal-header { padding: 16px 20px; }
+                    .modal-content { padding: 16px; }
+                    .history-card { padding: 12px; }
+                    .item-main { font-size: 14px; }
+                    .item-sub { font-size: 12px; }
+                    .section-title { margin: 0 0 12px 12px; }
+                    
+                    /* Prevent iOS Zoom on inputs */
+                    .input-field { font-size: 16px; }
+                    
+                    /* Adjust buttons for touch */
+                    .pill-btn { padding: 12px; }
+                    
+                    /* Toast positioning */
+                    .toast-container { top: 16px; right: 16px; left: 16px; align-items: center; }
+                    .toast { width: 100%; box-sizing: border-box; justify-content: space-between; }
+                }
+            `;
+            this.shadow.appendChild(style);
+
+            const container = document.createElement('div');
+            container.className = 'toast-container';
+            this.shadow.appendChild(container);
+            this.toastContainer = container;
+
+            this.initSyncIndicator();
+        }
+
+        initSyncIndicator() {
+            const el = document.createElement('div');
+            el.className = 'sync-status';
+            el.innerHTML = `<div class="sync-dot"></div><span id="sync-msg">Syncing...</span>`;
+            this.shadow.appendChild(el);
+            this.syncEl = el;
+            this.syncDot = el.querySelector('.sync-dot');
+            this.syncMsg = el.querySelector('#sync-msg');
+            this.syncTimer = null;
+        }
+
+        setSyncStatus(status, msg) {
+            if (!this.syncEl) return;
+            clearTimeout(this.syncTimer);
+
+            // Per user request: Only show global indicator on error.
+            if (status === 'error') {
+                this.syncEl.classList.add('visible');
+                this.syncDot.className = 'sync-dot ' + status;
+                this.syncMsg.textContent = msg || 'Error';
+                // Errors persist for 4s then fade, or stay? Usually errors should be seen.
+                // Let's hide after 5s to be non-intrusive but noticeable.
+                this.syncTimer = setTimeout(() => {
+                    this.syncEl.classList.remove('visible');
+                }, 5000);
+            } else {
+                this.syncEl.classList.remove('visible');
+            }
+        }
+
+        showRestorePrompt(time, onRestore, onCancel) {
+            const timeStr = new Date(time * 1000).toISOString().substr(11, 8).replace(/^00:/, '');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.innerHTML = `
+                <div class="toast-content">
+                    <span class="title">Resume Playback?</span>
+                    <span class="message">Saved at ${timeStr}</span>
+                </div>
+                <div class="actions">
+                    <button id="no-btn" class="icon-btn" title="Dismiss"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+                    <button id="yes-btn" class="icon-btn primary" title="Resume"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></button>
+                </div>
+            `;
+            this.toastContainer.appendChild(toast);
+            const close = () => { toast.classList.add('fade-out'); setTimeout(() => toast.remove(), 500); };
+            toast.querySelector('#yes-btn').onclick = () => { onRestore(); close(); };
+            toast.querySelector('#no-btn').onclick = () => { if (onCancel) onCancel(); close(); };
+            setTimeout(close, 8000);
+        }
+
+        showAutoResumeNotification(time, onUndo) {
+            const timeStr = new Date(time * 1000).toISOString().substr(11, 8).replace(/^00:/, '');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.innerHTML = `
+                <div class="toast-content">
+                    <span class="title">Resumed Playback</span>
+                    <span class="message">Jumped to ${timeStr}</span>
+                </div>
+                <div class="actions">
+                    <button id="undo-btn" class="icon-btn danger" title="Undo / Reset">
+                        <svg viewBox="0 0 24 24" stroke-width="2.5"><path d="M2.5 2v6h6"></path><path d="M2.5 13a9 9 0 1 0 3-7.7L2.5 8"></path></svg>
+                    </button>
+                </div>
+            `;
+            this.toastContainer.appendChild(toast);
+            const close = () => { toast.classList.add('fade-out'); setTimeout(() => toast.remove(), 500); };
+            toast.querySelector('#undo-btn').onclick = () => { onUndo(); close(); };
+            setTimeout(close, 5000);
+        }
+
+        async showHistory() {
+            if (window !== window.top) { window.top.postMessage({ type: 'VPS_OPEN_HISTORY' }, '*'); return; }
+
+            const items = await this.db.getAll();
+
+            // Cleanup
+            const existing = this.shadow.querySelector('.modal-overlay');
+            if (existing) existing.remove();
+
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.innerHTML = `
+                <div class="modal">
+                    <!-- Header -->
+                    <div class="modal-header">
+                        <h2>History</h2>
+                        <button class="close-btn">×</button>
+                    </div>
+
+                    <!-- Search Sticky Area (Inside Body or Separate? Better separate for sticky behavior without messing up virtual scroll offset calc) -->
+                    <!-- We'll put search in a sub-header wrapper for cleanliness -->
+                    <div style="padding: 12px 20px 8px 20px; border-bottom: 0.5px solid var(--glass-border); flex-shrink: 0; z-index: 10;">
+                        <div style="position:relative; width:100%;">
+                            <div style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-secondary); pointer-events:none; display:flex; align-items:center;">
+                                <svg viewBox="0 0 24 24" style="width:14px;height:14px; stroke:currentColor; stroke-width:2.5; opacity:0.6;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                            </div>
+                            <input type="text" id="history-search" placeholder="Search"
+                                style="width:100%; box-sizing:border-box; border:none; background: rgba(120,120,128,0.12); padding:8px 32px; border-radius:10px; font-size:14px; outline:none; color:var(--text-primary); transition: all 0.2s; text-align: left;">
+                            <button id="search-clear" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); border:none; background:rgba(120,120,128,0.3); color:white; border-radius:50%; width:16px; height:16px; display:none; align-items:center; justify-content:center; cursor:pointer; font-size:10px; line-height:1; padding:0;">✕</button>
+                        </div>
+                    </div>
+
+                    <!-- Scrollable Content -->
+                    <div class="modal-content" id="vps-modal-body" style="padding: 0; overflow-y: auto; flex: 1; position:relative;">
+                        <div id="history-list-container" style="position:relative; min-height: 100px; margin: 0;">
+                            <!-- Virtual List Content -->
+                        </div>
+                    </div>
+
+                    <!-- Footer (Data Management) -->
+                    <div style="padding: 16px 20px; border-top: 0.5px solid var(--glass-border); background: var(--glass-bg); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0;">
+                        <div style="display:flex; gap:8px;">
+                            <button id="btn-export" class="pill-btn pixel-perfect-btn" title="Export JSON">
+                                <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                            </button>
+                            <button id="btn-import" class="pill-btn pixel-perfect-btn" title="Import JSON">
+                                <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            </button>
+                        </div>
+                        <button id="clear-data" style="border:none; background:transparent; color: var(--danger); font-size: 13px; font-weight: 600; cursor: pointer; padding: 8px 12px; border-radius: 8px; transition: background 0.2s;">
+                            Clear History
+                        </button>
+                    </div>
+                </div>
+            `;
+            this.shadow.appendChild(overlay);
+
+            // Helpers
+            const getRelativeTime = (ts) => {
+                const diff = Date.now() - ts;
+                const min = 60 * 1000;
+                const hour = 60 * min;
+                const day = 24 * hour;
+                if (diff < min) return 'Just now';
+                if (diff < hour) return `${Math.floor(diff / min)}m ago`;
+                if (diff < day) return `${Math.floor(diff / hour)}h ago`;
+                if (diff < 2 * day) return 'Yesterday';
+                return new Date(ts).toLocaleDateString();
+            };
+
+            // State
+            let filteredItems = [...items];
+
+            // Virtual Scrolling
+            // Adjusted for container padding interaction (if any)
+            const CARD_HEIGHT = 72;
+            const GAP = 20;
+            const ROW_HEIGHT = CARD_HEIGHT + GAP;
+            const PADDING_TOP = 24;
+            const BUFFER = 5;
+            const container = overlay.querySelector('#history-list-container');
+            const scrollParent = overlay.querySelector('#vps-modal-body');
+
+            const updateHeight = () => {
+                const h = Math.max(filteredItems.length * ROW_HEIGHT, 64) + PADDING_TOP;
+                container.style.height = `${h}px`;
+            };
+            updateHeight();
+
+            const renderChunk = () => {
+                if (filteredItems.length === 0) {
+                    container.innerHTML = '<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px 20px; color:var(--text-secondary); text-align:center;"><svg viewBox="0 0 24 24" style="width:32px;height:32px;margin-bottom:12px;opacity:0.3;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg><span style="font-weight:500;">No history yet</span><span style="font-size:12px; opacity:0.7; margin-top:4px;">Videos longer than 1m will appear here</span></div>';
+                    return;
+                }
+                const containerRect = container.getBoundingClientRect();
+                const parentRect = scrollParent.getBoundingClientRect();
+                // We need to account for the PADDING_TOP in our calculations or simpler: just offset the top css
+                const viewTop = -containerRect.top + parentRect.top; // Relative scroll position
+                const height = parentRect.height;
+
+                let startIndex = Math.floor((viewTop - PADDING_TOP) / ROW_HEIGHT) - BUFFER;
+                let endIndex = Math.floor((viewTop - PADDING_TOP + height) / ROW_HEIGHT) + BUFFER;
+
+                startIndex = Math.max(0, startIndex);
+                endIndex = Math.min(filteredItems.length, endIndex);
+                const visibleItems = filteredItems.slice(startIndex, endIndex);
+
+                const html = visibleItems.map((i, idx) => {
+                    let displayName = i.title;
+                    let link = i.url;
+                    if (!displayName || !link) {
+                        const parts = i.id.split('vps_');
+                        if (parts[1]) {
+                            const urlPart = parts[1].substring(0, parts[1].lastIndexOf('_'));
+                            link = link || urlPart;
+                            try { displayName = displayName || new URL(urlPart).hostname + new URL(urlPart).pathname; } catch (e) { displayName = urlPart; }
+                        }
+                    }
+                    const pct = Math.min(100, Math.max(0, (i.time / i.duration) * 100)) || 0;
+                    const top = ((startIndex + idx) * ROW_HEIGHT) + PADDING_TOP;
+
+                    return `
+                    <div class="virtual-row" style="position:absolute; top:${top}px; left:20px; right:24px; height:${CARD_HEIGHT}px; display:flex; align-items:center; gap:24px;">
+                        <button class="delete-trash-btn" data-id="${i.id}" style="
+                            width: 32px; height: 32px; border-radius:50%; border:none; background:transparent;
+                            display:flex; align-items:center; justify-content:center;
+                            cursor:pointer; color:var(--text-secondary); flex-shrink:0;">
+                            <svg viewBox="0 0 24 24" style="width:18px;height:18px; stroke: currentColor; fill:none; stroke-width:2;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                        </button>
+                        <a class="history-card" href="${link || '#'}" target="_blank" style="flex:1; height:100%; border:none; display:flex; align-items:center; text-decoration:none; color:inherit; overflow:hidden;">
+                            <div class="item-info" style="z-index:2; flex:1; min-width:0; padding-right:12px;">
+                                <div class="item-main" style="width:100%;">${displayName || 'Unknown Video'}</div>
+                                <div class="item-sub">${Math.floor(i.time / 60)}:${(Math.floor(i.time) % 60).toString().padStart(2, '0')} • ${getRelativeTime(i.lastUpdated)}</div>
+                            </div>
+                            <!-- Progress Donut -->
+                            <div style="flex-shrink:0; width:24px; height:24px; display:flex; align-items:center; justify-content:center;">
+                                <svg viewBox="0 0 36 36" style="width:24px; height:24px; transform: rotate(-90deg);">
+                                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="rgba(128,128,128,0.2)" stroke-width="4" />
+                                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--accent)" stroke-width="4" stroke-dasharray="${pct}, 100" stroke-linecap="round" />
+                                </svg>
+                            </div>
+                        </a>
+                    </div>
+                `}).join('');
+                container.innerHTML = html;
+            };
+
+            // Search
+            const searchInput = overlay.querySelector('#history-search');
+            const searchClear = overlay.querySelector('#search-clear');
+            const performSearch = (term) => {
+                filteredItems = items.filter(i => {
+                    const t = (i.title || '').toLowerCase();
+                    const u = (i.url || '').toLowerCase();
+                    return t.includes(term) || u.includes(term);
+                });
+                scrollParent.scrollTop = 0;
+                updateHeight();
+                renderChunk();
+            };
+            searchInput.addEventListener('input', (e) => {
+                const term = e.target.value.toLowerCase();
+                searchClear.style.display = term ? 'flex' : 'none';
+                performSearch(term);
+            });
+            searchInput.addEventListener('focus', () => searchInput.style.background = 'rgba(120,120,128,0.2)');
+            searchInput.addEventListener('blur', () => searchInput.style.background = 'rgba(120,120,128,0.12)');
+            searchClear.onclick = () => { searchInput.value = ''; searchClear.style.display = 'none'; performSearch(''); searchInput.focus(); };
+
+            // Delete
+            container.onclick = async (e) => {
+                const btn = e.target.closest('.delete-trash-btn');
+                if (btn) {
+                    e.stopPropagation();
+                    const id = btn.dataset.id;
+                    if (confirm('Forget this video?')) {
+                        await this.db.deleteEntry(id);
+                        const masterIdx = items.findIndex(x => x.id === id);
+                        if (masterIdx > -1) items.splice(masterIdx, 1);
+                        const filteredIdx = filteredItems.findIndex(x => x.id === id);
+                        if (filteredIdx > -1) filteredItems.splice(filteredIdx, 1);
+                        updateHeight();
+                        renderChunk();
+                    }
+                }
+            };
+
+            // Export Logic
+            overlay.querySelector('#btn-export').onclick = async () => {
+                const data = await this.db.getAll();
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = `vps_backup_${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(url);
+            };
+
+            // Import Logic
+            overlay.querySelector('#btn-import').onclick = () => {
+                const input = document.createElement('input'); input.type = 'file'; input.accept = '.json';
+                input.onchange = (e) => {
+                    const file = e.target.files[0]; if (!file) return;
+                    const r = new FileReader(); r.onload = async (ev) => {
+                        try {
+                            const c = await this.db.importData(ev.target.result);
+                            alert(`✅ Imported ${c} videos.`);
+                            const newItems = await this.db.getAll();
+                            items.length = 0; items.push(...newItems);
+                            filteredItems = [...items];
+                            performSearch(searchInput.value.toLowerCase());
+                        } catch (err) { alert('❌ ' + err); }
+                    }; r.readAsText(file);
+                }; input.click();
+            };
+
+            // Clear All
+            const clearBtn = overlay.querySelector('#clear-data');
+            let clearStep = 0;
+            clearBtn.onclick = async () => {
+                if (clearStep === 0) {
+                    clearStep = 1; clearBtn.textContent = "Confirm Clear?"; clearBtn.style.color = "var(--danger)"; clearBtn.style.background = "rgba(255,59,48,0.1)";
+                    setTimeout(() => { clearStep = 0; clearBtn.textContent = "Clear History"; clearBtn.style.color = "var(--danger)"; clearBtn.style.background = "transparent"; }, 3000);
+                } else {
+                    await this.db.clearAll();
+                    items.length = 0; filteredItems.length = 0; updateHeight(); renderChunk();
+                    clearStep = 0; clearBtn.textContent = "Clear History"; clearBtn.style.background = "transparent";
+                }
+            };
+
+            // Init
+            scrollParent.addEventListener('scroll', () => window.requestAnimationFrame(renderChunk));
+            setTimeout(() => renderChunk(), 0);
+
+            // Close
+            const close = () => { overlay.classList.add('closing'); setTimeout(() => overlay.remove(), 250); };
+            overlay.onclick = (e) => { if (e.target === overlay) close(); };
+            overlay.querySelector('.close-btn').onclick = close;
+        }
+
+        async showSettings() {
+            if (window !== window.top) { window.top.postMessage({ type: 'VPS_OPEN_SETTINGS' }, '*'); return; }
+            const autoResume = GM_getValue('AUTO_RESUME', true);
+
+            // Cleanup
+            const existing = this.shadow.querySelector('.modal-overlay');
+            if (existing) existing.remove();
+
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.innerHTML = `
+                <div class="modal" style="height:auto; display:flex; flex-direction:column;">
+                    <!-- Header -->
+                    <div class="modal-header">
+                        <h2>Settings</h2>
+                        <button class="close-btn">×</button>
+                    </div>
+
+                    <!-- Scrollable Content -->
+                    <div class="modal-content" style="padding: 20px; overflow-y: auto; flex: 1;">
+                        <div class="section">
+                            <span class="section-title">Playback</span>
+                            <div class="group" style="background: rgba(120,120,128,0.08); border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.05);">
+                                <div class="list-item">
+                                    <div class="item-info">
+                                        <div class="item-main">Auto-Resume</div>
+                                        <div class="item-sub">Skip confirmation to resume video</div>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-resume" ${autoResume ? 'checked' : ''}>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Cloud Sync Section -->
+                        <div class="section">
+                            <span class="section-title">Cloud Sync (Firebase)</span>
+                            <div class="group" style="background: rgba(120,120,128,0.08); border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.05);">
+                                <div style="display: flex; flex-direction: column; gap: 12px; padding: 20px;">
+                                    
+                                    <!-- Database URL -->
+                                    <div class="item-info">
+                                        <div class="item-main">Realtime Database URL</div>
+                                        <input type="text" id="firebase-url" class="input-field" placeholder="https://your-project.firebaseio.com"
+                                            value="${this.cloud.config.databaseURL || ''}">
+                                    </div>
+
+                                    <!-- API Key (New) -->
+                                    <div class="item-info">
+                                        <div class="item-main">API Key <span style="font-size:11px; color:var(--accent); margin-left:4px;">(Recommended)</span></div>
+                                        <input type="password" id="firebase-apikey" class="input-field" placeholder="AIzaSy..."
+                                            value="${this.cloud.config.apiKey || ''}">
+                                    </div>
+
+                                    <!-- Collection Path -->
+                                    <div class="item-info">
+                                        <div class="item-main">Collection Path</div>
+                                        <input type="text" id="firebase-path" class="input-field" placeholder="videos"
+                                            value="${this.cloud.config.path || 'videos'}">
+                                    </div>
+
+                                    <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
+                                        <button id="force-sync" class="pill-btn" style="flex:1; padding:10px; font-size:13px; background:rgba(120,120,128,0.15);">
+                                            Force Sync
+                                        </button>
+                                        <button id="save-cloud" class="pill-btn" style="flex:1; padding:10px; font-size:13px; background:var(--accent); color:white;">
+                                            Test & Save
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 12px 20px; border-top: 0.5px solid var(--glass-border); background: var(--glass-bg); text-align: center; flex-shrink: 0;">
+                        <span style="font-size: 11px; color: var(--text-secondary); font-weight: 500;">Video Progress Saver v${GM_info.script.version}</span>
+                    </div>
+                </div>
+            `;
+            this.shadow.appendChild(overlay);
+
+            // Common Close
+            const close = () => { overlay.classList.add('closing'); setTimeout(() => overlay.remove(), 250); };
+            overlay.onclick = (e) => { if (e.target === overlay) close(); };
+            overlay.querySelector('.close-btn').onclick = close;
+
+            // Toggle logic
+            overlay.querySelector('#toggle-resume').onchange = (e) => {
+                const newState = e.target.checked;
+                GM_setValue('AUTO_RESUME', newState);
+                if (this.tracker) this.tracker.autoResume = newState;
+            };
+
+            // Cloud Save
+            const urlInput = overlay.querySelector('#firebase-url');
+            const apiKeyInput = overlay.querySelector('#firebase-apikey');
+            const pathInput = overlay.querySelector('#firebase-path');
+            const saveBtn = overlay.querySelector('#save-cloud');
+
+            saveBtn.onclick = async () => {
+                const newConfig = {
+                    enabled: true,
+                    databaseURL: urlInput.value.trim(),
+                    apiKey: apiKeyInput.value.trim(),
+                    path: pathInput.value.trim() || 'videos'
+                    // databaseSecret is preserved if it exists but not updated from UI
+                };
+
+                const originalText = saveBtn.textContent;
+                saveBtn.textContent = 'Testing...';
+
+                // Temporary apply to test
+                this.cloud.setConfig(newConfig);
+
+                if (this.cloud.connected) {
+                    // Try to authenticate and read
+                    const testId = 'test_connection';
+                    try {
+                        const checkRes = await this.cloud.check(testId);
+                        // If we get here, read permission is likely okay or at least we connected
+                        if (checkRes === null && this.cloud.config.apiKey) {
+                            // If using API Key, verify token generation explicitly
+                            const token = await Auth.getToken(this.cloud.config);
+                            if (!token) throw new Error("Auth Failed (Invalid API Key?)");
+                        }
+
+                        saveBtn.textContent = '✅ Connected';
+                        saveBtn.style.backgroundColor = '#34c759'; // Green
+                        setTimeout(() => {
+                            saveBtn.textContent = originalText;
+                            saveBtn.style.backgroundColor = '';
+                        }, 2000);
+
+                        this.tracker.retryPending(true);
+
+                    } catch (e) {
+                        alert(`⚠️ Connection Error: ${e.message || 'Unknown'} `);
+                        saveBtn.textContent = '❌ Error';
+                        saveBtn.style.backgroundColor = '#ff3b30'; // Red
+                        setTimeout(() => {
+                            saveBtn.textContent = originalText;
+                            saveBtn.style.backgroundColor = '';
+                        }, 2000);
+                    }
+                } else {
+                    alert('⚠️ Invalid URL');
+                    saveBtn.textContent = originalText;
+                }
+            };
+
+            overlay.querySelector('#force-sync').onclick = async (e) => {
+                const btn = e.currentTarget;
+                const originalContent = btn.innerHTML;
+                btn.innerHTML = 'Syncing...';
+
+                await this.tracker.retryPending(true);
+
+                // Since retryPending returns void but updates status, we can't easily know success/fail directly
+                // without changing retryPending. However, we can infer from Cloud.connected or just show 'Done'.
+                // Ideally retryPending should return status.
+                // For now, let's assume if it finished without error alert (which setSyncStatus 'error' handles), it's ok.
+                // But wait, setSyncStatus('error') IS checking errors. 
+
+                // Let's just standard "Done" and let the global error toast handle failures if any.
+                btn.innerHTML = '✅ Synced';
+                setTimeout(() => {
+                    btn.innerHTML = originalContent;
+                }, 2000);
+            };
+        }
+    }
+
+    /**
+     * VideoTracker
+     * Orchestrator
+     */
+    class VideoTracker {
+        constructor() {
+            this.ctx = new ContextDetector();
+            this.db = new VideoDB();
+            this.cloud = new CloudSync();
+            this.ui = new UI(this.db, this, this.cloud);
+            this.tracking = new WeakMap();
+            // We use a set for active videos only if we needed to iterate, but visibility listener is global.
+            // Using a simple set to track 'active' ID strings might be useful for batch ops?
+            // For now, retryPending handles the DB side.
+
+            this.autoResume = GM_getValue('AUTO_RESUME', true); // Default True
+
+            // Listen for Settings request from iframes (Only Top Frame processes this)
+            if (window === window.top) {
+                window.addEventListener('message', (event) => {
+                    if (event.data?.type === 'VPS_OPEN_SETTINGS') {
+                        this.ui.showSettings();
+                    }
+                    if (event.data?.type === 'VPS_OPEN_HISTORY') {
+                        this.ui.showHistory();
+                    }
+                });
+            }
+
+            this.registerCommands();
+        }
+
+        registerCommands() {
+            // Keep menu commands for quick access
+            GM_registerMenuCommand("📺 History", () => {
+                if (window !== window.top) {
+                    window.top.postMessage({ type: 'VPS_OPEN_HISTORY' }, '*');
+                } else {
+                    this.ui.showHistory();
+                }
+            });
+
+            GM_registerMenuCommand("⚙️ Settings", () => {
+                if (window !== window.top) {
+                    window.top.postMessage({ type: 'VPS_OPEN_SETTINGS' }, '*');
+                } else {
+                    this.ui.showSettings();
+                }
+            });
+        }
+
+        start() {
+            this.db.init();
+            // Start recursive observation from the top
+            this.observeRoot(document);
+
+            // Online / Offline Listeners
+            window.addEventListener('online', () => this.retryPending());
+            setTimeout(() => this.retryPending(), 3000); // Initial check
+        }
+
+        async retryPending(manual = false) {
+            if (!this.cloud.connected) {
+                if (manual) this.ui.setSyncStatus('error', 'No Cloud Config');
+                return;
+            }
+
+            const pending = await this.db.getPendingSyncs();
+            if (pending.length === 0) {
+                if (manual) this.ui.setSyncStatus('success', 'All Synced');
+                return;
+            }
+
+            this.ui.setSyncStatus('syncing', `Syncing ${pending.length} pending...`);
+            let successCount = 0;
+            for (const item of pending) {
+                // We re-sync the stored item.
+                const res = await this.cloud.sync(item.id, item);
+                if (res.success) {
+                    await this.db.markPendingSync(item.id, false);
+                    successCount++;
+                }
+                // small delay to be nice
+                await new Promise(r => setTimeout(r, 100));
+            }
+
+            if (successCount > 0) {
+                this.ui.setSyncStatus('success', `Synced ${successCount} videos`);
+            } else if (pending.length > 0) {
+                // Determine best error message
+                const res = await this.cloud.sync(pending[0].id, pending[0]); // Retry one to get error
+                this.ui.setSyncStatus('error', res.error || 'Sync Failed');
+            }
+        }
+
+        /**
+         * Recursively observes a root (Document or ShadowRoot)
+         * and scans its current content for videos and *other* shadow roots.
+         */
+        observeRoot(root) {
+            // 1. Observe for future additions
+            const observer = new MutationObserver(mutations => {
+                for (const m of mutations) {
+                    for (const n of m.addedNodes) {
+                        if (n.nodeType === 1) this.scanTree(n);
+                    }
+                }
+            });
+            observer.observe(root, { childList: true, subtree: true });
+
+            // 2. Scan current content (initial load or when a shadow root is first found)
+            if (root === document) {
+                this.scanTree(document.body || document.documentElement);
+            } else {
+                this.scanTree(root);
+            }
+        }
+
+        /**
+         * Scans a subtree for:
+         * 1. <video> elements to track
+         * 2. Elements with .shadowRoot to recursively observe
+         */
+        scanTree(node) {
+            if (!node) return;
+
+            // A. Check the node itself
+            if (node.nodeName === 'VIDEO') this.process(node);
+            if (node.shadowRoot) this.observeRoot(node.shadowRoot);
+
+            // B. Walk children (TreeWalker is faster than querySelectorAll for "everything")
+            // We need to find *all* shadow roots, not just videos.
+            const walker = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT);
+            let child;
+            while (child = walker.nextNode()) {
+                if (child.nodeName === 'VIDEO') this.process(child);
+                if (child.shadowRoot) this.observeRoot(child.shadowRoot);
+            }
+        }
+
+        async process(video) {
+            if (this.tracking.has(video)) return;
+
+            // Validations
+            if (video.readyState < 1) {
+                video.addEventListener('loadedmetadata', () => this.process(video), { once: true });
+                return;
+            }
+            if (video.duration < MIN_DURATION) return;
+
+            // Init State
+            this.tracking.set(video, { init: false });
+
+            // Context & ID
+            const context = await this.ctx.getContext();
+            const id = SmartContext.getCanonicalId(context.url, video.duration);
+
+            // check if we got a better title now that we waited for metadata/interaction
+            // Optionally update context title if it was placeholder
+            if (context.title === 'Unknown Video') {
+                context.title = SmartContext.getSmartTitle();
+            }
+
+            const state = { id, lastTime: 0, lastCloudTime: 0, init: true };
+            this.tracking.set(video, state);
+
+            // Check Storage & Cloud
+            let saved = await this.db.getProgress(id);
+
+            // Cloud Restore Logic
+            let forcePrompt = false;
+            if (this.cloud.connected) {
+                try {
+                    const cloudData = await this.cloud.check(id);
+                    if (cloudData) {
+                        const localTs = saved ? (saved.lastUpdated || 0) : 0;
+                        const timeDiff = Math.abs(cloudData.time - (saved ? saved.time : 0));
+
+                        // If Cloud is newer (>1m) and position differs (>1m), it's a conflict/handoff.
+                        if (cloudData.lastUpdated > localTs + 60000 && timeDiff > 60) {
+                            saved = { ...cloudData, time: cloudData.time };
+                            this.db.saveProgress(id, saved);
+                            forcePrompt = true; // Force user to confirm handoff
+                            this.ui.setSyncStatus('success', 'Found Cloud Progress');
+                        }
+                        // If local missing, just adopt cloud
+                        else if (!saved) {
+                            saved = { ...cloudData, time: cloudData.time };
+                            this.db.saveProgress(id, saved);
+                        }
+                    }
+                } catch (e) { console.error('Cloud Check Error', e); }
+            }
+
+            if (saved && saved.time > 5 && video.duration) {
+                // Smart Completion Detection: If > 95% watched, don't prompt (treat as finished)
+                if (saved.time > saved.duration * 0.95) {
+                    console.log('[VPS] Video previously finished ( >95% ), skipping resume.');
+                    return;
+                }
+
+                // Smart Rewind
+                const resumeTime = Math.max(0, saved.time - REWIND_SECONDS);
+
+                // Conflict/Restore Logic
+                const currentAutoResume = GM_getValue('AUTO_RESUME', true);
+                // If forcePrompt is true (Cloud Conflict), we ignore Auto-Resume to be safe
+                if (currentAutoResume && !forcePrompt) {
+                    video.currentTime = resumeTime;
+                    video.play().catch(() => { }); // Auto-play if possible
+                    this.ui.showAutoResumeNotification(saved.time, () => { video.currentTime = 0; });
+                } else {
+                    this.ui.showRestorePrompt(saved.time, () => {
+                        video.currentTime = resumeTime;
+                        video.play().catch(() => { });
+                    });
+                }
+            }
+
+            // Save Logic (Throttled)
+            const save = () => {
+                if (!state.init || video.paused) return;
+                const now = video.currentTime;
+                // Save diff > interval OR significant events
+                if (Math.abs(now - state.lastTime) >= SAVE_INTERVAL) {
+                    const data = {
+                        time: now,
+                        duration: video.duration,
+                        title: context.title || document.title,
+                        url: context.url
+                    };
+                    this.db.saveProgress(id, data);
+                    state.lastTime = now;
+                }
+
+                // Cloud Sync (Every 15s)
+                if (this.cloud.connected && Math.abs(now - state.lastCloudTime) >= 15) {
+                    this.ui.setSyncStatus('syncing');
+                    this.cloud.sync(id, {
+                        time: now,
+                        duration: video.duration,
+                        title: context.title || document.title,
+                        url: context.url
+                    }).then(res => {
+                        if (res.success) {
+                            state.lastCloudTime = now;
+                            this.ui.setSyncStatus('success');
+                            this.db.markPendingSync(id, false);
+                        } else {
+                            this.ui.setSyncStatus('error', res.error || 'Sync Failed');
+                            this.db.markPendingSync(id, true);
+                        }
+                    });
+                }
+            };
+
+            const forceSave = () => {
+                const now = video.currentTime;
+                if (now > 5) {
+                    const data = {
+                        time: now,
+                        timeUpdated: Date.now(), // Ensure freshness check uses this
+                        duration: video.duration,
+                        title: context.title || document.title,
+                        url: context.url
+                    };
+                    this.db.saveProgress(id, data);
+
+                    if (this.cloud.connected) {
+                        this.ui.setSyncStatus('syncing', 'Saving to Cloud...');
+                        this.cloud.sync(id, data).then(res => {
+                            if (res.success) {
+                                this.ui.setSyncStatus('success', 'Saved');
+                                this.db.markPendingSync(id, false);
+                            } else {
+                                this.ui.setSyncStatus('error', res.error || 'Offline');
+                                this.db.markPendingSync(id, true);
+                            }
+                        });
+                    }
+                }
+            };
+
+            // Global visibility hook (only once per video loop, but redundancy is low cost here compared to complexity)
+            // Ideally we move this to tracker, but closure access to `forceSave` is needed.
+            // We'll use a named handler to avoid dups if process called again (though process has checks)
+            const onVisibilityChange = () => {
+                if (document.visibilityState === 'hidden' && !video.paused) {
+                    forceSave();
+                }
+            };
+            document.addEventListener('visibilitychange', onVisibilityChange);
+
+            video.addEventListener('timeupdate', save);
+            video.addEventListener('pause', forceSave);
+            window.addEventListener('beforeunload', forceSave);
+        }
+    }
+
+    const app = new VideoTracker();
+    app.start();
 
 })();
