@@ -1,5 +1,5 @@
 {
-    "$schema": "./profiles.schema.json",
+    "$schema": "https://raw.githubusercontent.com/itsrody/SuperBrowsing/refs/heads/main/profiles.schema.json",
     "version": "1.0.0",
     "updated": "2026-01-13T21:00:00Z",
     "profiles": {
