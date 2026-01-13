@@ -1,0 +1,83 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Video Spectre - Player Profiles Schema",
+    "type": "object",
+    "required": [
+        "version",
+        "updated",
+        "profiles"
+    ],
+    "properties": {
+        "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "description": "Semantic version (e.g. 1.0.0)"
+        },
+        "updated": {
+            "type": "string",
+            "format": "date-time"
+        },
+        "profiles": {
+            "type": "object",
+            "patternProperties": {
+                "^[a-z0-9_]+$": {
+                    "type": "object",
+                    "required": [
+                        "priority",
+                        "controlsSel"
+                    ],
+                    "properties": {
+                        "priority": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100
+                        },
+                        "libraryName": {
+                            "type": "string"
+                        },
+                        "signature": {
+                            "type": "string",
+                            "description": "Detection string. Prefix 'domain:' for hostname, 'selector:' for DOM check."
+                        },
+                        "containerSel": {
+                            "type": "string"
+                        },
+                        "controlsSel": {
+                            "type": "string"
+                        },
+                        "playButton": {
+                            "type": "string"
+                        },
+                        "fullscreenButton": {
+                            "type": "string"
+                        },
+                        "itemClass": {
+                            "type": "string"
+                        },
+                        "method": {
+                            "enum": [
+                                "append",
+                                "insertBefore",
+                                "after"
+                            ]
+                        },
+                        "target": {
+                            "type": "string"
+                        },
+                        "buttons": {
+                            "type": "object",
+                            "properties": {
+                                "seekFwd": {
+                                    "type": "string"
+                                },
+                                "seekBwd": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
