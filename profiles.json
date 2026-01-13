@@ -1,0 +1,80 @@
+{
+    "$schema": "./profiles.schema.json",
+    "version": "1.0.0",
+    "updated": "2026-01-13T21:00:00Z",
+    "profiles": {
+        "plyr": {
+            "priority": 10,
+            "libraryName": "Plyr",
+            "signature": "selector:.plyr, [data-plyr]",
+            "containerSel": ".plyr, [data-plyr]",
+            "controlsSel": ".plyr__controls",
+            "playButton": ".plyr__control[data-plyr='play']",
+            "fullscreenButton": ".plyr__control[data-plyr='fullscreen']",
+            "itemClass": "plyr__control plyr__control--custom",
+            "method": "insertBefore",
+            "target": "fullscreenButton",
+            "buttons": {
+                "seekFwd": ".plyr__control[data-plyr='fast-forward']",
+                "seekBwd": ".plyr__control[data-plyr='rewind']"
+            }
+        },
+        "flowplayer": {
+            "priority": 9,
+            "libraryName": "Flowplayer",
+            "signature": "selector:.flowplayer",
+            "containerSel": ".flowplayer, .fp-player",
+            "controlsSel": ".fp-controls",
+            "playButton": ".fp-play",
+            "fullscreenButton": ".fp-fullscreen",
+            "itemClass": "fp-icon",
+            "buttons": {
+                "seekFwd": ".fp-forward",
+                "seekBwd": ".fp-rewind"
+            }
+        },
+        "dplayer": {
+            "priority": 8,
+            "libraryName": "DPlayer",
+            "signature": "selector:.dplayer",
+            "containerSel": ".dplayer",
+            "controlsSel": ".dplayer-controller",
+            "playButton": ".dplayer-play-icon",
+            "fullscreenButton": ".dplayer-full-icon",
+            "itemClass": "dplayer-icon",
+            "buttons": {
+                "seekFwd": ".dplayer-icon-forward",
+                "seekBwd": ".dplayer-icon-backward"
+            }
+        },
+        "dood": {
+            "priority": 5,
+            "libraryName": "DoodStream",
+            "signature": "domain:dood",
+            "containerSel": ".dood-controls, .vjs-control-bar",
+            "controlsSel": ".dood-controls, .vjs-control-bar",
+            "playButton": ".dood-play, .vjs-play-control, button[title*='play' i]",
+            "fullscreenButton": ".dood-fullscreen, .vjs-fullscreen-control, button[title*='fullscreen' i]",
+            "itemClass": "dood-btn",
+            "buttons": {
+                "seekFwd": ".dood-fwd, .vjs-seek-button",
+                "seekBwd": ".dood-bwd, .vjs-seek-button"
+            }
+        },
+        "kvs": {
+            "priority": 8,
+            "libraryName": "KVS",
+            "signature": "selector:.kvs-controls",
+            "containerSel": ".kvs-controls",
+            "controlsSel": ".kvs-controls",
+            "playButton": ".kvs-play",
+            "fullscreenButton": ".kvs-fullscreen",
+            "itemClass": "kvs-btn",
+            "method": "append",
+            "buttons": {
+                "seekFwd": ".kvs-fwd",
+                "seekBwd": ".kvs-bwd"
+            }
+        }
+    }
+}
