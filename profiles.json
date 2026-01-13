@@ -1,12 +1,12 @@
 {
     "$schema": "https://raw.githubusercontent.com/itsrody/SuperBrowsing/refs/heads/main/profiles.schema.json",
-    "version": "1.0.0",
-    "updated": "2026-01-13T21:00:00Z",
+    "version": "1.0.1",
+    "updated": "2026-01-13T22:00:00Z",
     "profiles": {
         "plyr": {
             "priority": 10,
             "libraryName": "Plyr",
-            "signature": "selector:.plyr, [data-plyr]",
+            "signature": "selector:.plyr--full-ui",
             "containerSel": ".plyr, [data-plyr]",
             "controlsSel": ".plyr__controls",
             "playButton": ".plyr__control[data-plyr='play']",
@@ -22,7 +22,7 @@
         "flowplayer": {
             "priority": 9,
             "libraryName": "Flowplayer",
-            "signature": "selector:.flowplayer",
+            "signature": "selector:.flowplayer, .fp-player",
             "containerSel": ".flowplayer, .fp-player",
             "controlsSel": ".fp-controls",
             "playButton": ".fp-play",
@@ -36,7 +36,7 @@
         "dplayer": {
             "priority": 8,
             "libraryName": "DPlayer",
-            "signature": "selector:.dplayer",
+            "signature": "selector:.dplayer-controller",
             "containerSel": ".dplayer",
             "controlsSel": ".dplayer-controller",
             "playButton": ".dplayer-play-icon",
