@@ -24,7 +24,11 @@
                     "type": "object",
                     "required": [
                         "priority",
-                        "controlsSel"
+                        "controlsSel",
+                        "containerSel",
+                        "playButton",
+                        "fullscreenButton",
+                        "itemClass"
                     ],
                     "properties": {
                         "priority": {
